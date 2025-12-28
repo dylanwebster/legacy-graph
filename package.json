@@ -9,7 +9,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "description": "",
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
