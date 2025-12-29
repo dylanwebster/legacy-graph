@@ -124,39 +124,58 @@ export class GedcomReader {
             people.push(p);
         });
 
-        // Pass 2: FAM records -> Marriages
+        // Pass 2: FAM records -> Marriages and Parent-Child Links
         roots.filter(n => n.tag === 'FAM').forEach(node => {
             const husbRef = this.getChildValue(node, 'HUSB'); // @I1@
             const wifeRef = this.getChildValue(node, 'WIFE'); // @I2@
             
-            const p1Id = husbRef ? idMap.get(husbRef) : undefined;
-            const p2Id = wifeRef ? idMap.get(wifeRef) : undefined;
+            const fatherId = husbRef ? idMap.get(husbRef) : undefined;
+            const motherId = wifeRef ? idMap.get(wifeRef) : undefined;
 
-            // Marriage Event
+            // 2a. Marriage Event
             const marrNode = node.children.find(c => c.tag === 'MARR');
-            if (marrNode && p1Id && p2Id) {
+            if (marrNode && fatherId && motherId) {
                 const date = this.getChildValue(marrNode, 'DATE') || "";
                 const place = this.getChildValue(marrNode, 'PLAC') || "";
                 const sortDate = this.parseDate(date);
 
                 // Add to Husband
-                const h = people.find(x => x.id === p1Id);
+                const h = people.find(x => x.id === fatherId);
                 if (h) {
                     h.events.push({
                         id: crypto.randomUUID(), type: 'marriage', date, sort_date: sortDate, location: place, assets: [],
-                        partner_id: p2Id, status: 'married'
+                        partner_id: motherId, status: 'married'
                     });
                 }
 
                 // Add to Wife
-                const w = people.find(x => x.id === p2Id);
+                const w = people.find(x => x.id === motherId);
                 if (w) {
                     w.events.push({
                         id: crypto.randomUUID(), type: 'marriage', date, sort_date: sortDate, location: place, assets: [],
-                        partner_id: p1Id, status: 'married'
+                        partner_id: fatherId, status: 'married'
                     });
                 }
             }
+
+            // 2b. Parent-Child Relationships (The new robust logic)
+            // Iterate all CHIL tags
+            node.children.filter(c => c.tag === 'CHIL').forEach(childNode => {
+                 const childRef = childNode.value;
+                 const childId = childRef ? idMap.get(childRef) : undefined;
+                 
+                 if (childId) {
+                     const child = people.find(p => p.id === childId);
+                     if (child) {
+                         if (fatherId) {
+                             child.relationships.parents.push({ id: fatherId, type: 'biological' });
+                         }
+                         if (motherId) {
+                             child.relationships.parents.push({ id: motherId, type: 'biological' });
+                         }
+                     }
+                 }
+            });
         });
 
         return { people, warnings };
@@ -218,7 +237,48 @@ export class GedcomReader {
     }
 
     private parseDate(d: string): string {
-        const m = d.match(/\d{4}/);
-        return m ? `${m[0]}-01-01` : "0000-01-01";
+        if (!d) return "0000-01-01";
+        
+        const clean = d.toUpperCase().trim();
+        
+        // Handle Range: BET 1900 AND 1910 -> 1900
+        const rangeMatch = clean.match(/BET\s+(.+)\s+AND/);
+        if (rangeMatch) {
+             return this.parseDate(rangeMatch[1]);
+        }
+        
+        // Handle Modifiers: ABT, EST, CAL, BEF, AFT -> Remove them
+        // "ABT 12 JAN 1990" -> "12 JAN 1990"
+        const datePart = clean.replace(/^(ABT|EST|CAL|BEF|AFT|FROM|TO)\s+/, '');
+        
+        const parts = datePart.split(' ');
+        
+        const monthMap: Record<string, string> = {
+            'JAN': '01', 'FEB': '02', 'MAR': '03', 'APR': '04', 'MAY': '05', 'JUN': '06',
+            'JUL': '07', 'AUG': '08', 'SEP': '09', 'OCT': '10', 'NOV': '11', 'DEC': '12'
+        };
+
+        // Format: DD MMM YYYY (e.g., 10 JAN 1980)
+        if (parts.length === 3) {
+            const day = parts[0].padStart(2, '0');
+            const month = monthMap[parts[1]] || '01';
+            const year = parts[2];
+            if (year.match(/^\d{4}$/)) {
+                return `${year}-${month}-${day}`;
+            }
+        }
+        
+        // Format: MMM YYYY (e.g., JAN 1980)
+        if (parts.length === 2) {
+             const month = monthMap[parts[0]];
+             const year = parts[1];
+             if (month && year.match(/^\d{4}$/)) {
+                 return `${year}-${month}-01`;
+             }
+        }
+
+        // Format: YYYY (e.g., 1980)
+        const yearMatch = datePart.match(/\d{4}/);
+        return yearMatch ? `${yearMatch[0]}-01-01` : "0000-01-01";
     }
 }

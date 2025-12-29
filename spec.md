@@ -16,8 +16,9 @@ LegacyGraph is a professional-grade, self-hosted genealogy platform. It rejects 
 
 ### **1.2 Rules of Engagement**
 
+*   **Spec First**: Before any code is checked in for subsequent phases of implementation, this spec document must be updated and kept up to date. Discrepancies between Spec and Code are treated as critical bugs.
 *   **Test-Driven Design (TDD) IS MANDATORY**: You must write a failing test case before writing any implementation code. This ensures all logic is verifiable and requirements are explicitly understood before coding.
-*   **Nuclear Hydration**: We optimize for simplicity over granular updates. When in doubt, reload the world.
+*   **Hybrid Hydration**: We use "Nuclear" hydration (reload all) on boot for safety, but **Granular Hot-Patching** (update specific nodes) during live updates for sub-100ms feedback.
 
 ---
 
@@ -38,8 +39,8 @@ LegacyGraph is a professional-grade, self-hosted genealogy platform. It rejects 
 - **Engine**: Node.js (Fastify) + Graphology (In-Memory Graph).
 - **Behavior**:
   - **Nuclear Hydration**: On boot, the engine reads **all** files to build the graph in RAM.
-  - **Hot-Patching**: `chokidar` watches the disk. External edits update the graph nodes in <100ms.
-  - **Indexing**: FlexSearch (In-Memory) for full-text search. Rebuilt on every hydration to ensure consistency.
+  - **Hot-Patching**: `chokidar` watches the disk. Granular handlers (`add`, `change`, `unlink`) update/patch specific nodes in <100ms without full reloads.
+  - **Indexing**: FlexSearch (In-Memory) for full-text search. Rebuilt on hydration and incrementally updated during hot-patching.
 
 ---
 
@@ -130,6 +131,13 @@ To avoid scanning thousands of binaries on boot, metadata is cached.
 
 ## **4. Core Logic & Algorithms (The Brain)**
 
+### **4.0 BootLoader & Integrity**
+
+- **Responsibility**: Loads YAML files from disk.
+- **Validation**:
+  - **Schema**: Validates against Zod Schemas.
+  - **Asset Integrity**: Verifies existence of files referenced in `assets` array. Logs warnings for missing files.
+
 ### **4.1 The Graph Engine (Runtime)**
 
 - **Library**: `graphology`.
@@ -166,6 +174,13 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 
 - **Logic**:
   - **Import**: Stream Read -> Parse 5.5.1/7.0 -> Map Tags to Legacy Schemas -> Write YAMLs.
+  - **Robustness Rules**:
+    - **Date Parsing**: Must support standard formats (`DD MMM YYYY`, `MMM YYYY`, `YYYY`) and modifiers (`ABT`, `EST`, `CAL`, `BEF`, `AFT`, `BET`, `FROM`/`TO`). Invalid dates fallback to original string or safe default.
+    - **Relationships**: Must fully reconstruct parent-child links.
+      - Iterate `FAM` records.
+      - Map `HUSB` -> Father, `WIFE` -> Mother.
+      - Iterate `CHIL` children.
+      - Update Child's `relationships.parents` array with Father and Mother IDs.
   - **Export**: Walk Graph -> Serialize to strict GEDCOM format.
   - **Loss Prevention**: Unhandled tags go into `Person._gedcom`.
 
@@ -260,23 +275,23 @@ This phase turns the CLI-like core into a functioning server.
 
 #### **3.1 Search Infrastructure (TDD STRICT)**
 
-- [ ] **Install Deps**: `flexsearch`.
-- [ ] **SearchService Class** (`src/core/SearchService.ts`):
-  - [ ] **Test Case**: `tests/core/SearchService.test.ts`. Create mock Graph, index it, assert `search("Turing")` returns Alan.
-  - [ ] **Index Config**: Create a "Document" index.
+- [x] **Install Deps**: `flexsearch`.
+- [x] **SearchService Class** (`src/core/SearchService.ts`):
+  - [x] **Test Case**: `tests/core/SearchService.test.ts`. Create mock Graph, index it, assert `search("Turing")` returns Alan.
+  - [x] **Index Config**: Create a "Document" index.
     - Fields to Index: `names.first`, `names.last`, `names.nickname`, `events.location` (flattened), `stories.title`, `stories.content`.
-  - [ ] Implement `rebuild(graph)`: Iterate all nodes in graph, push to FlexSearch.
-  - [ ] Integration: Call `searchService.rebuild()` at the end of `GraphEngine.hydrate()`.
+  - [x] Implement `rebuild(graph)`: Iterate all nodes in graph, push to FlexSearch.
+  - [x] Integration: Call `searchService.rebuild()` at the end of `GraphEngine.hydrate()`.
 
 #### **3.2 GEDCOM Interchange**
 
-- [ ] **GEDCOM Parser** (`src/core/gedcom/Import.ts`):
-  - [ ] **Library**: Use `read-gedcom` (or robust stream parser).
-  - [ ] **TDD**: `tests/core/gedcom/Import.test.ts` with sample `kennedy.ged`.
-  - [ ] **Mapping Logic**:
+- [x] **GEDCOM Parser** (`src/core/gedcom/Import.ts`):
+  - [x] **Library**: Custom simple parser implementing required mappings.
+  - [x] **TDD**: `tests/core/gedcom/Import.test.ts`.
+  - [x] **Mapping Logic**:
     - `INDI` -> `PersonSchema`.
     - `FAM` -> `Marriage Event` + `Parent Relationship`.
-  - [ ] **Loss Prevention**: Capture all `_ATTR` tags into `_gedcom`.
+  - [x] **Loss Prevention**: Capture all `_ATTR` tags into `_gedcom`.
 - [ ] **GEDCOM Exporter** (`src/core/gedcom/Export.ts`):
   - [ ] Traverse Graph -> Generate valid GEDCOM string.
 
