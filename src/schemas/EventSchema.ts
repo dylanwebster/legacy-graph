@@ -20,6 +20,19 @@ export const EventSchema = z.discriminatedUnion("type", [
     }),
     BaseEvent.extend({ type: z.literal("divorce"), partner_id: z.string() }),
     BaseEvent.extend({ type: z.literal("residence") }),
+    BaseEvent.extend({ type: z.literal("census"), household_id: z.string().optional() }),
+    BaseEvent.extend({ type: z.literal("baptism") }),
+    BaseEvent.extend({ type: z.literal("burial") }),
+    BaseEvent.extend({ 
+        type: z.literal("occupation"), 
+        title: z.string(), 
+        organization: z.string().optional() 
+    }),
+    BaseEvent.extend({ 
+        type: z.literal("education"), 
+        institution: z.string(), 
+        degree: z.string().optional() 
+    }),
     BaseEvent.extend({ type: z.literal("generic"), title: z.string().optional() })
 ]);
 
