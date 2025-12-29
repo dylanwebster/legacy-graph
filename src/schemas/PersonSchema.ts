@@ -25,7 +25,11 @@ export const PersonSchema = z.object({
     }),
 
     events: z.array(EventSchema).default([]),
-    assets: z.array(z.string()).default([])
+    assets: z.array(z.string()).default([]),
+
+    // Phase 3 Extensions
+    scrapbook_md: z.string().default(""), // Free-form notes
+    _gedcom: z.record(z.string(), z.any()).optional() // Loss-prevention bucket
 });
 
 export type Person = z.infer<typeof PersonSchema>;
