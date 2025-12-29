@@ -23,7 +23,7 @@ describe('Schema Expansion', () => {
         });
 
         it('should be valid without optional fields', () => {
-             const asset = {
+            const asset = {
                 id: '124'
             };
             const parsed = AssetMetadataSchema.safeParse(asset);
@@ -46,7 +46,7 @@ describe('Schema Expansion', () => {
             }
         });
 
-         it('should parse baptism event', () => {
+        it('should parse baptism event', () => {
             const event = {
                 type: 'baptism',
                 date: '1900',
@@ -72,7 +72,7 @@ describe('Schema Expansion', () => {
             }
         });
         
-         it('should parse education event', () => {
+        it('should parse education event', () => {
             const event = {
                 type: 'education',
                 date: '1910-1914',

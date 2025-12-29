@@ -92,7 +92,7 @@ export class GraphEngine {
      * Starts the File System Watcher.
      * Any change to files in rootDir will trigger a full re-hydration.
      */
-    public startWatcher() {
+    public startWatcher(): chokidar.FSWatcher {
         console.log(`[GraphEngine] Starting FS Watcher on ${this.rootDir}...`);
         
         const watcher = chokidar.watch(this.rootDir, { 
@@ -110,5 +110,7 @@ export class GraphEngine {
                 console.error("[Watcher] Hydration failed:", err);
             }
         });
+
+        return watcher;
     }
 }

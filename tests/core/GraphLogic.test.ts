@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Graph from 'graphology';
-import { getAggregatedAssets, getSiblings, getCurrentSpouse } from '../../src/core/GraphLogic';
+import { getAggregatedAssets, getCurrentSpouse } from '../../src/core/GraphLogic';
 import { Person } from '../../src/schemas/PersonSchema';
 
 describe('Graph Logic', () => {
