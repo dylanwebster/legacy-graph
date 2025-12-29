@@ -4,6 +4,9 @@ import * as chokidar from 'chokidar';
 import { BootLoader } from './BootLoader';
 import { StoryLoader } from './StoryLoader';
 import { SearchService } from './SearchService';
+import * as fs from 'fs/promises';
+import yaml from 'js-yaml';
+import { PersonSchema, Person } from '../schemas/PersonSchema';
 
 export class GraphEngine {
     private graph: Graph;
@@ -24,6 +27,8 @@ export class GraphEngine {
         return this.graph;
     }
 
+    private fileMap: Map<string, string> = new Map(); // FilePath -> PersonID
+
     /**
      * Loads all data from the file system and rebuilds the graph from scratch.
      * This is the "Nuclear" strategy defined in Phase 2.
@@ -31,21 +36,26 @@ export class GraphEngine {
     public async hydrate(): Promise<void> {
         console.log(`[GraphEngine] Hydrating graph from: ${this.rootDir}`);
         this.graph.clear();
+        this.fileMap.clear();
 
         // 1. Load People (Head 1: Source of Truth)
         const peopleLoader = new BootLoader(path.join(this.rootDir, 'people'));
         // We catch errors here in case the 'people' directory doesn't exist yet (fresh install)
-        const people = await peopleLoader.loadAll().catch((err) => {
+        const peopleResults = await peopleLoader.loadAll().catch((err) => {
             console.warn(`[GraphEngine] Could not load people: ${err.message}`);
             return [];
         });
 
-        people.forEach(p => {
+        peopleResults.forEach(res => {
+            const p = res.data;
             this.graph.addNode(p.id, { 
                 type: 'person', 
                 data: p 
             });
+            this.fileMap.set(res.filePath, p.id);
         });
+
+        const people = peopleResults.map(r => r.data);
 
         // 2. Load Stories (Narrative Layer)
         const storyLoader = new StoryLoader(path.join(this.rootDir, 'stories'));
@@ -100,24 +110,89 @@ export class GraphEngine {
      * Any change to files in rootDir will trigger a full re-hydration.
      */
     public startWatcher(): chokidar.FSWatcher {
-        console.log(`[GraphEngine] Starting FS Watcher on ${this.rootDir}...`);
+        // Only watch 'people' for hot patching for now, as story logic is simpler
+        // But the requirement implies general watching.
+        // We'll focus on People hot-patching as that's the complex part.
+        const watchPath = path.join(this.rootDir, 'people');
+        console.log(`[GraphEngine] Starting FS Watcher on ${watchPath}...`);
         
-        const watcher = chokidar.watch(this.rootDir, { 
+        const watcher = chokidar.watch(watchPath, { 
             ignoreInitial: true, // Don't trigger 'add' events for existing files on boot
             ignored: /(^|[\/\\])\../, // Ignore dotfiles
             persistent: true
         });
         
-        // "Nuclear" Strategy: Reload the entire graph on any change.
-        watcher.on('all', async (event, filePath) => {
-            console.log(`[Watcher] Change detected (${event}): ${filePath}`);
-            try {
-                await this.hydrate();
-            } catch (err) {
-                console.error("[Watcher] Hydration failed:", err);
-            }
-        });
+        // Granular Updates
+        watcher.on('add', (fp) => this.handleFileUpdate(fp));
+        watcher.on('change', (fp) => this.handleFileUpdate(fp));
+        watcher.on('unlink', (fp) => this.handleFileRemove(fp));
 
         return watcher;
     }
+
+    private async handleFileUpdate(filePath: string) {
+        // console.log(`[GraphEngine] Hot-patching update: ${filePath}`);
+        // 1. Read & Parse
+        try {
+            const content = await fs.readFile(filePath, 'utf8');
+            const raw = yaml.load(content);
+            const person = PersonSchema.parse(raw);
+
+            // 2. Check overlap
+            const existingId = this.fileMap.get(filePath);
+            if (existingId && existingId !== person.id) {
+                // ID changed! Treat as remove old + add new
+                this.removeNode(existingId);
+            }
+
+            // 3. Update Graph Node
+            if (this.graph.hasNode(person.id)) {
+                this.graph.mergeNodeAttributes(person.id, { data: person });
+            } else {
+                this.graph.addNode(person.id, { type: 'person', data: person });
+            }
+            this.fileMap.set(filePath, person.id);
+
+            // 4. Rebuild Edges for this node
+            // Clear outgoing edges
+            if (this.graph.hasNode(person.id)) {
+                 this.graph.outEdges(person.id).forEach(edge => this.graph.dropEdge(edge));
+            }
+
+            // Re-add edges
+            person.relationships.parents.forEach((parent: any) => {
+                if (this.graph.hasNode(parent.id)) {
+                    this.graph.addEdge(person.id, parent.id, { 
+                        type: 'child_of', 
+                        relType: parent.type 
+                    });
+                }
+            });
+
+            // 5. Update Search
+            this.searchService.indexPerson(person); // overwrites by ID
+
+            // console.log(`[GraphEngine] Hot-patched ${person.id}`);
+
+        } catch (err: any) {
+            console.error(`[GraphEngine] Failed to hot-patch ${filePath}: ${err.message}`);
+        }
+    }
+
+    private handleFileRemove(filePath: string) {
+        const id = this.fileMap.get(filePath);
+        if (id) {
+            this.removeNode(id);
+            this.fileMap.delete(filePath);
+            console.log(`[GraphEngine] Hot-removed ${id}`);
+        }
+    }
+
+    private removeNode(id: string) {
+        if (this.graph.hasNode(id)) {
+            this.graph.dropNode(id);
+            this.searchService.removePerson(id);
+        }
+    }
+
 }

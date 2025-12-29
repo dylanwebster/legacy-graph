@@ -39,6 +39,6 @@ relationships:
         // Assert we loaded 10 items
         expect(results.length).toBe(10);
         // Assert schema validation passed (checking one ID)
-        expect(results[0].id).toContain("N_");
+        expect(results[0].data.id).toContain("N_");
     });
 });

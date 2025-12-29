@@ -67,22 +67,10 @@ export class SearchService {
      * Called on Hydration.
      */
     public async rebuild(graph: Graph): Promise<void> {
-        // Clear isn't strictly necessary if we create new instances, but FlexSearch
-        // doesn't have a simple clear() for Documents without re-instantiating.
-        // For v1, let's just re-instantiate or assume add/update usage.
-        // Actually, easiest way to 'clear' is to just wipe the indexes in constructor style
-        // but for now let's just ADD (since we are doing nuclear hydration, this instance might be fresh).
+        // Clear is not easily supported in FlexSearch without re-creation or extensive deletion.
+        // For now, we assume `rebuild` is called on fresh start or we define "nuclear" clear later.
+        // For hot-patching, we use indexPerson/removePerson.
         
-        // Wait: The SearchService is a singleton in GraphEngine? 
-        // If so, we probably want to clear keys. 
-        // FlexSearch Document doesn't support 'clear' easily. 
-        // Best strategy: creating a NEW SearchService instance might be cleaner 
-        // OR we just loop and remove.
-        // Simpler: Just rely on overwrite? No, that leaves ghosts.
-        // Let's implement a clear by re-creating the index objects if needed, 
-        // but for this pass, let's assume `rebuild` effectively adds everything. 
-        // Refactoring to allow clean reset is a TODO.
-
         graph.forEachNode((node, attributes) => {
             if (attributes.type === 'person') {
                 this.indexPerson(attributes.data as Person);
@@ -91,7 +79,7 @@ export class SearchService {
         });
     }
 
-    private indexPerson(p: Person) {
+    public indexPerson(p: Person) {
         // Flatten locations
         const locations = p.events
             .map(e => e.location)
@@ -103,15 +91,16 @@ export class SearchService {
 
         const doc = {
             id: p.id,
-            names: p.names, // FlexSearch will traverse this array if configured?
-            // Actually FlexSearch deep key support like "names:first" works on arrays of objects too?
-            // "names:first": ["Alan"]
-            // If p.names is [{first: "Alan"}, {first: "Al"}], FlexSearch usually handles array access.
+            names: p.names,
             bio: bio,
             locations: locations
         };
 
         this.personIndex.add(doc);
+    }
+
+    public removePerson(id: string) {
+        this.personIndex.remove(id);
     }
 
     public async search(query: string): Promise<SearchResponse> {
