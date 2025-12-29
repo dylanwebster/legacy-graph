@@ -30,7 +30,7 @@ He met my grandmother [[N_456]] there.`;
 
         expect(stories.length).toBe(1);
         expect(stories[0].metadata.title).toBe("War Stories");
-        // Must extract both @N_ format and [[N_]] format [cite: 194]
+        // Must extract both @N_ format and [[N_]] format
         expect(stories[0].mentions).toContain("N_123");
         expect(stories[0].mentions).toContain("N_456");
     });

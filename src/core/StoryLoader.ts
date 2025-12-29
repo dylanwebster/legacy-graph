@@ -32,7 +32,7 @@ export class StoryLoader {
             // Validate Metadata
             const metadata = StorySchema.parse(data);
 
-            // Extract Mentions via AST [cite: 193]
+            // Extract Mentions via AST
             const mentions = new Set<string>();
             const processor = remark().use(() => (tree) => {
                 visit(tree, 'text', (node: any) => {
