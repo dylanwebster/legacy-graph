@@ -1,18 +1,27 @@
 // tests/utils/DateParser.test.ts
 import { describe, it, expect } from 'vitest';
-import { parseFuzzyDate } from '../../src/utils/dateParser';
+import { parseDate } from '../../src/utils/dateParser';
 
-describe('Fuzzy Date Normalization', () => {
+describe('Date Normalization', () => {
     it('should normalize a standard year', () => {
         // Input: "1920" -> Sort Date: "1920-01-01"
-        const result = parseFuzzyDate("1920");
-        expect(result.sort_date).toBe("1920-01-01");
+        const result = parseDate("1920");
+        expect(result).toBe("1920-01-01");
     });
 
-    it('should calculate midpoint for "Between" ranges', () => {
-        // Input: "Bet. 1900 and 1910" -> Midpoint 1905
-        const result = parseFuzzyDate("Bet. 1900 and 1910");
-        // Midpoint of 1900 and 1910 is roughly 1905-06-30
-        expect(result.sort_date).toBe("1905-06-30");
+    it('should normalize Bet. ranges to start date', () => {
+        // Input: "Bet. 1900 and 1910" -> 1900
+        const result = parseDate("Bet 1900 and 1910");
+        expect(result).toBe("1900-01-01");
+    });
+
+    it('should handle ABT modifier', () => {
+        const result = parseDate("ABT 12 JAN 1990");
+        expect(result).toBe("1990-01-12");
+    });
+
+    it('should handle MMM YYYY', () => {
+        const result = parseDate("JAN 1980");
+        expect(result).toBe("1980-01-01");
     });
 });

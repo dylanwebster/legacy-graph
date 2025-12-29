@@ -175,7 +175,7 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 - **Logic**:
   - **Import**: Stream Read -> Parse 5.5.1/7.0 -> Map Tags to Legacy Schemas -> Write YAMLs.
   - **Robustness Rules**:
-    - **Date Parsing**: Must support standard formats (`DD MMM YYYY`, `MMM YYYY`, `YYYY`) and modifiers (`ABT`, `EST`, `CAL`, `BEF`, `AFT`, `BET`, `FROM`/`TO`). Invalid dates fallback to original string or safe default.
+    - **Date Parsing**: **MUST** use the shared `DateParser` utility (`src/utils/DateParser.ts`). Supports standard formats (`DD MMM YYYY`, `MMM YYYY`, `YYYY`) and modifiers (`ABT`, `EST`, `CAL`, `BEF`, `AFT`, `BET`, `FROM`/`TO`). Invalid dates fallback to standard ISO default.
     - **Relationships**: Must fully reconstruct parent-child links.
       - Iterate `FAM` records.
       - Map `HUSB` -> Father, `WIFE` -> Mother.
