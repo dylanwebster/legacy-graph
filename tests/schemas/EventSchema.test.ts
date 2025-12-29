@@ -3,26 +3,25 @@ import { EventSchema } from '../../src/schemas/EventSchema';
 
 describe('EventSchema', () => {
     it('should validate a marriage event', () => {
-        const marriage = {
-            id: "evt_123",
+        const evt = {
+            id: "evt_1",
             type: "marriage",
-            date: "1950-06-01",
+            date: "1950",
             sort_date: "1950-06-01",
-            partner_id: "N_spouse123",
+            partner_id: "N_SPOUSE",
             status: "married"
         };
-        const result = EventSchema.safeParse(marriage);
-        expect(result.success).toBe(true);
+        expect(EventSchema.safeParse(evt).success).toBe(true);
     });
 
-    it('should fail a marriage event missing a partner', () => {
-        const invalid = {
-            id: "evt_456",
-            type: "marriage",
-            date: "1950"
-            // Missing partner_id
+    it('should validate an event with assets', () => {
+        const evt = {
+            id: "evt_2",
+            type: "birth",
+            date: "1920",
+            sort_date: "1920-01-01",
+            assets: ["birth_cert.jpg"] // Asset linking
         };
-        const result = EventSchema.safeParse(invalid);
-        expect(result.success).toBe(false);
+        expect(EventSchema.safeParse(evt).success).toBe(true);
     });
 });

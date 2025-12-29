@@ -24,9 +24,8 @@ export const PersonSchema = z.object({
         })).default([])
     }),
 
-    // Simplified for Phase 1 (Event schema would be separate in full impl)
     events: z.array(EventSchema).default([]),
-    assets: z.array(z.any()).default([])
+    assets: z.array(z.string()).default([])
 });
 
 export type Person = z.infer<typeof PersonSchema>;
