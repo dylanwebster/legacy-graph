@@ -235,28 +235,108 @@ A dense, 3-column layout:
 
 ---
 
-## **8. Implementation Checklists**
+## **8. Implementation Roadmap**
 
-### **Phase 1 & 2: Core Logic (Current Status)**
+### **Phase 1 & 2: Core Logic (Completed)**
 
-Required Files & Features:
+The foundation is built. The graph engine hydrates from disk, and schemas are strictly defined.
 
-- [x] `src/core/BootLoader.ts`: Load YAMLs into Graphology.
-- [x] `src/core/GraphEngine.ts`: Wrapper class for Graph singleton.
-- [x] `src/schemas/PersonSchema.ts`: Zod Definition (**MUST** include `scrapbook_md`, `_gedcom`).
-- [x] `src/schemas/EventSchema.ts`: Zod Definition (Aligned with Spec).
-- [x] `src/core/GraphLogic.ts`: Algorithms (`getSiblings`, `getCurrentSpouse`).
+- [x] **BootLoader**: Implements `src/core/BootLoader.ts` to parse YAMLs via Zod.
+- [x] **GraphEngine**: Implements `src/core/GraphEngine.ts` with `grapphology`, including `hydrate()` and `startWatcher()`.
+- [x] **Schemas**:
+  - [x] `PersonSchema.ts`: Includes `relationships` (upstream only), `scrapbook_md`, and `_gedcom`.
+  - [x] `EventSchema.ts`: detailed Discriminated Unions for all event types.
+- [x] **GraphLogic**: Implements `src/core/GraphLogic.ts` containing the "Henry VIII" algorithm for spouse calculation and `getSiblings`.
+- [x] **TransactionManager**: Safe implementation of atomic file + git writes.
 
-### **Phase 3: Advanced Data & API (Next Up)**
+### **Phase 3: Data Services & API Layer (Backend)**
 
-- [ ] **GEDCOM Import/Export**: `src/core/Gedcom.ts`.
-- [ ] **API Layer**: Fastify Routes in `src/api/`.
-- [ ] **Search**: Integrate FlexSearch.
+This phase turns the CLI-like core into a functioning server.
 
-### **Phase 4: UI Foundation**
+#### **3.1 Search Infrastructure**
+- [ ] **Install Deps**: `flexsearch`.
+- [ ] **SearchService Class** (`src/core/SearchService.ts`):
+  - [ ] Implement `indexPerson(person)`: Index names, nicknames, and bio-facts.
+  - [ ] Implement `indexStory(story)`: Index title and full markdown content.
+  - [ ] Implement `search(query)`: Return grouped results (`{ people, stories }`).
+  - [ ] Hook into `GraphEngine.hydrate()`: Re-build search index on every file reload.
 
-- [ ] Frontend Scaffolding (React/Choice pending).
-- [ ] Dashboard & Person Detail Views.
+#### **3.2 GEDCOM Interchange**
+- [ ] **GEDCOM Parser** (`src/core/gedcom/Import.ts`):
+  - [ ] Create `GedcomReader` using a stream-based parser (e.g., `read-gedcom`).
+  - [ ] **Mapping Logic**: Map `INDI` records to `Person`, `FAM` records to `Marriage` events / `child_of` edges.
+  - [ ] **Loss Prevention**: Capture all unmapped custom tags into the `_gedcom` Zod bucket.
+  - [ ] **TDD**: Write unit tests against a sample `.ged` file before implementing.
+- [ ] **GEDCOM Exporter** (`src/core/gedcom/Export.ts`):
+  - [ ] Traverse the in-memory graph.
+  - [ ] Serialize `Person` nodes back to `INDI` blocks.
+  - [ ] Reconstruct `FAM` blocks from `events` (marriages) and `child_of` edges.
+
+#### **3.3 Media Services**
+- [ ] **Thumbnail Service** (`src/core/Thumbnailer.ts`):
+  - [ ] Integrate `sharp` for on-the-fly resizing.
+  - [ ] Implement caching layer (store thumbs in `/_meta/cache`).
+  - [ ] Endpoint: `GET /api/assets/:filename?w=200`.
+
+#### **3.4 The API Server**
+- [ ] **Fastify Setup** (`src/server.ts`):
+  - [ ] Configure `fastify-cors` and error handlers.
+  - [ ] Inject `GraphEngine` singleton into the request context.
+- [ ] **Endpoints**:
+  - [ ] `GET /api/people/:id`: Return full hydrated person object + computed relationships.
+  - [ ] `PUT /api/people/:id`: Validate payload -> `TransactionManager.writePerson()`.
+  - [ ] `GET /api/search`: Proxy to `SearchService`.
+  - [ ] `POST /api/cmd/sync`: Trigger a git push/pull (if remote configured).
+
+### **Phase 4: The Experience (Frontend)**
+
+Building the "VS Code for Genealogy" interface.
+
+#### **4.1 Scaffolding & Design System**
+- [ ] **Init**: Vite + React + TypeScript + TanStack Router (for type-safe routing).
+- [ ] **State Management**: Install `TanStack Query` (React Query) for caching and optimistic updates.
+- [ ] **Tailwind Config**: Define the "Dark Mode" palette (Slate/Zinc/Neutral).
+- [ ] **Typography**: Set up `Inter` (UI), `Fira Code` (Data), `Merriweather` (Stories).
+- [ ] **Components**:
+  - [ ] `Button`, `Input`, `Modal` (using `radix-ui` primitives).
+  - [ ] `Avatar` (displaying image or initials).
+  - [ ] `CmdK` (Command Palette) implementation.
+
+#### **4.2 The Dashboard**
+- [ ] **Stats Panel**: Total People, Total Families, Last Edited File.
+- [ ] **Force Graph**:
+  - [ ] Integrate `react-force-graph-2d`.
+  - [ ] Map API graph data to visualization nodes.
+  - [ ] Implement "Gravity Bands" (positioning nodes by birth year on Y-axis).
+
+#### **4.3 The "Holy Grail" (Person Detail)**
+- [ ] **Layout**: CSS Grid 3-column (Fixed Left, Scrollable Center, Collapsible Right).
+- [ ] **Timeline Feed**:
+  - [ ] Implement `TimelineSlicer` (logic to merge events + stories).
+  - [ ] Render `EventCard` components.
+  - [ ] Render `Gap` components (visualizing missing years).
+- [ ] **Editors**:
+  - [ ] Implement Inline Editing for simple fields (Name, Birth Date).
+  - [ ] Embed a Markdown Editor for `scrapbook_md`.
+
+### **Phase 5: Immersion & Polish**
+
+#### **5.1 Rich Story Editor**
+- [ ] Integrate `Tiptap` editor.
+- [ ] Custom Extension: `@Mention` support (searches Graph for people).
+- [ ] Custom Extension: `/Asset` support (inserts image from `/assets`).
+
+#### **5.2 The 3D Time Tunnel**
+- [ ] Setup `react-three-fiber`.
+- [ ] Create a "Tunnel" geometry.
+- [ ] Map timeline events to Z-depth coordinates.
+- [ ] Implement scroll-based camera movement.
+
+### **Phase 6: Distribution & Deployment**
+
+- [ ] **Dockerization**: Create multi-stage `Dockerfile` (Build Frontend -> Serve Backend).
+- [ ] **Desktop Wrapper**: Wrap web-app in `Electron` for true local-file-system access (bypass browser sandboxing).
+- [ ] **CI/CD**: Github Action to run Vitest + Playwright on PRs.
 
 ---
 
