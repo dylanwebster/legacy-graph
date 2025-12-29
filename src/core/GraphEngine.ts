@@ -3,15 +3,18 @@ import * as path from 'path';
 import * as chokidar from 'chokidar';
 import { BootLoader } from './BootLoader';
 import { StoryLoader } from './StoryLoader';
+import { SearchService } from './SearchService';
 
 export class GraphEngine {
     private graph: Graph;
     private rootDir: string;
+    public searchService: SearchService;
 
     constructor(rootDir: string) {
         this.rootDir = rootDir;
         // Multi-graph allows parallel edges (e.g., biological + adopted relations between same two people)
         this.graph = new Graph({ type: 'directed', multi: true });
+        this.searchService = new SearchService();
     }
 
     /**
@@ -84,6 +87,10 @@ export class GraphEngine {
                 }
             });
         });
+
+        // 5. Indexing (Search Service)
+        // Reset/Rebuild index with new graph data
+        await this.searchService.rebuild(this.graph);
 
         console.log(`[GraphEngine] Hydration Complete. Nodes: ${this.graph.order}, Edges: ${this.graph.size}`);
     }

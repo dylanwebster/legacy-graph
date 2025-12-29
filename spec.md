@@ -14,6 +14,11 @@ LegacyGraph is a professional-grade, self-hosted genealogy platform. It rejects 
 4.  **Local-First Security**: Authentication is local. No cloud dependencies.
 5.  **Data Density**: The UI prioritizes information density over whitespace (VS Code aesthetic).
 
+### **1.2 Rules of Engagement**
+
+*   **Test-Driven Design (TDD) IS MANDATORY**: You must write a failing test case before writing any implementation code. This ensures all logic is verifiable and requirements are explicitly understood before coding.
+*   **Nuclear Hydration**: We optimize for simplicity over granular updates. When in doubt, reload the world.
+
 ---
 
 ## **2. System Architecture: The "Dual-Head" Pattern**
@@ -34,7 +39,7 @@ LegacyGraph is a professional-grade, self-hosted genealogy platform. It rejects 
 - **Behavior**:
   - **Nuclear Hydration**: On boot, the engine reads **all** files to build the graph in RAM.
   - **Hot-Patching**: `chokidar` watches the disk. External edits update the graph nodes in <100ms.
-  - **Indexing**: FlexSearch (In-Memory) for full-text search.
+  - **Indexing**: FlexSearch (In-Memory) for full-text search. Rebuilt on every hydration to ensure consistency.
 
 ---
 
@@ -142,7 +147,7 @@ These are **NOT** stored in YAML. They are derived via graph traversal.
 2.  **Spouses**: `getCurrentSpouse(id)`.
     - **"Henry VIII Algorithm"**:
       1.  Fetch all `marriage`, `divorce` events for Person.
-      2.  Sort by `sort_date`.
+      2  Sort by `sort_date`.
       3.  Replay timeline: Marriage sets `current_spouse`, Divorce clears it.
       4.  Final check: If `current_spouse` exists, check their `death` events. If dead -> Status `widowed`.
 
@@ -253,40 +258,45 @@ The foundation is built. The graph engine hydrates from disk, and schemas are st
 
 This phase turns the CLI-like core into a functioning server.
 
-#### **3.1 Search Infrastructure**
+#### **3.1 Search Infrastructure (TDD STRICT)**
+
 - [ ] **Install Deps**: `flexsearch`.
 - [ ] **SearchService Class** (`src/core/SearchService.ts`):
-  - [ ] Implement `indexPerson(person)`: Index names, nicknames, and bio-facts.
-  - [ ] Implement `indexStory(story)`: Index title and full markdown content.
-  - [ ] Implement `search(query)`: Return grouped results (`{ people, stories }`).
-  - [ ] Hook into `GraphEngine.hydrate()`: Re-build search index on every file reload.
+  - [ ] **Test Case**: `tests/core/SearchService.test.ts`. Create mock Graph, index it, assert `search("Turing")` returns Alan.
+  - [ ] **Index Config**: Create a "Document" index.
+    - Fields to Index: `names.first`, `names.last`, `names.nickname`, `events.location` (flattened), `stories.title`, `stories.content`.
+  - [ ] Implement `rebuild(graph)`: Iterate all nodes in graph, push to FlexSearch.
+  - [ ] Integration: Call `searchService.rebuild()` at the end of `GraphEngine.hydrate()`.
 
 #### **3.2 GEDCOM Interchange**
+
 - [ ] **GEDCOM Parser** (`src/core/gedcom/Import.ts`):
-  - [ ] Create `GedcomReader` using a stream-based parser (e.g., `read-gedcom`).
-  - [ ] **Mapping Logic**: Map `INDI` records to `Person`, `FAM` records to `Marriage` events / `child_of` edges.
-  - [ ] **Loss Prevention**: Capture all unmapped custom tags into the `_gedcom` Zod bucket.
-  - [ ] **TDD**: Write unit tests against a sample `.ged` file before implementing.
+  - [ ] **Library**: Use `read-gedcom` (or robust stream parser).
+  - [ ] **TDD**: `tests/core/gedcom/Import.test.ts` with sample `kennedy.ged`.
+  - [ ] **Mapping Logic**:
+    - `INDI` -> `PersonSchema`.
+    - `FAM` -> `Marriage Event` + `Parent Relationship`.
+  - [ ] **Loss Prevention**: Capture all `_ATTR` tags into `_gedcom`.
 - [ ] **GEDCOM Exporter** (`src/core/gedcom/Export.ts`):
-  - [ ] Traverse the in-memory graph.
-  - [ ] Serialize `Person` nodes back to `INDI` blocks.
-  - [ ] Reconstruct `FAM` blocks from `events` (marriages) and `child_of` edges.
+  - [ ] Traverse Graph -> Generate valid GEDCOM string.
 
 #### **3.3 Media Services**
+
 - [ ] **Thumbnail Service** (`src/core/Thumbnailer.ts`):
-  - [ ] Integrate `sharp` for on-the-fly resizing.
-  - [ ] Implement caching layer (store thumbs in `/_meta/cache`).
-  - [ ] Endpoint: `GET /api/assets/:filename?w=200`.
+  - [ ] **Library**: `sharp`.
+  - [ ] **TDD**: Test resizing a sample JPG.
+  - [ ] Implement `getThumbnail(filename, width)`. Check cache -> Generate -> Save -> Return path.
 
 #### **3.4 The API Server**
+
 - [ ] **Fastify Setup** (`src/server.ts`):
-  - [ ] Configure `fastify-cors` and error handlers.
-  - [ ] Inject `GraphEngine` singleton into the request context.
-- [ ] **Endpoints**:
-  - [ ] `GET /api/people/:id`: Return full hydrated person object + computed relationships.
-  - [ ] `PUT /api/people/:id`: Validate payload -> `TransactionManager.writePerson()`.
-  - [ ] `GET /api/search`: Proxy to `SearchService`.
-  - [ ] `POST /api/cmd/sync`: Trigger a git push/pull (if remote configured).
+  - [ ] **TDD**: `tests/api/Server.test.ts` using `supertest`.
+  - [ ] Configure `fastify-cors`.
+  - [ ] Inject `GraphEngine` singleton.
+- [ ] **Route Structure**:
+  - `src/api/routes/people.ts`
+  - `src/api/routes/search.ts`
+  - `src/api/routes/system.ts`
 
 ### **Phase 4: The Experience (Frontend)**
 
