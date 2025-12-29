@@ -1,5 +1,6 @@
 // src/schemas/PersonSchema.ts
 import { z } from 'zod';
+import { EventSchema } from './EventSchema';
 
 export const PersonSchema = z.object({
     version: z.literal("5.0"),
@@ -24,7 +25,7 @@ export const PersonSchema = z.object({
     }),
 
     // Simplified for Phase 1 (Event schema would be separate in full impl)
-    events: z.array(z.any()).default([]),
+    events: z.array(EventSchema).default([]),
     assets: z.array(z.any()).default([])
 });
 
