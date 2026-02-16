@@ -57,11 +57,14 @@ Nuclear Hydration (parsing and Zod-validating every YAML on boot) scales linearl
 
 **B. Worker Thread Hydration**
 
-For datasets large enough that even incremental parsing is noticeable (50,000+ nodes), hydration is offloaded from the main event loop:
+Hydration is offloaded from the main event loop via `worker_threads`, allowing the Fastify server to start immediately and serve health checks while data is being loaded. This applies to **all** dataset sizes — even for modest datasets it ensures the server is never unresponsive during startup.
 
-- **Strategy**: Use Node.js `worker_threads` to perform YAML parsing, Zod validation, and FlexSearch indexing in a background thread. The main thread remains responsive and can serve a "loading" status to clients.
-- **Handoff**: The worker serializes the validated node map and edge list back to the main thread via `postMessage`. The main thread then performs the final Graphology graph construction (which is fast, as it's just inserting pre-validated data).
-- **Scope**: Worker Thread hydration is an **optimization layer**, not a replacement. The BootLoader logic remains identical; only its execution context changes.
+- **Strategy**: Use Node.js `worker_threads` to perform YAML parsing, Zod validation, and story loading in a background thread. The main thread remains responsive and serves `GET /system/status` with `hydrationState: "loading"` to clients.
+- **503 During Loading**: While hydration is in progress, all API endpoints except `GET /system/status` and auth endpoints (`POST /auth/login`, `POST /auth/logout`) return `503 Service Unavailable` with `{ error: "Graph is loading", code: "HYDRATION_IN_PROGRESS" }`.
+- **Cache-Aware**: The worker performs the tiered cache comparison (Section 2.3A) internally — only stale files are re-parsed from YAML. Both full nuclear and incremental paths run inside the worker.
+- **Handoff**: The worker serializes the validated node map, story list, and mtime entries back to the main thread via `postMessage` (structured clone). The main thread then performs the final Graphology graph construction, edge building, search indexing, and `_computed` relationship computation (which is fast, as it's just inserting pre-validated data).
+- **Fallback**: If the worker thread fails (e.g., crash, unhandled error), the engine automatically falls back to inline hydration on the main thread to guarantee startup.
+- **Scope**: Worker Thread hydration is the **default boot strategy** (`hydrateInBackground()`). The inline `hydrate()` method is retained as a synchronous alternative for testing and simple usage. The BootLoader logic remains identical; only its execution context changes.
 
 ---
 
@@ -269,8 +272,9 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
   - _Body_: `{ name: string }`.
 - `POST /import/gedcom`: Bulk Import.
   - _Warning_: Destructive. Wipes current data directory (except `.git`).
-- `GET /system/status`: Returns runtime health info.
+- `GET /system/status`: Returns runtime health info. **Always available**, even during hydration (see 2.3B).
   - _Returns_: `{ nodeCount: number, edgeCount: number, hydrationState: "ready" | "loading", cacheAge: string | null }`.
+  - _Note_: When `hydrationState` is `"loading"`, `nodeCount` and `edgeCount` are `0` until hydration completes.
 - `POST /system/rebuild`: Force a full Nuclear Hydration, bypassing the tiered cache.
   - _Effect_: Invalidates `/_meta/.graph-cache.json`, re-parses all YAML files, rebuilds graph and search index from scratch.
 
@@ -355,6 +359,7 @@ This spec defines _what_ to build. `progress.md` tracks _how far_ and _what's ne
 *   **Graph Cache**: Verify cache hit skips YAML parsing. Verify stale `mtime` triggers selective re-parse. Verify missing/corrupt cache triggers full Nuclear Hydration.
 *   **TransactionManager**: Verify debounced batching collapses rapid writes into a single commit. Verify flush-on-demand bypasses the debounce window.
 *   **SearchService Hot-Patch**: Verify incremental index update on node change. Verify index removal on node unlink.
+*   **Worker Thread Hydration**: Verify worker function produces identical people/story output as inline BootLoader. Verify `hydrateInBackground()` completes and populates graph to same state as `hydrate()`. Verify `hydrationState` transitions correctly. Verify API returns 503 during loading for non-exempt endpoints.
 
 ### **9.2 Integration Tests (Supertest)**
 

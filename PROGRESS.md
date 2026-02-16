@@ -4,8 +4,8 @@
 > For the _how far_ and _what's next_, read this document.
 
 **Last Updated**: 2026-02-16
-**Test Suite**: 111 passing, 1 skipped (112 total)
-**Overall Completion**: ~52% of full spec
+**Test Suite**: 142 passing, 1 skipped (143 total)
+**Overall Completion**: ~62% of full spec
 
 ---
 
@@ -14,11 +14,11 @@
 | Phase | Description | Status |
 |:------|:------------|:-------|
 | **1 & 2** | Core Logic (Schemas, Graph, BootLoader) | ✅ Complete |
-| **3.1** | Search Infrastructure | ✅ Complete (story/place indexing pending → 3.5.6) |
+| **3.1** | Search Infrastructure | ✅ Complete |
 | **3.2** | GEDCOM Interchange | ✅ Complete |
 | **3.3** | Media Services | ✅ Complete |
 | **3.4** | API Server & Auth | ✅ Complete |
-| **3.5** | Backend Optimizations (7 items) | ⚠️ 3.5.1 + 3.5.2 + 3.5.7 complete |
+| **3.5** | Backend Optimizations (7 items) | ✅ Complete (all 7 items) |
 | **4** | Frontend (React UI) + E2E Tests | ❌ Not started |
 | **5** | Immersion & Polish | ❌ Not started |
 | **6** | Distribution & Deployment | ❌ Not started |
@@ -48,7 +48,7 @@ All foundational modules are implemented and tested.
 | Watcher | (in GraphEngine) | `tests/core/Watcher.test.ts` ⏭ SKIPPED (1) | Skipped due to EMFILE; logic verified by HotPatch tests |
 
 **Known deviations from spec** (resolved in Phase 3.5):
-- Hot-patching uses "drop all outgoing edges and rebuild" rather than diff-based reconciliation (spec 4.1) → 3.5.4
+- ~~Hot-patching uses "drop all outgoing edges and rebuild" rather than diff-based reconciliation (spec 4.1) → 3.5.4~~ **RESOLVED**
 - ~~`_computed` attributes are not populated during hydration (spec 4.1) → 3.5.2~~ **RESOLVED**
 - ~~TransactionManager is minimal (one commit per write, no debouncing) (spec 7.1) → 3.5.1~~ **RESOLVED**
 - `isomorphic-git` migration deferred (still uses `simple-git`) → 3.5.1 future
@@ -63,13 +63,10 @@ All foundational modules are implemented and tested.
 | Person indexing (names, nickname, bio, locations) | ✅ Working |
 | `rebuild(graph)` on hydration | ✅ Wired |
 | `indexPerson()` / `removePerson()` for hot-patching | ✅ Implemented |
-| **Story indexing** | ❌ Stubbed — `rebuild()` skips story nodes |
+| **Story indexing** | ✅ Implemented (Phase 3.5.6) |
+| **Place search** | ✅ Implemented (Phase 3.5.6) |
 
-**File**: `src/core/SearchService.ts` | **Tests**: `tests/core/SearchService.test.ts` (4 passing)
-
-**Remaining work** (deferred to Phase 3.5.6):
-- Story nodes not wired into `rebuild()` — search returns `stories: []`
-- Place search returns empty `places: []` stub
+**File**: `src/core/SearchService.ts` | **Tests**: `tests/core/SearchService.test.ts` (10 passing)
 
 ---
 
@@ -135,13 +132,13 @@ All CRUD, system, and auth endpoints are implemented and tested.
 - ~~Write endpoints bypass TransactionManager — no git commits on write operations → 3.5.1~~ **RESOLVED**
 - ~~`GET /people/:id` returns empty `_computed` placeholder → 3.5.2~~ **RESOLVED**
 - ~~`POST /system/snapshot` doesn't flush pending commits before tagging → 3.5.1~~ **RESOLVED**
-- `GET /system/status` returns hardcoded `hydrationState: "ready"` and `cacheAge: null` → 3.5.3
+- ~~`GET /system/status` returns hardcoded `hydrationState: "ready"` and `cacheAge: null` → 3.5.3~~ **RESOLVED**
 
 ---
 
-### Phase 3.5: Backend Optimizations — NOT STARTED ❌
+### Phase 3.5: Backend Optimizations — COMPLETE ✅
 
-These are performance-hardening items that can be implemented incrementally. None block Phase 4 work, but several (especially 3.5.2) improve API correctness.
+All seven performance-hardening items are implemented and tested.
 
 #### 3.5.1 TransactionManager Refactor — COMPLETE ✅ (except isomorphic-git migration)
 
@@ -166,41 +163,51 @@ The spec's most architecturally significant remaining item. The API now returns 
 - [x] **Wire to API**: `GET /people/:id` reads from `_computed` node attribute (O(1) lookup, no traversal at request time).
 - [x] **TDD**: 6 new tests in `tests/core/GraphLogic.test.ts` — children, siblings, currentSpouse, allSpouses, widowed detection, non-person nodes, computeAll.
 
-#### 3.5.3 Tiered Binary Cache
+#### 3.5.3 Tiered Binary Cache — COMPLETE ✅
 
-Accelerate boot time for large datasets (10,000+ nodes).
+Accelerate boot time for large datasets (10,000+ nodes). Implements the spec's Binary Cache model (Section 2.3A).
 
-- [ ] **Serialize**: Write validated graph to `/_meta/.graph-cache.json` at end of hydration. Store `mtime` per source file and `spec_version` header.
-- [ ] **Incremental Boot**: On startup, load cache. If `spec_version` mismatches or cache is missing → full Nuclear Hydration. Otherwise compare `mtime` per YAML file, re-parse only stale ones.
-- [ ] **Cache Write**: Serialize updated cache after every successful hydration (full or incremental).
-- [ ] **`cacheAge` in Status API**: `GET /system/status` returns actual `cacheAge` from cache file timestamp (currently hardcoded `null`).
-- [ ] **`hydrationState` Tracking**: Track and expose `hydrationState` (`"loading"` during hydration, `"ready"` after) in `GET /system/status` (currently hardcoded `"ready"`).
-- [ ] **TDD**: `tests/core/GraphCache.test.ts` — Cache hit skips parsing. Stale `mtime` triggers re-parse. Missing cache → full hydration. Version mismatch → full hydration.
+- [x] **`src/core/GraphCache.ts`**: Standalone cache module with `load()`, `save()`, `invalidate()` static methods. Cache format: JSON blob at `/_meta/.graph-cache.json` with `spec_version` header and per-file `mtime` entries.
+- [x] **Serialize**: `GraphEngine.hydrate()` writes cache at end of every successful hydration (full or incremental). Stores validated Person data + `mtime` (epoch ms) per source YAML file.
+- [x] **Incremental Boot**: On startup, loads cache. If `spec_version` mismatches, cache is missing, or JSON is corrupt → full Nuclear Hydration. Otherwise compares `mtime` per YAML file on disk — re-parses only stale/new files, uses cached data for unchanged files.
+- [x] **Cache Write**: Serialized after every successful hydration. New files are added, deleted files are excluded automatically (disk glob drives inclusion).
+- [x] **`cacheAge` in Status API**: `GET /system/status` returns ISO-8601 timestamp of last cache write via `GraphEngine.cacheAge` getter.
+- [x] **`hydrationState` Tracking**: `GraphEngine.hydrationState` getter exposes `"loading"` during hydration, `"ready"` after. Wired into `GET /system/status`.
+- [x] **`forceFullRebuild`**: `hydrate({ forceFullRebuild: true })` bypasses cache entirely. Wired into `POST /system/rebuild`.
+- [x] **TDD**: `tests/core/GraphCache.test.ts` (11 tests) — Cache write after hydration, cache hit skips parsing, stale mtime selective re-parse, missing cache → full nuclear, version mismatch → full nuclear, corrupt cache → full nuclear, new files parsed, deleted files excluded, forceFullRebuild bypass, hydrationState tracking, cacheAge exposure.
 
-#### 3.5.4 Diff-Based Edge Reconciliation
+#### 3.5.4 Diff-Based Edge Reconciliation — COMPLETE ✅
 
-Replace the current "drop all edges and rebuild" hot-patching with precise edge diffing.
+Replace the current "drop all edges and rebuild" hot-patching with precise edge diffing (spec Section 4.1).
 
-- [ ] **Edge Diffing**: Compare old vs. new parsed state of a YAML file. Apply minimal edge additions/removals for `relationships.parents`, marriage/divorce `partner_id`, and `assets`.
-- [ ] **Neighbor Cascade**: After reconciliation, trigger `_computed` invalidation and SearchService incremental update for all affected neighbors.
-- [ ] **Mini-Hydration Fallback**: If diff produces inconsistent state (orphaned edges), drop and rebuild all edges for the affected node and immediate neighborhood.
-- [ ] **TDD**: `tests/core/GraphEngine.test.ts` — Adding parent adds exactly one edge. Removing parent drops exactly one edge. Unrelated edges untouched. Orphan triggers fallback.
+- [x] **Edge Diffing**: `reconcileEdges()` compares old vs. new `relationships.parents`. Computes set difference: removes edges for dropped parents, adds edges for new parents. Also handles relationship type changes (e.g., biological → adopted) via attribute update without edge removal.
+- [x] **Neighbor Cascade**: After reconciliation, `invalidateComputed()` recomputes `_computed` for the changed node AND all immediate neighbors. `SearchService.indexPerson()` updates the search index.
+- [x] **Mini-Hydration Fallback**: `fallbackRebuildEdges()` drops all outgoing `child_of` edges and rebuilds from scratch. Activated via try-catch if diff logic encounters an inconsistent state. Only touches `child_of` edges, preserving other edge types.
+- [x] **New Node Handling**: New nodes (no old state) use `addParentEdges()` directly — no diff needed.
+- [x] **TDD**: 4 new tests in `tests/core/GraphEngineHotPatch.test.ts` — Add parent adds exactly one edge, remove parent drops exactly one edge, incoming edges from other nodes preserved during reconciliation, relationship type change updates attribute without dropping edge.
 
-#### 3.5.5 Worker Thread Hydration (Deferred)
+#### 3.5.5 Worker Thread Hydration — COMPLETE ✅
 
-For datasets at 50,000+ node scale. Optimization layer only — does not change BootLoader logic.
+Hydration runs in a background `worker_threads` Worker by default. The server starts immediately and remains responsive while data is loading. Applies to all dataset sizes (spec Section 2.3B).
 
-- [ ] **Worker Script**: `src/core/HydrationWorker.ts` — Run BootLoader inside `worker_threads`.
-- [ ] **Handoff**: Worker serializes validated node map + edge list via `postMessage`. Main thread constructs Graphology graph.
-- [ ] **Loading State**: `GET /system/status` returns `hydrationState: "loading"`. API returns 503 until ready.
-- [ ] **TDD**: `tests/core/HydrationWorker.test.ts` — Worker produces identical output. Main thread stays responsive.
+- [x] **Worker Script**: `src/core/HydrationWorker.ts` — Standalone module with `runHydrationWorker()` function + worker entry point (`if (!isMainThread)`). Runs BootLoader, StoryLoader, cache comparison, YAML parsing, and Zod validation inside the worker thread.
+- [x] **Cache-Aware**: Worker performs tiered cache comparison internally — reads existing cache, compares mtimes, re-parses only stale/new files. Saves updated cache after loading.
+- [x] **Handoff**: Worker serializes validated `PersonEntry[]` + `Story[]` + hydration stats via `postMessage` (structured clone). Main thread calls `buildGraphFromData()` — Graphology graph construction, edge building, search indexing, and `_computed` computation.
+- [x] **`hydrateInBackground()`**: New method on `GraphEngine`. Spawns worker, awaits result, builds graph. Falls back to inline `hydrate()` if the worker crashes.
+- [x] **503 Loading Gate**: Fastify `onRequest` hook returns 503 `HYDRATION_IN_PROGRESS` for all endpoints except `GET /system/status`, `POST /auth/login`, `POST /auth/logout` while `hydrationState === 'loading'`.
+- [x] **`awaitHydration` Config**: `ServerConfig.awaitHydration` (default `true`) controls whether `createServer` blocks until hydration completes. Set `false` for production immediate-availability.
+- [x] **ESM Interop**: Worker uses `tsx/cjs` as `execArgv` require hook to handle ESM-only packages (`p-limit`, `remark`) in the CommonJS worker context.
+- [x] **TDD**: `tests/core/HydrationWorker.test.ts` (10 tests) — Worker function people loading, cache usage on second run, story loading, forceFullRebuild flag, background hydration graph population, same-output-as-inline, hydrationState tracking, cache persistence, `_computed` population, search index building.
 
-#### 3.5.6 SearchService Improvements
+#### 3.5.6 SearchService Improvements — COMPLETE ✅
 
-- [ ] **Story Indexing**: Wire story nodes into `rebuild()` and `search()` results.
-- [ ] **Place Search**: Extract unique locations from events across all people. Return matching places in `search()` response `places` array (spec Section 5.2).
-- [ ] **Hot-Patch Wiring**: Incremental update/remove FlexSearch entries on chokidar events (add/update on `change`/`add`, remove on `unlink`) instead of full `rebuild()`.
-- [ ] **TDD**: `tests/core/SearchService.test.ts` — Change a person's name, confirm search returns new name not old. Story search returns matching stories. Place search returns matching locations.
+Full-text search now covers people, stories, and places with incremental hot-patch support.
+
+- [x] **Story Indexing**: `indexStory()` / `removeStory()` methods added. Story nodes wired into `rebuild()` — indexed by `title` and `content`. `search()` returns matching stories with title as display name. FlexSearch Document index with `store: true` for enriched results.
+- [x] **Place Search**: `placeMap` (Map<location, Set<personId>>) extracts unique locations from person events. `search()` performs case-insensitive substring match on locations, returns `PlaceResult[]` with `{ location, count }`. Places updated incrementally via `indexPerson()` / `removePerson()`.
+- [x] **Hot-Patch Wiring**: `indexPerson()` removes stale search entries before re-adding (prevents ghost matches on name change). `removePerson()` cleans up both search index and place map. Incremental updates already wired via `handleFileUpdate()` → `searchService.indexPerson()`.
+- [x] **API Wired**: `GET /api/search` now returns actual `places` array from search results (was hardcoded `[]`). `SearchResponse` type updated to include `PlaceResult[]`.
+- [x] **TDD**: 6 new tests in `tests/core/SearchService.test.ts` (10 total) — Story search by title, story search by content, place search, place count with multiple people, name change updates search index, person removal clears search + places.
 
 #### 3.5.7 Timeline Slicer — COMPLETE ✅
 
@@ -277,7 +284,7 @@ Spec Section 9.3. Critical user journeys validated end-to-end.
 
 ## 3. Test Suite
 
-**Total**: 112 tests | **Passing**: 111 | **Skipped**: 1 | **Failing**: 0
+**Total**: 143 tests | **Passing**: 142 | **Skipped**: 1 | **Failing**: 0
 
 | Module | File | Count | Status |
 |:-------|:-----|:------|:-------|
@@ -289,9 +296,11 @@ Spec Section 9.3. Critical user journeys validated end-to-end.
 | SchemaExpansion | `tests/schemas/SchemaExpansion.test.ts` | 6 | ✅ |
 | BootLoader | `tests/core/BootLoader.test.ts` | 1 | ✅ |
 | GraphEngine | `tests/core/GraphEngine.test.ts` | 1 | ✅ |
+| GraphCache | `tests/core/GraphCache.test.ts` | 11 | ✅ |
 | GraphLogic | `tests/core/GraphLogic.test.ts` | 8 | ✅ |
-| HotPatch | `tests/core/GraphEngineHotPatch.test.ts` | 4 | ✅ |
-| SearchService | `tests/core/SearchService.test.ts` | 4 | ✅ |
+| HotPatch | `tests/core/GraphEngineHotPatch.test.ts` | 8 | ✅ |
+| HydrationWorker | `tests/core/HydrationWorker.test.ts` | 10 | ✅ |
+| SearchService | `tests/core/SearchService.test.ts` | 10 | ✅ |
 | StoryLoader | `tests/core/StoryLoader.test.ts` | 1 | ✅ |
 | Thumbnailer | `tests/core/Thumbnailer.test.ts` | 8 | ✅ |
 | TransactionManager | `tests/core/TransactionManager.test.ts` | 7 | ✅ |
@@ -324,4 +333,8 @@ Decisions made during implementation that deviate from or elaborate on the spec.
 | 7 | `bcryptjs` over `bcrypt` for password hashing | Pure JS — no native compilation required, easier cross-platform deployment |
 | 8 | Auth tests use isolated `tests/fixtures/auth-data/` directory | Prevents race conditions with parallel `Server.test.ts` which shares `tests/fixtures/data/` |
 | 9 | GraphEngine re-created per `createServer()` call | Fixes singleton leakage across parallel test files; `onClose` hook nulls the reference |
+| 10 | Cache uses absolute file paths as keys | Simplifies mtime comparison (glob returns absolute paths). Cache auto-invalidates if data directory moves — triggers full nuclear, which is correct behavior |
+| 11 | `cacheAge` is an ISO-8601 timestamp (not duration string) | Unambiguous, machine-parseable. Frontend can compute "X minutes ago" from the timestamp |
+| 12 | Worker thread uses `tsx/cjs` for ESM interop | `p-limit` v7 and `remark` v15 are ESM-only; the project uses CommonJS. `tsx` resolves `require()` of ESM modules in the worker thread. Added as devDependency |
+| 13 | `awaitHydration` defaults to `true` in `ServerConfig` | Preserves backward compatibility for tests (which expect hydration complete before assertions). Set `false` for production immediate-availability |
 

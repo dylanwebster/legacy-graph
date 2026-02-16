@@ -25,6 +25,9 @@ export interface ServerConfig {
     logger?: boolean;
     dataDir: string;
     port?: number;
+    /** If false, createServer returns immediately while hydration runs in background (503 until ready).
+     *  Defaults to true for backward compatibility (server blocks until graph is hydrated). */
+    awaitHydration?: boolean;
 }
 
 let graphEngine: GraphEngine | null = null;
@@ -61,15 +64,38 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
 
     // Initialize GraphEngine (fresh for each server instance)
     graphEngine = new GraphEngine(config.dataDir);
-    try {
-        await graphEngine.hydrate();
+
+    // Hydrate via background Worker Thread (spec 2.3B).
+    // When awaitHydration is false, the server starts immediately and returns 503 until ready.
+    const hydrationPromise = graphEngine.hydrateInBackground().then(() => {
         console.log('[Server] GraphEngine hydrated successfully');
-    } catch (error) {
+    }).catch(error => {
         console.error('[Server] Failed to hydrate GraphEngine:', error);
+    });
+
+    if (config.awaitHydration !== false) {
+        await hydrationPromise;
     }
 
     // Initialize TransactionManager for git-tracked writes
     txManager = new TransactionManager(config.dataDir);
+
+    // 503 Loading Gate — reject non-exempt endpoints while hydration is in progress (spec 2.3B)
+    server.addHook('onRequest', async (request, reply) => {
+        if (graphEngine && graphEngine.hydrationState !== 'ready') {
+            const url = request.url;
+            // Exempt endpoints: health check and auth endpoints
+            if (url === '/api/system/status' ||
+                url === '/api/auth/login' ||
+                url === '/api/auth/logout') {
+                return;
+            }
+            return reply.status(503).send({
+                error: 'Graph is loading',
+                code: 'HYDRATION_IN_PROGRESS'
+            });
+        }
+    });
 
     // Clean up on server close
     server.addHook('onClose', async () => {
@@ -87,8 +113,8 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         return {
             nodeCount: graph.order,
             edgeCount: graph.size,
-            hydrationState: 'ready', // TODO: Track actual hydration state
-            cacheAge: null // TODO: Implement cache age tracking
+            hydrationState: graphEngine!.hydrationState,
+            cacheAge: graphEngine!.cacheAge
         };
     });
 
@@ -163,7 +189,7 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
             return {
                 people: results.people,
                 stories: results.stories,
-                places: [] // TODO: Implement place search
+                places: results.places
             };
         } catch (error: any) {
             console.error('[API] Search error:', error);
@@ -463,11 +489,10 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         }
     });
 
-    // Force Re-hydration
+    // Force Re-hydration (bypasses tiered cache)
     server.post('/api/system/rebuild', async (request, reply) => {
         try {
-            // TODO: Invalidate tiered cache when implemented in Phase 3.5.3
-            await graphEngine!.hydrate();
+            await graphEngine!.hydrate({ forceFullRebuild: true });
             
             const graph = graphEngine!.getGraph();
             return {
