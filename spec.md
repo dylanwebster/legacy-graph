@@ -336,9 +336,9 @@ Spawning a child process via `simple-git` for every discrete save creates massiv
 
 ## **8. Implementation Roadmap**
 
-Implementation status, phase-by-phase progress, and the detailed task backlog are tracked in **`PROGRESS.md`**.
+Implementation status, phase-by-phase progress, and the detailed task backlog are tracked in **`progress.md`**.
 
-This spec defines _what_ to build. `PROGRESS.md` tracks _how far_ and _what's next_.
+This spec defines _what_ to build. `progress.md` tracks _how far_ and _what's next_.
 
 ---
 
