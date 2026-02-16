@@ -302,13 +302,14 @@ describe('Fastify API Server', () => {
 
     describe('POST /api/system/snapshot', () => {
         it('should create a git snapshot', async () => {
+            const tagName = `test-snapshot-${Date.now()}`;
             const response = await request
                 .post('/api/system/snapshot')
-                .send({ name: 'test-snapshot' });
+                .send({ name: tagName });
             
             expect(response.status).toBe(200);
             expect(response.body).toHaveProperty('tag');
-            expect(response.body.tag).toBe('test-snapshot');
+            expect(response.body.tag).toBe(tagName);
         });
 
         it('should return 400 if name is missing', async () => {
