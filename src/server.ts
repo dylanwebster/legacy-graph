@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import cookie from '@fastify/cookie';
 import { GraphEngine } from './core/GraphEngine';
 import { Person, PersonSchema } from './schemas/PersonSchema';
 import { GedcomReader } from './core/gedcom/Import';
@@ -10,6 +11,15 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import yaml from 'js-yaml';
 import { pipeline } from 'stream/promises';
+import { AuthConfig } from './schemas/AuthSchema';
+import {
+    loadAuthConfig,
+    authenticateUser,
+    issueToken,
+    registerAuthGuard
+} from './api/middleware/auth';
+import { sliceTimeline } from './core/TimelineSlicer';
+import { TransactionManager } from './core/TransactionManager';
 
 export interface ServerConfig {
     logger?: boolean;
@@ -18,6 +28,7 @@ export interface ServerConfig {
 }
 
 let graphEngine: GraphEngine | null = null;
+let txManager: TransactionManager | null = null;
 
 export async function createServer(config: ServerConfig): Promise<FastifyInstance> {
     const server = Fastify({
@@ -36,16 +47,38 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         }
     });
 
-    // Initialize GraphEngine singleton
-    if (!graphEngine) {
-        graphEngine = new GraphEngine(config.dataDir);
-        try {
-            await graphEngine.hydrate();
-            console.log('[Server] GraphEngine hydrated successfully');
-        } catch (error) {
-            console.error('[Server] Failed to hydrate GraphEngine:', error);
-        }
+    // Register cookie plugin for HttpOnly JWT cookies
+    await server.register(cookie);
+
+    // Load auth config and register auth guard
+    const authConfig: AuthConfig | null = await loadAuthConfig(config.dataDir);
+    if (authConfig) {
+        registerAuthGuard(server, authConfig);
+        console.log('[Server] Authentication enabled');
+    } else {
+        console.log('[Server] No auth config found — authentication disabled');
     }
+
+    // Initialize GraphEngine (fresh for each server instance)
+    graphEngine = new GraphEngine(config.dataDir);
+    try {
+        await graphEngine.hydrate();
+        console.log('[Server] GraphEngine hydrated successfully');
+    } catch (error) {
+        console.error('[Server] Failed to hydrate GraphEngine:', error);
+    }
+
+    // Initialize TransactionManager for git-tracked writes
+    txManager = new TransactionManager(config.dataDir);
+
+    // Clean up on server close
+    server.addHook('onClose', async () => {
+        if (txManager) {
+            await txManager.destroy();
+            txManager = null;
+        }
+        graphEngine = null;
+    });
 
     // System Status Endpoint
     server.get('/api/system/status', async (request, reply) => {
@@ -57,6 +90,58 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
             hydrationState: 'ready', // TODO: Track actual hydration state
             cacheAge: null // TODO: Implement cache age tracking
         };
+    });
+
+    // Auth: Login
+    server.post<{
+        Body: { username?: string; password?: string }
+    }>('/api/auth/login', async (request, reply) => {
+        const { username, password } = request.body || {};
+
+        if (!username || !password) {
+            return reply.status(400).send({
+                error: 'Username and password are required',
+                code: 'MISSING_CREDENTIALS'
+            });
+        }
+
+        if (!authConfig) {
+            return reply.status(500).send({
+                error: 'Authentication is not configured',
+                code: 'AUTH_NOT_CONFIGURED'
+            });
+        }
+
+        const authenticatedUser = await authenticateUser(authConfig, username, password);
+        if (!authenticatedUser) {
+            return reply.status(401).send({
+                error: 'Invalid username or password',
+                code: 'INVALID_CREDENTIALS'
+            });
+        }
+
+        const token = issueToken(authConfig, authenticatedUser);
+
+        reply.setCookie('token', token, {
+            httpOnly: true,
+            path: '/',
+            sameSite: 'strict',
+            secure: false // Set to true in production with HTTPS
+        });
+
+        return { message: 'Login successful', username: authenticatedUser };
+    });
+
+    // Auth: Logout
+    server.post('/api/auth/logout', async (request, reply) => {
+        reply.clearCookie('token', {
+            path: '/',
+            httpOnly: true,
+            sameSite: 'strict',
+            secure: false
+        });
+
+        return { message: 'Logout successful' };
     });
 
     // Search Endpoint
@@ -107,16 +192,21 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         const nodeData = graph.getNodeAttributes(id);
         const person: Person = nodeData.data;
         
-        // TODO: Add computed relationships from _computed cache
-        // For now, return person with empty _computed
+        // Read from pre-computed _computed cache (populated during hydration/hot-patch)
+        const computed = nodeData._computed || {
+            currentSpouse: null,
+            siblings: [],
+            children: [],
+            allSpouses: []
+        };
+
+        // Pre-compute timeline feed
+        const timeline = sliceTimeline(graph, id);
+
         return {
             ...person,
-            _computed: {
-                currentSpouse: null,
-                siblings: [],
-                children: [],
-                allSpouses: []
-            }
+            _computed: computed,
+            timeline
         };
     });
 
@@ -161,14 +251,11 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
             // Validate with Zod
             PersonSchema.parse(newPerson);
 
-            // Write to file system
-            const peopleDir = path.join(config.dataDir, 'people');
-            await fs.mkdir(peopleDir, { recursive: true });
-            
-            const filename = `${newPerson.id}.yaml`;
-            const filepath = path.join(peopleDir, filename);
-            
-            await fs.writeFile(filepath, yaml.dump(newPerson));
+            // Write to file system via TransactionManager (queued for git commit)
+            const relativePath = path.join('people', `${newPerson.id}.yaml`);
+            const primaryName = newPerson.names[0];
+            const label = `${primaryName.first} ${primaryName.last}`;
+            await txManager!.writeFile(relativePath, yaml.dump(newPerson), label);
 
             // Add to graph
             const graph = graphEngine!.getGraph();
@@ -208,10 +295,11 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
             // Validate
             PersonSchema.parse(updates);
 
-            // Write to file system
-            const filename = `${id}.yaml`;
-            const filepath = path.join(config.dataDir, 'people', filename);
-            await fs.writeFile(filepath, yaml.dump(updates));
+            // Write to file system via TransactionManager (queued for git commit)
+            const relativePath = path.join('people', `${id}.yaml`);
+            const primaryName = updates.names?.[0];
+            const label = primaryName ? `${primaryName.first} ${primaryName.last}` : id;
+            await txManager!.writeFile(relativePath, yaml.dump(updates), label);
 
             // Update graph
             graph.setNodeAttribute(id, 'data', updates);
@@ -264,6 +352,9 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
             const filepath = path.join(assetsDir, uniqueFilename);
             await pipeline(data.file, require('fs').createWriteStream(filepath));
 
+            // Track the uploaded asset for git staging
+            await txManager!.trackFile(path.join('assets', uniqueFilename), `asset ${uniqueFilename}`);
+
             // Update person's assets array
             const nodeData = graph.getNodeAttributes(id);
             const person: Person = nodeData.data;
@@ -275,10 +366,11 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
             // Update last_modified
             person.last_modified = new Date().toISOString();
             
-            // Write updated person YAML
-            const personFilename = `${id}.yaml`;
-            const personFilepath = path.join(config.dataDir, 'people', personFilename);
-            await fs.writeFile(personFilepath, yaml.dump(person));
+            // Write updated person YAML via TransactionManager
+            const personRelPath = path.join('people', `${id}.yaml`);
+            const primaryName = person.names?.[0];
+            const label = primaryName ? `${primaryName.first} ${primaryName.last}` : id;
+            await txManager!.writeFile(personRelPath, yaml.dump(person), label);
             
             // Update graph
             graph.setNodeAttribute(id, 'data', person);
@@ -343,14 +435,16 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
                 await fs.mkdir(peopleDir, { recursive: true });
             }
 
-            // Write all imported people
-            await Promise.all(
-                result.people.map(person => {
-                    const filename = `${person.id}.yaml`;
-                    const filepath = path.join(peopleDir, filename);
-                    return fs.writeFile(filepath, yaml.dump(person));
-                })
-            );
+            // Write all imported people via TransactionManager
+            for (const person of result.people) {
+                const relativePath = path.join('people', `${person.id}.yaml`);
+                const primaryName = person.names?.[0];
+                const label = primaryName ? `${primaryName.first} ${primaryName.last}` : person.id;
+                await txManager!.writeFile(relativePath, yaml.dump(person), label);
+            }
+
+            // Flush all pending writes immediately for bulk import
+            await txManager!.flush();
 
             // Force full hydration
             await graphEngine!.hydrate();
@@ -407,7 +501,10 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         try {
             const git = simpleGit(config.dataDir);
             
-            // TODO: Flush pending commits (when TransactionManager has debounced queue in 3.5.1)
+            // Flush pending commits before creating the tag
+            if (txManager?.hasPending()) {
+                await txManager.flush();
+            }
             
             // Check if git repo exists
             const isRepo = await git.checkIsRepo();

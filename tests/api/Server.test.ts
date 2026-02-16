@@ -28,6 +28,12 @@ describe('Fastify API Server', () => {
             await git.commit('Initial commit');
         }
 
+        // Ensure no auth config exists (auth disabled for these tests)
+        const authPath = path.join(testDataDir, '_meta', 'auth.yaml');
+        if (fs.existsSync(authPath)) {
+            fs.unlinkSync(authPath);
+        }
+
         // Create server with test configuration
         server = await createServer({
             logger: false, // Disable logging during tests

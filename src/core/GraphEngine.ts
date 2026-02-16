@@ -7,6 +7,7 @@ import { SearchService } from './SearchService';
 import * as fs from 'fs/promises';
 import yaml from 'js-yaml';
 import { PersonSchema, Person } from '../schemas/PersonSchema';
+import { computeAllRelationships, invalidateComputed } from './GraphLogic';
 
 export class GraphEngine {
     private graph: Graph;
@@ -102,6 +103,9 @@ export class GraphEngine {
         // Reset/Rebuild index with new graph data
         await this.searchService.rebuild(this.graph);
 
+        // 6. Compute derived relationships (_computed cache)
+        computeAllRelationships(this.graph);
+
         console.log(`[GraphEngine] Hydration Complete. Nodes: ${this.graph.order}, Edges: ${this.graph.size}`);
     }
 
@@ -172,7 +176,8 @@ export class GraphEngine {
             // 5. Update Search
             this.searchService.indexPerson(person); // overwrites by ID
 
-            // console.log(`[GraphEngine] Hot-patched ${person.id}`);
+            // 6. Recompute _computed for this node and all neighbors
+            invalidateComputed(this.graph, person.id);
 
         } catch (err: any) {
             console.error(`[GraphEngine] Failed to hot-patch ${filePath}: ${err.message}`);

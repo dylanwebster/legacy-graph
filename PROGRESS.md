@@ -4,8 +4,8 @@
 > For the _how far_ and _what's next_, read this document.
 
 **Last Updated**: 2026-02-16
-**Test Suite**: 76 passing, 1 skipped (77 total)
-**Overall Completion**: ~40% of full spec
+**Test Suite**: 111 passing, 1 skipped (112 total)
+**Overall Completion**: ~52% of full spec
 
 ---
 
@@ -17,8 +17,8 @@
 | **3.1** | Search Infrastructure | ✅ Complete (story/place indexing pending → 3.5.6) |
 | **3.2** | GEDCOM Interchange | ✅ Complete |
 | **3.3** | Media Services | ✅ Complete |
-| **3.4** | API Server & Auth | ⚠️ Endpoints complete, auth not started |
-| **3.5** | Backend Optimizations (7 items) | ❌ Not started |
+| **3.4** | API Server & Auth | ✅ Complete |
+| **3.5** | Backend Optimizations (7 items) | ⚠️ 3.5.1 + 3.5.2 + 3.5.7 complete |
 | **4** | Frontend (React UI) + E2E Tests | ❌ Not started |
 | **5** | Immersion & Polish | ❌ Not started |
 | **6** | Distribution & Deployment | ❌ Not started |
@@ -49,8 +49,9 @@ All foundational modules are implemented and tested.
 
 **Known deviations from spec** (resolved in Phase 3.5):
 - Hot-patching uses "drop all outgoing edges and rebuild" rather than diff-based reconciliation (spec 4.1) → 3.5.4
-- `_computed` attributes are not populated during hydration (spec 4.1) → 3.5.2
-- TransactionManager is minimal (one commit per write, no debouncing) (spec 7.1) → 3.5.1
+- ~~`_computed` attributes are not populated during hydration (spec 4.1) → 3.5.2~~ **RESOLVED**
+- ~~TransactionManager is minimal (one commit per write, no debouncing) (spec 7.1) → 3.5.1~~ **RESOLVED**
+- `isomorphic-git` migration deferred (still uses `simple-git`) → 3.5.1 future
 
 ---
 
@@ -101,9 +102,9 @@ All foundational modules are implemented and tested.
 
 ---
 
-### Phase 3.4: API Server — COMPLETE ✅ (except Authentication)
+### Phase 3.4: API Server & Authentication — COMPLETE ✅
 
-All CRUD and system endpoints are implemented and tested.
+All CRUD, system, and auth endpoints are implemented and tested.
 
 | Endpoint | Status | Tests |
 |:---------|:-------|:------|
@@ -116,39 +117,25 @@ All CRUD and system endpoints are implemented and tested.
 | `POST /api/import/gedcom` | ✅ | 3 |
 | `POST /api/system/rebuild` | ✅ | 1 |
 | `POST /api/system/snapshot` | ✅ | 2 |
-| `POST /api/auth/login` | ❌ Not implemented | — |
-| `POST /api/auth/logout` | ❌ Not implemented | — |
-| Auth guard middleware | ❌ Not implemented | — |
+| `POST /api/auth/login` | ✅ | 4 |
+| `POST /api/auth/logout` | ✅ | 1 |
+| Auth guard middleware | ✅ | 6 |
 
-**File**: `src/server.ts` | **Tests**: `tests/api/Server.test.ts` (21 tests, 3 general + 18 endpoint)
+**Files**: `src/server.ts`, `src/api/middleware/auth.ts`, `src/schemas/AuthSchema.ts`
+**Tests**: `tests/api/Server.test.ts` (21 tests) + `tests/api/Auth.test.ts` (11 tests) + `tests/schemas/AuthSchema.test.ts` (5 tests)
+
+**Authentication Architecture**:
+- Auth config stored in `/_meta/auth.yaml` (Zod-validated `AuthConfigSchema`)
+- Passwords stored as BCrypt hashes (`bcryptjs`)
+- JWT issued in HttpOnly cookie via `@fastify/cookie`
+- Fastify `onRequest` hook enforces auth guard on all routes except `POST /api/auth/login` and `GET /api/system/status`
+- Auth is **optional**: if `/_meta/auth.yaml` doesn't exist, all routes are public (graceful degradation)
 
 **Known limitations** (resolved in Phase 3.5):
-- Write endpoints bypass TransactionManager — no git commits on write operations → 3.5.1
-- `GET /people/:id` returns empty `_computed` placeholder → 3.5.2
-- `POST /system/snapshot` doesn't flush pending commits before tagging → 3.5.1
+- ~~Write endpoints bypass TransactionManager — no git commits on write operations → 3.5.1~~ **RESOLVED**
+- ~~`GET /people/:id` returns empty `_computed` placeholder → 3.5.2~~ **RESOLVED**
+- ~~`POST /system/snapshot` doesn't flush pending commits before tagging → 3.5.1~~ **RESOLVED**
 - `GET /system/status` returns hardcoded `hydrationState: "ready"` and `cacheAge: null` → 3.5.3
-
----
-
-### Phase 3.4 (continued): Authentication — NOT STARTED ❌
-
-This is the remaining piece of Phase 3.4. All items below must be implemented following TDD.
-
-- [ ] **Schema**: Define `AuthConfigSchema` for `/_meta/auth.yaml` (BCrypt hashed passwords)
-- [ ] **Tests**: Create `tests/api/Auth.test.ts`
-  - [ ] Unauthenticated requests to protected endpoints return 401
-  - [ ] Valid JWT grants access
-  - [ ] Expired JWT is rejected
-  - [ ] Login with valid credentials returns HttpOnly JWT cookie
-  - [ ] Login with invalid credentials returns 401
-  - [ ] Logout clears the cookie
-  - [ ] `GET /api/system/status` is accessible without auth
-- [ ] **Dependencies**: Install `bcrypt` (or `bcryptjs`), `jsonwebtoken`, `@fastify/cookie`
-- [ ] **Implementation**:
-  - [ ] `src/api/middleware/auth.ts` — Auth guard hook
-  - [ ] `POST /api/auth/login` — Validate against `/_meta/auth.yaml`, issue JWT in HttpOnly cookie
-  - [ ] `POST /api/auth/logout` — Clear HttpOnly cookie
-  - [ ] Apply auth guard to all routes except `POST /api/auth/login` and `GET /api/system/status`
 
 ---
 
@@ -156,26 +143,28 @@ This is the remaining piece of Phase 3.4. All items below must be implemented fo
 
 These are performance-hardening items that can be implemented incrementally. None block Phase 4 work, but several (especially 3.5.2) improve API correctness.
 
-#### 3.5.1 TransactionManager Refactor
+#### 3.5.1 TransactionManager Refactor — COMPLETE ✅ (except isomorphic-git migration)
 
-Refactor the minimal TransactionManager into a production-grade write layer.
+Refactored TransactionManager from minimal one-commit-per-write to production-grade debounced write layer.
 
-- [ ] **Debounced Commit Queue**: Batch file writes. After the last write in a burst, start a 5-second debounce timer. On fire, commit all pending changes in a single atomic git commit. Commit message: `"Update N files: Person X, Person Y, ..."` (truncated at 72 chars).
-- [ ] **Flush on Demand**: Allow forced flush (before snapshots, on graceful shutdown).
-- [ ] **Wire Snapshot Flush**: `POST /system/snapshot` must flush pending commits before creating the git tag.
-- [ ] **isomorphic-git Migration**: Replace `simple-git` with `isomorphic-git` for `add`/`commit`/`tag`/`log`. Retain system Git fallback for `push`/`pull`.
-- [ ] **Wire API Endpoints**: Route `POST /people`, `PUT /people/:id`, `PUT /people/:id/media`, `POST /import/gedcom` through TransactionManager.
-- [ ] **TDD**: `tests/core/TransactionManager.test.ts` — Verify batching (rapid writes → single commit). Verify flush-on-demand bypasses debounce.
+- [x] **Debounced Commit Queue**: `writeFile()` writes to disk immediately, queues for batched git commit. 5-second debounce timer (configurable). Commit message: `"Update N files: Label1, Label2, ..."` (truncated at 72 chars).
+- [x] **Flush on Demand**: `flush()` bypasses debounce, commits immediately. `destroy()` flushes + cleans up timers.
+- [x] **Track File**: `trackFile()` for files written by other means (binary uploads) that still need git staging.
+- [x] **Wire Snapshot Flush**: `POST /system/snapshot` flushes pending commits before creating git tag.
+- [ ] **isomorphic-git Migration**: Deferred. `simple-git` remains for now. Migration is an optimization, not a correctness issue.
+- [x] **Wire API Endpoints**: `POST /people`, `PUT /people/:id`, `PUT /people/:id/media`, `POST /import/gedcom` all route through TransactionManager.
+- [x] **TDD**: `tests/core/TransactionManager.test.ts` (7 tests) — Batching, flush-on-demand, file labels, truncation, sequential batches, empty flush safety.
 
-#### 3.5.2 Computed Relationship Cache (`_computed`)
+#### 3.5.2 Computed Relationship Cache (`_computed`) — COMPLETE ✅
 
-The spec's most architecturally significant remaining item. Without this, the API returns empty relationship data.
+The spec's most architecturally significant remaining item. The API now returns real relationship data.
 
-- [ ] **`computeRelationships(nodeId)`**: Implement in `GraphLogic.ts`. Writes `currentSpouse`, `siblings`, `children`, `allSpouses` to the node's `_computed` attribute.
-- [ ] **Hydration Integration**: Call `computeRelationships()` for every node at the end of `GraphEngine.hydrate()`.
-- [ ] **Invalidation**: On chokidar change, recompute `_computed` for the changed node AND all immediate graph neighbors.
-- [ ] **Wire to API**: `GET /people/:id` reads from `_computed` instead of returning empty placeholder.
-- [ ] **TDD**: `tests/core/GraphLogic.test.ts` — Verify `_computed` populated after hydration. Verify invalidation recomputes affected nodes only.
+- [x] **`computeRelationships(nodeId)`**: Implemented in `GraphLogic.ts`. Writes `currentSpouse`, `siblings`, `children`, `allSpouses` to the node's `_computed` attribute.
+- [x] **Helper functions**: `getChildren()`, `getAllSpouses()`, `computeAllRelationships()`, `invalidateComputed()`.
+- [x] **Hydration Integration**: `computeAllRelationships()` called at end of `GraphEngine.hydrate()`.
+- [x] **Invalidation**: `invalidateComputed()` called in hot-patch handler — recomputes changed node AND all immediate neighbors.
+- [x] **Wire to API**: `GET /people/:id` reads from `_computed` node attribute (O(1) lookup, no traversal at request time).
+- [x] **TDD**: 6 new tests in `tests/core/GraphLogic.test.ts` — children, siblings, currentSpouse, allSpouses, widowed detection, non-person nodes, computeAll.
 
 #### 3.5.3 Tiered Binary Cache
 
@@ -213,17 +202,17 @@ For datasets at 50,000+ node scale. Optimization layer only — does not change 
 - [ ] **Hot-Patch Wiring**: Incremental update/remove FlexSearch entries on chokidar events (add/update on `change`/`add`, remove on `unlink`) instead of full `rebuild()`.
 - [ ] **TDD**: `tests/core/SearchService.test.ts` — Change a person's name, confirm search returns new name not old. Story search returns matching stories. Place search returns matching locations.
 
-#### 3.5.7 Timeline Slicer
+#### 3.5.7 Timeline Slicer — COMPLETE ✅
 
 Spec Section 4.2. Pre-computes the "Integrated Feed" for the Person Detail page.
 
-- [ ] **`src/core/TimelineSlicer.ts`**: Implement `sliceTimeline(personId)` function.
-  - Collect all Person Events + Story mentions (stories mentioning this person via graph edges).
-  - Sort merged list by `sort_date`.
-  - Gap Detection: If `Item[i+1].year - Item[i].year > 10`, insert a `Gap` object `{ type: 'gap', years: diff }`.
-  - Return `Array<Event | Story | Gap>`.
-- [ ] **Wire to API**: `GET /people/:id` includes `timeline` field from `sliceTimeline()` output.
-- [ ] **TDD**: `tests/core/TimelineSlicer.test.ts` — Verify event + story merge ordering. Verify gap insertion for >10 year gaps. Verify no gap for ≤10 year spans.
+- [x] **`src/core/TimelineSlicer.ts`**: `sliceTimeline(graph, personId)` function implemented.
+  - Collects all Person Events + Story mentions (stories mentioning this person via graph edges).
+  - Sorts merged list by `sort_date`.
+  - Gap Detection: If `Item[i+1].year - Item[i].year > 10`, inserts a `Gap` object `{ type: 'gap', years: diff }`.
+  - Returns `Array<TimelineEvent | TimelineStory | TimelineGap>`.
+- [x] **Wire to API**: `GET /people/:id` includes `timeline` field from `sliceTimeline()` output.
+- [x] **TDD**: `tests/core/TimelineSlicer.test.ts` (7 tests) — Event sorting, story merge, gap insertion (>10yr), no gap (≤10yr), multiple gaps, empty person, non-existent person.
 
 ---
 
@@ -288,7 +277,7 @@ Spec Section 9.3. Critical user journeys validated end-to-end.
 
 ## 3. Test Suite
 
-**Total**: 77 tests | **Passing**: 76 | **Skipped**: 1 | **Failing**: 0
+**Total**: 112 tests | **Passing**: 111 | **Skipped**: 1 | **Failing**: 0
 
 | Module | File | Count | Status |
 |:-------|:-----|:------|:-------|
@@ -296,21 +285,24 @@ Spec Section 9.3. Critical user journeys validated end-to-end.
 | EventSchema | `tests/schemas/EventSchema.test.ts` | 2 | ✅ |
 | AssetSchema | `tests/schemas/AssetSchema.test.ts` | 1 | ✅ |
 | StorySchema | `tests/schemas/StorySchema.test.ts` | 1 | ✅ |
+| AuthSchema | `tests/schemas/AuthSchema.test.ts` | 5 | ✅ |
 | SchemaExpansion | `tests/schemas/SchemaExpansion.test.ts` | 6 | ✅ |
 | BootLoader | `tests/core/BootLoader.test.ts` | 1 | ✅ |
 | GraphEngine | `tests/core/GraphEngine.test.ts` | 1 | ✅ |
-| GraphLogic | `tests/core/GraphLogic.test.ts` | 2 | ✅ |
+| GraphLogic | `tests/core/GraphLogic.test.ts` | 8 | ✅ |
 | HotPatch | `tests/core/GraphEngineHotPatch.test.ts` | 4 | ✅ |
 | SearchService | `tests/core/SearchService.test.ts` | 4 | ✅ |
 | StoryLoader | `tests/core/StoryLoader.test.ts` | 1 | ✅ |
 | Thumbnailer | `tests/core/Thumbnailer.test.ts` | 8 | ✅ |
-| TransactionManager | `tests/core/TransactionManager.test.ts` | 1 | ✅ |
+| TransactionManager | `tests/core/TransactionManager.test.ts` | 7 | ✅ |
 | DateParser | `tests/utils/DateParser.test.ts` | 4 | ✅ |
 | GEDCOM Import | `tests/core/gedcom/Import.test.ts` | 3 | ✅ |
 | GEDCOM Export | `tests/core/gedcom/Export.test.ts` | 6 | ✅ |
 | GEDCOM RoundTrip | `tests/core/gedcom/RoundTrip.test.ts` | 2 | ✅ |
 | GEDCOM Robustness | `tests/core/gedcom/Robustness.test.ts` | 5 | ✅ |
 | API Server | `tests/api/Server.test.ts` | 21 | ✅ |
+| TimelineSlicer | `tests/core/TimelineSlicer.test.ts` | 7 | ✅ |
+| Authentication | `tests/api/Auth.test.ts` | 11 | ✅ |
 | Watcher | `tests/core/Watcher.test.ts` | 1 | ⏭ Skipped |
 
 **Skipped test justification**: `Watcher.test.ts` causes EMFILE (too many open files) when run in parallel. The underlying hot-patch logic is fully verified by `GraphEngineHotPatch.test.ts` (4 tests). The issue is system file descriptor limits, not a code bug.
@@ -328,4 +320,8 @@ Decisions made during implementation that deviate from or elaborate on the spec.
 | 3 | Snapshot uses `simple-git` (not `isomorphic-git` yet) | Already a dependency. Migration deferred to 3.5.1 TransactionManager refactor |
 | 4 | Snapshot auto-creates initial commit if HEAD missing | Handles fresh repos gracefully without requiring manual setup |
 | 5 | API Server tests init a git repo in `tests/fixtures/data/` | Required for snapshot endpoint testing; created in `beforeEach` |
+| 6 | Auth is optional (graceful degradation) | If `/_meta/auth.yaml` missing, all routes remain public. Allows dev/testing without auth setup |
+| 7 | `bcryptjs` over `bcrypt` for password hashing | Pure JS — no native compilation required, easier cross-platform deployment |
+| 8 | Auth tests use isolated `tests/fixtures/auth-data/` directory | Prevents race conditions with parallel `Server.test.ts` which shares `tests/fixtures/data/` |
+| 9 | GraphEngine re-created per `createServer()` call | Fixes singleton leakage across parallel test files; `onClose` hook nulls the reference |
 

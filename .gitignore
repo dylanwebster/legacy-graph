@@ -4,3 +4,4 @@ coverage
 .DS_Store
 temp_data
 temp_repo
+tests/fixtures/auth-data
