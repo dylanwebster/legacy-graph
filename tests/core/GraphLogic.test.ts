@@ -18,7 +18,7 @@ describe('Graph Logic', () => {
             assets: ["direct.jpg"],
             scrapbook_md: "",
             events: [
-                { id: "e1", type: "birth", date: "1900", sort_date: "1900", assets: [] } as any
+                { id: "e1", type: "birth", date: "1900", sort_date: "1900-01-01", assets: ["birth.jpg"] } as any
             ]
         };
         graph.addNode("P1", { type: 'person', data: person });
