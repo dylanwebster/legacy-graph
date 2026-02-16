@@ -9,7 +9,7 @@ LegacyGraph is a professional-grade, self-hosted genealogy platform. It rejects 
 ### **1.1 Core Axioms**
 
 1.  **The "Notepad" Rule**: The database **IS** the file system. A user must be able to navigate, read, and understand their entire family history using only a basic text editor (VS Code, Notepad). The application is an _enhancer_, not a gatekeeper.
-2.  **Git is the Undo Button**: Every discrete save action in the UI results in a Git commit.
+2.  **Git is the Undo Button**: Every save action in the UI is captured by Git. Rapid edits are batched into atomic commits via a debounced queue (see Section 7.1).
 3.  **Event-Sourced Truth**: Relationships (Spouse) are computed from Events (Marriage - Divorce), not stored as static fields.
 4.  **Local-First Security**: Authentication is local. No cloud dependencies.
 5.  **Data Density**: The UI prioritizes information density over whitespace (VS Code aesthetic).
@@ -18,7 +18,7 @@ LegacyGraph is a professional-grade, self-hosted genealogy platform. It rejects 
 
 *   **Spec First**: Before any code is checked in for subsequent phases of implementation, this spec document must be updated and kept up to date. Discrepancies between Spec and Code are treated as critical bugs.
 *   **Test-Driven Design (TDD) IS MANDATORY**: You must write a failing test case before writing any implementation code. This ensures all logic is verifiable and requirements are explicitly understood before coding.
-*   **Hybrid Hydration**: We use "Nuclear" hydration (reload all) on boot for safety, but **Granular Hot-Patching** (update specific nodes) during live updates for sub-100ms feedback.
+*   **Hybrid Hydration**: We use "Nuclear" hydration (reload all) on boot for safety, accelerated by a **Tiered Cache** (see Section 2.3), and **Granular Hot-Patching** with diff-based edge reconciliation during live updates for sub-100ms feedback.
 
 ---
 
@@ -38,9 +38,30 @@ LegacyGraph is a professional-grade, self-hosted genealogy platform. It rejects 
 
 - **Engine**: Node.js (Fastify) + Graphology (In-Memory Graph).
 - **Behavior**:
-  - **Nuclear Hydration**: On boot, the engine reads **all** files to build the graph in RAM.
-  - **Hot-Patching**: `chokidar` watches the disk. Granular handlers (`add`, `change`, `unlink`) update/patch specific nodes in <100ms without full reloads.
+  - **Nuclear Hydration**: On boot, the engine reads **all** files to build the graph in RAM (see 2.3 for scaling strategy).
+  - **Hot-Patching**: `chokidar` watches the disk. Granular handlers (`add`, `change`, `unlink`) update/patch specific nodes in <100ms without full reloads. Edge updates use a **Diff-Based Reconciliation** strategy (see 4.1).
   - **Indexing**: FlexSearch (In-Memory) for full-text search. Rebuilt on hydration and incrementally updated during hot-patching.
+  - **Computed Cache**: Derived relationships (spouses, siblings) are pre-computed and stored as volatile `_computed` attributes on Graphology nodes, invalidated surgically on change events (see 4.1).
+
+### **2.3 Performance Architecture: Tiered Hydration & Scaling**
+
+The Dual-Head pattern is elegant for small to medium datasets but requires deliberate scaling strategies to avoid bottlenecks as the graph grows beyond thousands of nodes.
+
+**A. Tiered Cache Model**
+
+Nuclear Hydration (parsing and Zod-validating every YAML on boot) scales linearly with dataset size. For large datasets (10,000+ people), this blocks the Node.js event loop and delays startup.
+
+- **Binary Cache**: An intermediate serialized cache (JSON blob at `/_meta/.graph-cache.json`) sits between YAML files and the Graphology runtime. On boot, the engine checks if the cache exists and is fresh.
+- **Incremental Rebuild**: The cache stores the `mtime` (last modified time) of every source YAML file. On boot, only files whose `mtime` is newer than the cached entry are re-parsed from YAML. All other nodes load directly from the pre-validated cache.
+- **Cache Invalidation**: The cache is considered stale and triggers full Nuclear Hydration when: (a) the cache file is missing, (b) the `spec_version` in the cache header does not match the current schema version, or (c) the user explicitly requests a full rebuild via the API.
+
+**B. Worker Thread Hydration**
+
+For datasets large enough that even incremental parsing is noticeable (50,000+ nodes), hydration is offloaded from the main event loop:
+
+- **Strategy**: Use Node.js `worker_threads` to perform YAML parsing, Zod validation, and FlexSearch indexing in a background thread. The main thread remains responsive and can serve a "loading" status to clients.
+- **Handoff**: The worker serializes the validated node map and edge list back to the main thread via `postMessage`. The main thread then performs the final Graphology graph construction (which is fast, as it's just inserting pre-validated data).
+- **Scope**: Worker Thread hydration is an **optimization layer**, not a replacement. The BootLoader logic remains identical; only its execution context changes.
 
 ---
 
@@ -148,16 +169,45 @@ To avoid scanning thousands of binaries on boot, metadata is cached.
   - `mentions`: From Story -> Person.
 
 **Computed Relationships (Runtime)**:
-These are **NOT** stored in YAML. They are derived via graph traversal.
+These are **NOT** stored in YAML. They are derived via graph traversal and cached in volatile `_computed` node attributes.
 
 1.  **Siblings**: `getSiblings(id)`.
     - Logic: Find parents -> Find all children of parents -> Filter `self`.
 2.  **Spouses**: `getCurrentSpouse(id)`.
     - **"Henry VIII Algorithm"**:
       1.  Fetch all `marriage`, `divorce` events for Person.
-      2  Sort by `sort_date`.
+      2.  Sort by `sort_date`.
       3.  Replay timeline: Marriage sets `current_spouse`, Divorce clears it.
       4.  Final check: If `current_spouse` exists, check their `death` events. If dead -> Status `widowed`.
+
+**Graph-Level Memoization (`_computed` Cache)**:
+
+Executing the Henry VIII traversal and sibling lookups on every API request degrades read performance. Instead, computed relationships are pre-calculated and cached:
+
+- **Storage**: Each Graphology node carries a volatile `_computed` attribute (never serialized to YAML or the binary cache). Structure:
+  ```typescript
+  _computed: {
+    currentSpouse: { id: string; status: "married" | "widowed" } | null;
+    siblings: string[];     // Array of Person IDs
+    children: string[];     // Array of Person IDs (reverse lookup)
+    allSpouses: Array<{ id: string; status: string; sortDate: string }>;
+  }
+  ```
+- **Population**: `_computed` is populated during hydration, immediately after all nodes and edges are loaded. The `GraphLogic` module exposes a `computeRelationships(nodeId)` function that writes results directly to the node attributes.
+- **Invalidation**: When a `chokidar` change event fires for a node, the engine recomputes `_computed` for **that node AND all immediate neighbors** (parents, children, spouses). This ensures a marriage event added to Person A also updates Person B's `_computed.currentSpouse`.
+- **API Reads**: API endpoints read directly from `_computed` — no traversal at request time. This turns O(n) graph walks into O(1) attribute lookups.
+
+**Diff-Based Edge Reconciliation (Hot-Patching)**:
+
+The current hot-patching approach drops all outgoing edges and rebuilds them, which is imprecise and can miss stale incoming edges from neighbors.
+
+- **Strategy**: When a YAML file changes, the engine compares the **old** parsed state (retained in memory from the previous hydration) against the **new** parsed state.
+- **Reconciliation Steps**:
+  1.  **Diff `relationships.parents`**: Compute the set difference between old and new parent IDs. Remove edges for dropped parents; add edges for new parents.
+  2.  **Diff `events` (marriage/divorce)**: Compute the set difference of `partner_id` references. Remove/add `spouse_of` implicit links accordingly.
+  3.  **Diff `assets`**: Update asset-reference edges only for changed entries.
+- **Neighbor Cascade**: After reconciling edges for the changed node, trigger `_computed` invalidation (see above) for all affected neighbors.
+- **Fallback**: If the diff produces an inconsistent state (e.g., orphaned edges detected), fall back to a targeted "mini-hydration" that drops and rebuilds all edges for the affected node and its immediate neighborhood.
 
 ### **4.2 Timeline Slicer**
 
@@ -201,7 +251,7 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
   - _Effect_: Writes new YAML, returns ID.
 - `PUT /people/:id`: Update Person.
   - _Body_: Replacement Person Schema.
-  - _Effect_: Overwrites YAML. Triggers Git Commit.
+  - _Effect_: Overwrites YAML. Enqueues change to debounced commit queue (see Section 7.1).
 - `PUT /people/:id/media`: Upload asset.
   - _Multipart_: File data.
   - _Effect_: Saves to `/assets`, updates Person YAML `assets` array.
@@ -215,10 +265,24 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 
 ### **5.3 System Operations**
 
-- `POST /system/snapshot`: Create a Git Tag.
+- `POST /system/snapshot`: Flush pending commits, create a Git Tag.
   - _Body_: `{ name: string }`.
 - `POST /import/gedcom`: Bulk Import.
   - _Warning_: Destructive. Wipes current data directory (except `.git`).
+- `GET /system/status`: Returns runtime health info.
+  - _Returns_: `{ nodeCount: number, edgeCount: number, hydrationState: "ready" | "loading", cacheAge: string | null }`.
+- `POST /system/rebuild`: Force a full Nuclear Hydration, bypassing the tiered cache.
+  - _Effect_: Invalidates `/_meta/.graph-cache.json`, re-parses all YAML files, rebuilds graph and search index from scratch.
+
+### **5.4 Authentication**
+
+- `POST /auth/login`: Authenticate user.
+  - _Body_: `{ username: string, password: string }`.
+  - _Effect_: Validates against `/_meta/auth.yaml` (BCrypt). Returns JWT in HttpOnly Cookie.
+  - _401_: Invalid credentials.
+- `POST /auth/logout`: End session.
+  - _Effect_: Clears HttpOnly Cookie.
+- **Auth Guard**: All endpoints except `POST /auth/login` and `GET /system/status` require a valid JWT.
 
 ---
 
@@ -245,7 +309,22 @@ A dense, 3-column layout:
 
 ### **7.1 Git Operations**
 
-- **Middleware**: "Auto-Commit". Every write operation (`PUT`, `POST`) is wrapped in a Git sequence: `add .` -> `commit -m "Update Person X"`.
+- **Middleware**: "Auto-Commit". Every write operation (`PUT`, `POST`) results in a Git commit that captures the change.
+
+**Debounced Commit Queue**:
+
+Spawning a child process via `simple-git` for every discrete save creates massive I/O latency during rapid edits or bulk updates. The `TransactionManager` implements a batching strategy:
+
+- **Commit Window**: File writes are queued. After the last write in a burst, a **5-second debounce timer** starts. When the timer fires, all pending changes are committed in a single atomic Git commit.
+- **Commit Message**: Batched commits use a summary message: `"Update N files: Person X, Person Y, ..."` (truncated at 72 chars for Git convention).
+- **Flush on Demand**: The API exposes a mechanism to force an immediate flush (e.g., before a snapshot or on graceful shutdown), bypassing the debounce window.
+- **Mutex Retained**: The global Mutex still protects concurrent write access to the file system. The debounce only affects when `git commit` is invoked, not when files are written.
+
+**isomorphic-git Migration**:
+
+- **Rationale**: `simple-git` shells out to the OS Git binary for every operation, incurring process-spawn overhead. `isomorphic-git` is a pure JavaScript Git implementation that runs entirely in the Node.js process — dramatically faster for high-frequency programmatic commits.
+- **Scope**: Replace `simple-git` with `isomorphic-git` for all programmatic operations (`add`, `commit`, `tag`, `log`). The user's system Git remains available for manual CLI use and is unaffected.
+- **Tradeoff**: `isomorphic-git` does not support every Git feature (e.g., advanced merge strategies). For operations like `push`/`pull` (future network sync), fall back to spawning system Git.
 
 ### **7.2 Authentication**
 
@@ -257,23 +336,23 @@ A dense, 3-column layout:
 
 ## **8. Implementation Roadmap**
 
-### **Phase 1 & 2: Core Logic (Completed)**
+### **Phase 1 & 2: Core Logic (Complete)**
 
 The foundation is built. The graph engine hydrates from disk, and schemas are strictly defined.
 
-- [x] **BootLoader**: Implements `src/core/BootLoader.ts` to parse YAMLs via Zod.
-- [x] **GraphEngine**: Implements `src/core/GraphEngine.ts` with `grapphology`, including `hydrate()` and `startWatcher()`.
+- [x] **BootLoader**: Implements `src/core/BootLoader.ts` to parse YAMLs via Zod with `p-limit` concurrency.
+- [x] **GraphEngine**: Implements `src/core/GraphEngine.ts` with `graphology`, including `hydrate()` and `startWatcher()` (Chokidar).
 - [x] **Schemas**:
   - [x] `PersonSchema.ts`: Includes `relationships` (upstream only), `scrapbook_md`, and `_gedcom`.
-  - [x] `EventSchema.ts`: detailed Discriminated Unions for all event types.
+  - [x] `EventSchema.ts`: Detailed Discriminated Unions for all event types.
 - [x] **GraphLogic**: Implements `src/core/GraphLogic.ts` containing the "Henry VIII" algorithm for spouse calculation and `getSiblings`.
-- [x] **TransactionManager**: Safe implementation of atomic file + git writes.
+- [x] **TransactionManager**: Safe implementation of atomic file + Git writes behind a Mutex.
 
 ### **Phase 3: Data Services & API Layer (Backend)**
 
 This phase turns the CLI-like core into a functioning server.
 
-#### **3.1 Search Infrastructure (TDD STRICT)**
+#### **3.1 Search Infrastructure (Complete)**
 
 - [x] **Install Deps**: `flexsearch`.
 - [x] **SearchService Class** (`src/core/SearchService.ts`):
@@ -283,7 +362,7 @@ This phase turns the CLI-like core into a functioning server.
   - [x] Implement `rebuild(graph)`: Iterate all nodes in graph, push to FlexSearch.
   - [x] Integration: Call `searchService.rebuild()` at the end of `GraphEngine.hydrate()`.
 
-#### **3.2 GEDCOM Interchange**
+#### **3.2 GEDCOM Interchange (Import Complete, Export Pending)**
 
 - [x] **GEDCOM Parser** (`src/core/gedcom/Import.ts`):
   - [x] **Library**: Custom simple parser implementing required mappings.
@@ -293,29 +372,88 @@ This phase turns the CLI-like core into a functioning server.
     - `FAM` -> `Marriage Event` + `Parent Relationship`.
   - [x] **Loss Prevention**: Capture all `_ATTR` tags into `_gedcom`.
 - [ ] **GEDCOM Exporter** (`src/core/gedcom/Export.ts`):
-  - [ ] Traverse Graph -> Generate valid GEDCOM string.
+  - [ ] **TDD**: `tests/core/gedcom/Export.test.ts`. Hydrate a test graph, export to GEDCOM string, verify valid 5.5.1 output.
+  - [ ] Traverse Graph -> Serialize `Person` nodes to `INDI` records.
+  - [ ] Serialize `marriage` events and `parent` relationships to `FAM` records.
+  - [ ] Re-emit preserved `_gedcom` tags to prevent data loss on round-trip.
 
 #### **3.3 Media Services**
 
 - [ ] **Thumbnail Service** (`src/core/Thumbnailer.ts`):
   - [ ] **Library**: `sharp`.
-  - [ ] **TDD**: Test resizing a sample JPG.
-  - [ ] Implement `getThumbnail(filename, width)`. Check cache -> Generate -> Save -> Return path.
+  - [ ] **TDD**: `tests/core/Thumbnailer.test.ts`. Test resizing a sample JPG, verify dimensions and output format.
+  - [ ] Implement `getThumbnail(filename, width)`. Check cache (`/_meta/.thumbnails/`) -> Generate -> Save -> Return path.
 
 #### **3.4 The API Server**
 
 - [ ] **Fastify Setup** (`src/server.ts`):
-  - [ ] **TDD**: `tests/api/Server.test.ts` using `supertest`.
+  - [ ] **TDD**: `tests/api/Server.test.ts` using `supertest`. Write integration tests for every endpoint before implementation.
   - [ ] Configure `fastify-cors`.
   - [ ] Inject `GraphEngine` singleton.
-- [ ] **Route Structure**:
-  - `src/api/routes/people.ts`
-  - `src/api/routes/search.ts`
-  - `src/api/routes/system.ts`
+- [ ] **Route: People** (`src/api/routes/people.ts`):
+  - [ ] `GET /api/people/:id` — Return hydrated Person (schema data + `_computed` relations + timeline).
+  - [ ] `POST /api/people` — Create new Person, write YAML.
+  - [ ] `PUT /api/people/:id` — Update Person, overwrite YAML, trigger commit queue.
+  - [ ] `PUT /api/people/:id/media` — Multipart upload, save to `/assets`, update YAML.
+- [ ] **Route: Search** (`src/api/routes/search.ts`):
+  - [ ] `GET /api/search?q=` — Delegate to `SearchService`, return categorized results.
+- [ ] **Route: System** (`src/api/routes/system.ts`):
+  - [ ] `POST /api/system/snapshot` — Flush commit queue, create Git tag.
+  - [ ] `POST /api/import/gedcom` — Bulk import (destructive).
+  - [ ] `GET /api/system/status` — Return hydration state, node/edge counts, cache freshness.
+  - [ ] `POST /api/system/rebuild` — Force full Nuclear Hydration, invalidate tiered cache.
+- [ ] **Authentication Middleware** (`src/api/middleware/auth.ts`):
+  - [ ] **TDD**: `tests/api/Auth.test.ts` — Verify unauthenticated requests return 401. Verify valid JWT grants access. Verify expired JWT is rejected.
+  - [ ] Implement local credential store in `/_meta/auth.yaml` (BCrypt hashed passwords).
+  - [ ] Implement JWT session issuance on `POST /api/auth/login` (HttpOnly Cookie).
+  - [ ] Implement `POST /api/auth/logout` (clear cookie).
+  - [ ] Apply auth guard to all routes except `POST /api/auth/login` and `GET /api/system/status`.
+
+### **Phase 3.5: Backend Optimization (New)**
+
+Performance hardening based on architectural review. These items can be implemented incrementally alongside or immediately after Phase 3.
+
+#### **3.5.1 TransactionManager Refactor**
+
+- [ ] **Debounced Commit Queue**: Refactor `TransactionManager` to batch file writes into a single Git commit after a 5-second debounce window (see Section 7.1).
+- [ ] **isomorphic-git Migration**: Replace `simple-git` with `isomorphic-git` for programmatic `add`/`commit`/`tag`/`log` operations. Retain system Git fallback for `push`/`pull`.
+- [ ] **TDD**: `tests/core/TransactionManager.test.ts` — Verify batching behavior: rapid sequential writes produce a single commit. Verify flush-on-demand bypasses debounce.
+
+#### **3.5.2 Computed Relationship Cache**
+
+- [ ] **`_computed` Layer**: Implement `GraphLogic.computeRelationships(nodeId)` that writes `currentSpouse`, `siblings`, `children`, and `allSpouses` to the node's `_computed` attribute.
+- [ ] **Hydration Integration**: Call `computeRelationships()` for every node at the end of `GraphEngine.hydrate()`, after all edges are established.
+- [ ] **Invalidation Integration**: Wire `chokidar` change handlers to recompute `_computed` for the changed node AND its immediate graph neighbors.
+- [ ] **SearchService Hot-Patch Wiring**: Wire `chokidar` change handlers to incrementally update/remove FlexSearch entries for the affected node (add/update on `change`/`add`, remove on `unlink`), rather than calling `rebuild()` on every change.
+- [ ] **TDD**: `tests/core/GraphLogic.test.ts` — Verify `_computed` is populated after hydration. Verify invalidation after a simulated file change recomputes affected nodes only.
+- [ ] **TDD**: `tests/core/SearchService.test.ts` — Verify incremental index update: change a person's name, confirm search returns the new name and not the old.
+
+#### **3.5.3 Tiered Cache**
+
+- [ ] **Binary Graph Cache**: Implement serialization of the validated graph to `/_meta/.graph-cache.json` at the end of hydration. Store `mtime` per source file and a `spec_version` header matching the current schema version (e.g., `"5.0"`).
+- [ ] **Incremental Boot**: On startup, load the cache. If `spec_version` mismatches or cache is missing, trigger full Nuclear Hydration. Otherwise, compare `mtime` of each YAML file, re-parse only stale files.
+- [ ] **Cache Write**: Serialize updated graph cache to disk at the end of every successful hydration (both full and incremental).
+- [ ] **TDD**: `tests/core/GraphCache.test.ts` — Verify cache hit skips YAML parsing. Verify stale `mtime` triggers re-parse. Verify missing cache triggers full Nuclear Hydration. Verify `spec_version` mismatch triggers full Nuclear Hydration.
+
+#### **3.5.4 Diff-Based Edge Reconciliation**
+
+- [ ] **Edge Diffing**: Implement reconciliation function in `GraphEngine` that compares old vs. new parsed state of a YAML file and applies minimal edge additions/removals (parents, marriage/divorce partner_ids, assets).
+- [ ] **Neighbor Cascade**: After edge reconciliation, trigger `_computed` invalidation and SearchService incremental update for all affected neighbors.
+- [ ] **Mini-Hydration Fallback**: Implement fallback that detects inconsistent state (orphaned edges, dangling references) after a diff and drops/rebuilds all edges for the affected node and its immediate neighborhood.
+- [ ] **TDD**: `tests/core/GraphEngine.test.ts` — Verify adding a parent to a YAML file adds exactly one edge. Verify removing a parent drops exactly one edge. Verify unrelated edges are untouched. Verify orphaned edge triggers mini-hydration fallback.
+
+#### **3.5.5 Worker Thread Hydration (Deferred — Large Dataset Optimization)**
+
+For datasets at the 50,000+ node scale. This is an optimization layer and does not change BootLoader logic — only its execution context.
+
+- [ ] **Worker Script**: Create `src/core/HydrationWorker.ts` that runs BootLoader (YAML parsing + Zod validation) inside a `worker_threads` Worker.
+- [ ] **Main Thread Handoff**: Worker serializes validated node map and edge list via `postMessage`. Main thread constructs Graphology graph from pre-validated data.
+- [ ] **Loading State**: While worker is running, `GET /system/status` returns `hydrationState: "loading"`. API endpoints return `503 Service Unavailable` until hydration completes.
+- [ ] **TDD**: `tests/core/HydrationWorker.test.ts` — Verify worker produces identical graph output to main-thread hydration. Verify main thread remains responsive during worker execution.
 
 ### **Phase 4: The Experience (Frontend)**
 
-Building the "VS Code for Genealogy" interface.
+Building the "VS Code for Genealogy" interface. Start with the "Holy Grail" Person Detail page — it will immediately expose any deficiencies in API design (over-fetching, missing computed fields, etc.).
 
 #### **4.1 Scaffolding & Design System**
 - [ ] **Init**: Vite + React + TypeScript + TanStack Router (for type-safe routing).
@@ -327,22 +465,24 @@ Building the "VS Code for Genealogy" interface.
   - [ ] `Avatar` (displaying image or initials).
   - [ ] `CmdK` (Command Palette) implementation.
 
-#### **4.2 The Dashboard**
+#### **4.2 The "Holy Grail" (Person Detail) — Build First**
+- [ ] **Layout**: CSS Grid 3-column (Fixed Left, Scrollable Center, Collapsible Right).
+- [ ] **Timeline Feed**:
+  - [ ] Consume pre-computed `TimelineSlicer` output from API.
+  - [ ] Render `EventCard` components.
+  - [ ] Render `Gap` components (visualizing missing years).
+- [ ] **Identity Panel (Left)**: Static bio, stats, relationship chips reading from `_computed` (Parents/Spouses/Children).
+- [ ] **Context Panel (Right)**: Assets grid, Markdown Notebook (`scrapbook_md`), Raw YAML tab.
+- [ ] **Editors**:
+  - [ ] Implement Inline Editing for simple fields (Name, Birth Date).
+  - [ ] Embed a Markdown Editor for `scrapbook_md`.
+
+#### **4.3 The Dashboard**
 - [ ] **Stats Panel**: Total People, Total Families, Last Edited File.
 - [ ] **Force Graph**:
   - [ ] Integrate `react-force-graph-2d`.
   - [ ] Map API graph data to visualization nodes.
   - [ ] Implement "Gravity Bands" (positioning nodes by birth year on Y-axis).
-
-#### **4.3 The "Holy Grail" (Person Detail)**
-- [ ] **Layout**: CSS Grid 3-column (Fixed Left, Scrollable Center, Collapsible Right).
-- [ ] **Timeline Feed**:
-  - [ ] Implement `TimelineSlicer` (logic to merge events + stories).
-  - [ ] Render `EventCard` components.
-  - [ ] Render `Gap` components (visualizing missing years).
-- [ ] **Editors**:
-  - [ ] Implement Inline Editing for simple fields (Name, Birth Date).
-  - [ ] Embed a Markdown Editor for `scrapbook_md`.
 
 ### **Phase 5: Immersion & Polish**
 
@@ -369,16 +509,25 @@ Building the "VS Code for Genealogy" interface.
 
 ### **9.1 Unit Tests (Vitest)**
 
-*   **GEDCOM**: Verify parsing of 5.5.1 and 7.0 specific tags.
+*   **GEDCOM**: Verify parsing of 5.5.1 and 7.0 specific tags. Verify export round-trip preserves `_gedcom` tags.
 *   **Search**: Verify fuzzy matching for typos in names.
 *   **Timeline**: Verify Gap Detection logic.
 *   **Schemas**: Verify Zod schemas reject invalid data and accept new fields (`scrapbook_md`, `_gedcom`).
+*   **Computed Cache (`_computed`)**: Verify `computeRelationships()` populates correct spouse, sibling, and children data. Verify invalidation recomputes only affected nodes and neighbors.
+*   **Edge Reconciliation**: Verify diff-based patching adds/removes exact edges for parent and marriage changes without touching unrelated edges.
+*   **Graph Cache**: Verify cache hit skips YAML parsing. Verify stale `mtime` triggers selective re-parse. Verify missing/corrupt cache triggers full Nuclear Hydration.
+*   **TransactionManager**: Verify debounced batching collapses rapid writes into a single commit. Verify flush-on-demand bypasses the debounce window.
+*   **SearchService Hot-Patch**: Verify incremental index update on node change. Verify index removal on node unlink.
 
 ### **9.2 Integration Tests (Supertest)**
 
 *   **Media Upload**: Test multipart upload -> FS write -> YAML update.
-*   **Snapshots**: Trigger snapshot -> Verify git tag exists.
+*   **Snapshots**: Trigger snapshot -> Verify git tag exists. Verify pending commits are flushed before tagging.
 *   **Graph Hydration**: Verify `BootLoader` correctly populates the `GraphEngine`.
+*   **API `_computed` Contract**: Verify `GET /people/:id` returns pre-computed relationships without triggering on-the-fly traversal.
+*   **System Status**: Verify `GET /system/status` returns accurate node/edge counts and hydration state.
+*   **System Rebuild**: Verify `POST /system/rebuild` invalidates cache and triggers full re-hydration.
+*   **Authentication**: Verify login returns HttpOnly JWT cookie. Verify protected endpoints reject unauthenticated requests. Verify logout clears session.
 
 ### **9.3 E2E Tests (Playwright)**
 
