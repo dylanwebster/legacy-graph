@@ -200,4 +200,80 @@ describe('SearchService', () => {
         results = await searchService.search("Wilmslow");
         expect(results.places).toHaveLength(0);
     });
+
+    // --- Pagination Tests (Phase 3.6.3) ---
+
+    it('should paginate search results with limit and offset', async () => {
+        // Add more people so we have enough to paginate
+        const people = [];
+        for (let i = 0; i < 10; i++) {
+            const person: Person = {
+                version: "5.0",
+                id: `N_P${i}`,
+                created: "2023-01-01T00:00:00Z",
+                last_modified: "2023-01-01T00:00:00Z",
+                names: [{ first: `TestPerson`, last: `Number${i}`, primary: true }],
+                sex: "U",
+                tags: [],
+                relationships: { parents: [] },
+                events: [],
+                assets: [],
+                scrapbook_md: ""
+            };
+            people.push(person);
+            graph.addNode(person.id, { type: 'person', data: person });
+        }
+
+        await searchService.rebuild(graph);
+
+        // Search with limit=3 — should return only 3 results
+        const results = await searchService.search("TestPerson", { limit: 3, offset: 0 });
+        expect(results.people).toHaveLength(3);
+        expect(results.totalCounts.people).toBe(10);
+    });
+
+    it('should apply offset correctly in pagination', async () => {
+        // Add enough people
+        for (let i = 0; i < 5; i++) {
+            const person: Person = {
+                version: "5.0",
+                id: `N_OFF${i}`,
+                created: "2023-01-01T00:00:00Z",
+                last_modified: "2023-01-01T00:00:00Z",
+                names: [{ first: `OffsetTest`, last: `Person${i}`, primary: true }],
+                sex: "U",
+                tags: [],
+                relationships: { parents: [] },
+                events: [],
+                assets: [],
+                scrapbook_md: ""
+            };
+            graph.addNode(person.id, { type: 'person', data: person });
+        }
+
+        await searchService.rebuild(graph);
+
+        // Get all results
+        const allResults = await searchService.search("OffsetTest", { limit: 100, offset: 0 });
+        expect(allResults.people.length).toBe(5);
+
+        // Offset beyond total → empty results
+        const emptyResults = await searchService.search("OffsetTest", { limit: 10, offset: 100 });
+        expect(emptyResults.people).toHaveLength(0);
+        expect(emptyResults.totalCounts.people).toBe(5); // totalCounts still reflects full count
+
+        // Offset=2, limit=2 → get items 2,3
+        const pageResults = await searchService.search("OffsetTest", { limit: 2, offset: 2 });
+        expect(pageResults.people).toHaveLength(2);
+        expect(pageResults.totalCounts.people).toBe(5);
+    });
+
+    it('should return totalCounts even without pagination options (backward compatible)', async () => {
+        await searchService.rebuild(graph);
+        const results = await searchService.search("Turing");
+        expect(results.totalCounts).toBeDefined();
+        expect(results.totalCounts.people).toBe(1);
+        expect(results.totalCounts.stories).toBe(0);
+        expect(results.totalCounts.places).toBe(0);
+    });
 });

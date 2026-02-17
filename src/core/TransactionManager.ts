@@ -1,11 +1,13 @@
 // src/core/TransactionManager.ts
 import { Mutex } from 'async-mutex';
-import simpleGit, { SimpleGit } from 'simple-git';
+import git from 'isomorphic-git';
+import * as nodeFs from 'fs';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
 export interface TransactionManagerOptions {
     debounceMs?: number; // Default: 5000 (5 seconds)
+    author?: { name: string; email: string };
 }
 
 interface PendingWrite {
@@ -14,20 +16,20 @@ interface PendingWrite {
 }
 
 export class TransactionManager {
-    private git: SimpleGit;
     private rootDir: string;
     private writeMutex: Mutex;
     private debounceMs: number;
     private debounceTimer: ReturnType<typeof setTimeout> | null = null;
     private pendingWrites: PendingWrite[] = [];
     private commitMutex: Mutex;
+    private author: { name: string; email: string };
 
     constructor(rootDir: string, options: TransactionManagerOptions = {}) {
         this.rootDir = rootDir;
-        this.git = simpleGit(rootDir);
         this.writeMutex = new Mutex();
         this.commitMutex = new Mutex();
         this.debounceMs = options.debounceMs ?? 5000;
+        this.author = options.author ?? { name: 'LegacyGraph', email: 'legacygraph@localhost' };
     }
 
     /**
@@ -105,7 +107,8 @@ export class TransactionManager {
 
     /**
      * Commit all pending writes in a single atomic git commit.
-     * Uses a mutex to prevent concurrent commit operations.
+     * Uses isomorphic-git (pure JS, in-process — no child-process spawning).
+     * Protected by a mutex to prevent concurrent commit operations.
      */
     private async commitPending(): Promise<void> {
         await this.commitMutex.runExclusive(async () => {
@@ -116,14 +119,36 @@ export class TransactionManager {
             this.pendingWrites = [];
 
             try {
-                // Stage all pending files
+                // Stage all pending files using isomorphic-git
                 for (const write of batch) {
-                    await this.git.add(path.join(this.rootDir, write.relativePath));
+                    await git.add({
+                        fs: nodeFs,
+                        dir: this.rootDir,
+                        filepath: write.relativePath
+                    });
                 }
 
                 // Build commit message (truncated at 72 chars per git convention)
                 const message = this.buildCommitMessage(batch);
-                await this.git.commit(message);
+
+                // Read author from git config, falling back to configured default
+                let author = this.author;
+                try {
+                    const configName = await git.getConfig({ fs: nodeFs, dir: this.rootDir, path: 'user.name' });
+                    const configEmail = await git.getConfig({ fs: nodeFs, dir: this.rootDir, path: 'user.email' });
+                    if (configName && configEmail) {
+                        author = { name: configName, email: configEmail };
+                    }
+                } catch {
+                    // Use default author if config is not available
+                }
+
+                await git.commit({
+                    fs: nodeFs,
+                    dir: this.rootDir,
+                    message,
+                    author
+                });
             } catch (err: any) {
                 console.error('[TransactionManager] Commit failed:', err.message);
                 // Re-queue failed writes so they're not lost

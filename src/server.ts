@@ -5,7 +5,8 @@ import cookie from '@fastify/cookie';
 import { GraphEngine } from './core/GraphEngine';
 import { Person, PersonSchema } from './schemas/PersonSchema';
 import { GedcomReader } from './core/gedcom/Import';
-import simpleGit from 'simple-git';
+import git from 'isomorphic-git';
+import * as nodeFs from 'fs';
 import { nanoid } from 'nanoid';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -170,11 +171,11 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         return { message: 'Logout successful' };
     });
 
-    // Search Endpoint
+    // Search Endpoint (with pagination)
     server.get<{
-        Querystring: { q?: string }
+        Querystring: { q?: string; limit?: string; offset?: string }
     }>('/api/search', async (request, reply) => {
-        const { q } = request.query;
+        const { q, limit: limitStr, offset: offsetStr } = request.query;
         
         if (!q) {
             return reply.status(400).send({ 
@@ -183,14 +184,27 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
             });
         }
 
+        // Parse and validate pagination params
+        const limit = limitStr ? parseInt(limitStr, 10) : 50;
+        const offset = offsetStr ? parseInt(offsetStr, 10) : 0;
+
+        if (isNaN(limit) || limit < 0 || limit > 200) {
+            return reply.status(400).send({
+                error: 'limit must be between 0 and 200',
+                code: 'VALIDATION_ERROR'
+            });
+        }
+
+        if (isNaN(offset) || offset < 0) {
+            return reply.status(400).send({
+                error: 'offset must be >= 0',
+                code: 'VALIDATION_ERROR'
+            });
+        }
+
         try {
-            const results = await graphEngine!.searchService.search(q);
-            
-            return {
-                people: results.people,
-                stories: results.stories,
-                places: results.places
-            };
+            const results = await graphEngine!.searchService.search(q, { limit, offset });
+            return results;
         } catch (error: any) {
             console.error('[API] Search error:', error);
             return reply.status(500).send({
@@ -201,11 +215,13 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         }
     });
 
-    // Get Person by ID
+    // Get Person by ID (with optional timeline pagination)
     server.get<{
-        Params: { id: string }
+        Params: { id: string },
+        Querystring: { timeline_limit?: string; timeline_offset?: string }
     }>('/api/people/:id', async (request, reply) => {
         const { id } = request.params;
+        const { timeline_limit: limitStr, timeline_offset: offsetStr } = request.query;
         const graph = graphEngine!.getGraph();
         
         if (!graph.hasNode(id)) {
@@ -226,8 +242,29 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
             allSpouses: []
         };
 
-        // Pre-compute timeline feed
-        const timeline = sliceTimeline(graph, id);
+        // Pre-compute timeline feed (with optional pagination)
+        let timeline: any;
+        if (limitStr !== undefined || offsetStr !== undefined) {
+            const limit = limitStr ? parseInt(limitStr, 10) : 50;
+            const offset = offsetStr ? parseInt(offsetStr, 10) : 0;
+
+            if (isNaN(limit) || limit < 0 || limit > 200) {
+                return reply.status(400).send({
+                    error: 'timeline_limit must be between 0 and 200',
+                    code: 'VALIDATION_ERROR'
+                });
+            }
+            if (isNaN(offset) || offset < 0) {
+                return reply.status(400).send({
+                    error: 'timeline_offset must be >= 0',
+                    code: 'VALIDATION_ERROR'
+                });
+            }
+
+            timeline = sliceTimeline(graph, id, { limit, offset });
+        } else {
+            timeline = sliceTimeline(graph, id);
+        }
 
         return {
             ...person,
@@ -524,16 +561,16 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         }
 
         try {
-            const git = simpleGit(config.dataDir);
-            
             // Flush pending commits before creating the tag
             if (txManager?.hasPending()) {
                 await txManager.flush();
             }
             
             // Check if git repo exists
-            const isRepo = await git.checkIsRepo();
-            if (!isRepo) {
+            const gitDir = path.join(config.dataDir, '.git');
+            try {
+                await fs.access(gitDir);
+            } catch {
                 return reply.status(500).send({
                     error: 'Not a git repository',
                     code: 'NOT_GIT_REPO'
@@ -542,21 +579,35 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
 
             // Check if there are any commits
             try {
-                await git.log();
+                await git.log({ fs: nodeFs, dir: config.dataDir, depth: 1 });
             } catch (err) {
                 // No commits yet - make an initial one
                 try {
                     const gitignorePath = path.join(config.dataDir, '.gitignore');
                     await fs.writeFile(gitignorePath, '# LegacyGraph\n');
-                    await git.add('.gitignore');
-                    await git.commit('Initial commit');
+                    await git.add({ fs: nodeFs, dir: config.dataDir, filepath: '.gitignore' });
+                    await git.commit({
+                        fs: nodeFs,
+                        dir: config.dataDir,
+                        message: 'Initial commit',
+                        author: { name: 'LegacyGraph', email: 'legacygraph@localhost' }
+                    });
                 } catch (commitErr) {
                     // Ignore if already exists
                 }
             }
 
-            // Create annotated tag
-            await git.addAnnotatedTag(name, `Snapshot: ${name}`);
+            // Create annotated tag via isomorphic-git
+            await git.annotatedTag({
+                fs: nodeFs,
+                dir: config.dataDir,
+                ref: name,
+                message: `Snapshot: ${name}`,
+                tagger: {
+                    name: 'LegacyGraph',
+                    email: 'legacygraph@localhost'
+                }
+            });
 
             return {
                 tag: name,

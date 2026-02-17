@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { createServer, closeServer } from '../../src/server';
 import supertest from 'supertest';
-import simpleGit from 'simple-git';
+import gitLib from 'isomorphic-git';
 import * as fs from 'fs';
+import * as nodeFs from 'fs';
 import * as path from 'path';
 import bcrypt from 'bcryptjs';
 import yaml from 'js-yaml';
@@ -30,14 +31,18 @@ describe('Authentication', () => {
         // Ensure git repo exists
         const gitDir = path.join(testDataDir, '.git');
         if (!fs.existsSync(gitDir)) {
-            const git = simpleGit(testDataDir);
-            await git.init();
-            await git.addConfig('user.name', 'Test User');
-            await git.addConfig('user.email', 'test@example.com');
+            await gitLib.init({ fs: nodeFs, dir: testDataDir });
+            await gitLib.setConfig({ fs: nodeFs, dir: testDataDir, path: 'user.name', value: 'Test User' });
+            await gitLib.setConfig({ fs: nodeFs, dir: testDataDir, path: 'user.email', value: 'test@example.com' });
             const gitignorePath = path.join(testDataDir, '.gitignore');
             fs.writeFileSync(gitignorePath, '# Test git repo\n');
-            await git.add('.gitignore');
-            await git.commit('Initial commit');
+            await gitLib.add({ fs: nodeFs, dir: testDataDir, filepath: '.gitignore' });
+            await gitLib.commit({
+                fs: nodeFs,
+                dir: testDataDir,
+                message: 'Initial commit',
+                author: { name: 'Test User', email: 'test@example.com' }
+            });
         }
 
         // Create /_meta/auth.yaml with test credentials

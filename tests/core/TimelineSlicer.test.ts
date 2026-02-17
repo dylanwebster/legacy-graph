@@ -147,4 +147,58 @@ describe('TimelineSlicer', () => {
         expect((timeline[3] as any).years).toBe(50);
         expect(timeline[4].type).toBe('death');
     });
+
+    // --- Pagination Tests (Phase 3.6.3) ---
+
+    it('should return paginated results with totalCount', () => {
+        const person = makePerson('N_paged', {
+            events: [
+                { id: 'e1', type: 'birth', date: '1800', sort_date: '1800-01-01', assets: [] } as any,
+                { id: 'e2', type: 'residence', date: '1830', sort_date: '1830-06-01', assets: [] } as any,
+                { id: 'e3', type: 'death', date: '1880', sort_date: '1880-12-31', assets: [] } as any,
+            ]
+        });
+        graph.addNode('N_paged', { type: 'person', data: person });
+
+        // Full timeline has 5 items: birth, gap, residence, gap, death
+        const full = sliceTimeline(graph, 'N_paged');
+        expect(full).toHaveLength(5);
+
+        // Paginate: limit=2, offset=0 → first 2 items
+        const page1 = sliceTimeline(graph, 'N_paged', { limit: 2, offset: 0 });
+        expect(page1.items).toHaveLength(2);
+        expect(page1.totalCount).toBe(5);
+        expect(page1.offset).toBe(0);
+        expect(page1.limit).toBe(2);
+        expect(page1.items[0].type).toBe('birth');
+        expect(page1.items[1].type).toBe('gap');
+    });
+
+    it('should handle offset beyond totalCount', () => {
+        const person = makePerson('N_off', {
+            events: [
+                { id: 'e1', type: 'birth', date: '1900', sort_date: '1900-01-01', assets: [] } as any,
+            ]
+        });
+        graph.addNode('N_off', { type: 'person', data: person });
+
+        const result = sliceTimeline(graph, 'N_off', { limit: 10, offset: 100 });
+        expect(result.items).toHaveLength(0);
+        expect(result.totalCount).toBe(1);
+    });
+
+    it('should return all items when no pagination options are provided (backward compat)', () => {
+        const person = makePerson('N_compat', {
+            events: [
+                { id: 'e1', type: 'birth', date: '1900', sort_date: '1900-01-01', assets: [] } as any,
+                { id: 'e2', type: 'death', date: '1960', sort_date: '1960-01-01', assets: [] } as any,
+            ]
+        });
+        graph.addNode('N_compat', { type: 'person', data: person });
+
+        // Without pagination options, sliceTimeline returns all items as a flat array (backward compat)
+        const result = sliceTimeline(graph, 'N_compat');
+        expect(Array.isArray(result)).toBe(true);
+        expect(result).toHaveLength(3); // birth, gap, death
+    });
 });

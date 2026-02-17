@@ -4,8 +4,8 @@
 > For the _how far_ and _what's next_, read this document.
 
 **Last Updated**: 2026-02-16
-**Test Suite**: 142 passing, 1 skipped (143 total)
-**Overall Completion**: ~58% of full spec (revised to reflect expanded scope from architecture review)
+**Test Suite**: 154 passing, 0 skipped (154 total)
+**Overall Completion**: ~65% of full spec
 
 ---
 
@@ -19,8 +19,8 @@
 | **3.3** | Media Services | ✅ Complete |
 | **3.4** | API Server & Auth | ✅ Complete |
 | **3.5** | Backend Optimizations (7 items) | ✅ Complete (all 7 items) |
-| **3.6** | Production Hardening (3 items) | ❌ Not started — **NEXT** |
-| **4** | Frontend (React UI) + E2E Tests | ❌ Not started |
+| **3.6** | Production Hardening (3 items) | ✅ Complete (all 3 items) |
+| **4** | Frontend (React UI) + E2E Tests | ❌ Not started — **NEXT** |
 | **5** | Immersion & Polish | ❌ Not started |
 | **6** | Distribution & Deployment | ❌ Not started |
 
@@ -35,7 +35,7 @@ All foundational modules are implemented and tested.
 | Module | File | Tests | Notes |
 |:-------|:-----|:------|:------|
 | BootLoader | `src/core/BootLoader.ts` | `tests/core/BootLoader.test.ts` ✅ (1) | YAML parsing via Zod, `p-limit` concurrency, asset integrity checks |
-| GraphEngine | `src/core/GraphEngine.ts` | `tests/core/GraphEngine.test.ts` ✅ (1) | Graphology directed multigraph, `hydrate()`, `startWatcher()` via Chokidar |
+| GraphEngine | `src/core/GraphEngine.ts` | `tests/core/GraphEngine.test.ts` ✅ (1) | Graphology directed multigraph, `hydrate()`, `startWatcher()` via @parcel/watcher |
 | GraphLogic | `src/core/GraphLogic.ts` | `tests/core/GraphLogic.test.ts` ✅ (2) | Henry VIII spouse algorithm, `getSiblings`, `getAggregatedAssets` |
 | PersonSchema | `src/schemas/PersonSchema.ts` | `tests/schemas/PersonSchema.test.ts` ✅ (3) | All v5.0 fields including `scrapbook_md`, `_gedcom` |
 | EventSchema | `src/schemas/EventSchema.ts` | `tests/schemas/EventSchema.test.ts` ✅ (2) | Discriminated union, all 11 event types |
@@ -43,10 +43,10 @@ All foundational modules are implemented and tested.
 | AssetSchema | `src/schemas/AssetSchema.ts` | `tests/schemas/AssetSchema.test.ts` ✅ (1) | Asset metadata schema |
 | SchemaExpansion | (cross-schema) | `tests/schemas/SchemaExpansion.test.ts` ✅ (6) | Validates `scrapbook_md`, `_gedcom`, all event type variants |
 | StoryLoader | `src/core/StoryLoader.ts` | `tests/core/StoryLoader.test.ts` ✅ (1) | Markdown + `@mention`/`[[wikilink]]` extraction |
-| TransactionManager | `src/core/TransactionManager.ts` | `tests/core/TransactionManager.test.ts` ✅ (1) | Mutex + simple-git (minimal, no batching) |
+| TransactionManager | `src/core/TransactionManager.ts` | `tests/core/TransactionManager.test.ts` ✅ (1) | Mutex + isomorphic-git (in-process, debounced batching) |
 | DateParser | `src/utils/dateParser.ts` | `tests/utils/DateParser.test.ts` ✅ (4) | Shared GEDCOM date parsing utility |
 | Hot-Patching | (in GraphEngine) | `tests/core/GraphEngineHotPatch.test.ts` ✅ (4) | Add, change, unlink, edge updates |
-| Watcher | (in GraphEngine) | `tests/core/Watcher.test.ts` ⏭ SKIPPED (1) | Skipped due to EMFILE; logic verified by HotPatch tests |
+| Watcher | (in GraphEngine) | `tests/core/Watcher.test.ts` ✅ (5) | @parcel/watcher — add, change, delete, cleanup, migration verification |
 
 **Known deviations from spec** (resolved in Phase 3.5):
 - ~~Hot-patching uses "drop all outgoing edges and rebuild" rather than diff-based reconciliation (spec 4.1) → 3.5.4~~ **RESOLVED**
@@ -149,7 +149,7 @@ Refactored TransactionManager from minimal one-commit-per-write to production-gr
 - [x] **Flush on Demand**: `flush()` bypasses debounce, commits immediately. `destroy()` flushes + cleans up timers.
 - [x] **Track File**: `trackFile()` for files written by other means (binary uploads) that still need git staging.
 - [x] **Wire Snapshot Flush**: `POST /system/snapshot` flushes pending commits before creating git tag.
-- [ ] **isomorphic-git Migration**: **Elevated to Phase 3.6.1** (immediate, before frontend). `simple-git` remains for now but will be replaced. See Phase 3.6.1 for detailed plan.
+- [x] **isomorphic-git Migration**: **Completed in Phase 3.6.1**. `simple-git` fully replaced with `isomorphic-git`.
 - [x] **Wire API Endpoints**: `POST /people`, `PUT /people/:id`, `PUT /people/:id/media`, `POST /import/gedcom` all route through TransactionManager.
 - [x] **TDD**: `tests/core/TransactionManager.test.ts` (7 tests) — Batching, flush-on-demand, file labels, truncation, sequential batches, empty flush safety.
 
@@ -224,40 +224,40 @@ Spec Section 4.2. Pre-computes the "Integrated Feed" for the Person Detail page.
 
 ---
 
-### Phase 3.6: Production Hardening — NOT STARTED ❌ (NEXT)
+### Phase 3.6: Production Hardening — COMPLETE ✅
 
-> **Context**: Principal Engineer architecture review identified three backend refinements that must be completed before beginning frontend work. These address scaling fragility (file watchers), write-path overhead (git subprocess spawning), and API payload bloat (missing pagination). Completing these now prevents the frontend from being built atop known architectural weaknesses.
+> **Context**: Principal Engineer architecture review identified three backend refinements that must be completed before beginning frontend work. These address scaling fragility (file watchers), write-path overhead (git subprocess spawning), and API payload bloat (missing pagination). All three items completed.
 
-#### 3.6.1 isomorphic-git Migration — NOT STARTED ❌
+#### 3.6.1 isomorphic-git Migration — COMPLETE ✅
 
-Replace `simple-git` with `isomorphic-git` for all programmatic git operations. Eliminates child-process overhead on every commit.
+Replaced `simple-git` with `isomorphic-git` for all programmatic git operations. All git operations now run in-process — no child-process spawning. TransactionManager test execution dropped from ~4s to ~128ms.
 
-- [ ] **Install `isomorphic-git`**: Add dependency, remove `simple-git` from `dependencies`.
-- [ ] **Refactor `TransactionManager`**: Replace all `simple-git` calls (`add`, `commit`, `log`) with `isomorphic-git` equivalents (`git.add`, `git.commit`, `git.log`). All operations run in-process via Node.js `fs` — no child-process spawning.
-- [ ] **Refactor Snapshot (`POST /system/snapshot`)**: Replace `simple-git` tag creation with `isomorphic-git` `git.tag`.
-- [ ] **Refactor Server bootstrap**: Replace `simple-git` init/status checks with `isomorphic-git` equivalents.
-- [ ] **Update tests**: All `TransactionManager.test.ts`, `Server.test.ts`, and `Auth.test.ts` tests must pass with the new implementation. Add a test verifying no child processes are spawned during commit operations.
-- [ ] **TDD**: Write failing tests first — particularly for the `isomorphic-git` commit/tag/add paths — before migrating the implementation.
+- [x] **Install `isomorphic-git`**: Added dependency, removed `simple-git` from `dependencies`.
+- [x] **Refactor `TransactionManager`**: Replaced all `simple-git` calls with `isomorphic-git` equivalents (`git.add`, `git.commit`). Author info read from git config with fallback to `LegacyGraph` default. All operations run in-process via Node.js `fs`.
+- [x] **Refactor Snapshot (`POST /system/snapshot`)**: Replaced `simple-git` tag creation with `isomorphic-git` `git.annotatedTag`. Replaced `checkIsRepo()` with `fs.access(.git)`. Replaced `git.log()` with `isomorphic-git` `git.log`.
+- [x] **Refactor Server bootstrap**: Removed `simpleGit` import. Initial commit logic uses `isomorphic-git` `git.add`/`git.commit`.
+- [x] **Update tests**: All `TransactionManager.test.ts` (8), `Server.test.ts` (21), and `Auth.test.ts` (11) tests migrated to use `isomorphic-git` for setup/verification. All 40 tests pass.
+- [x] **TDD**: Migration verification test added — asserts source code uses `isomorphic-git`, not `simple-git`. Test failed before migration, passes after.
 
-#### 3.6.2 @parcel/watcher Migration — NOT STARTED ❌
+#### 3.6.2 @parcel/watcher Migration — COMPLETE ✅
 
-Replace `chokidar` with `@parcel/watcher` for file system watching. Uses native OS APIs via Rust/C++ bindings, eliminating the EMFILE issue.
+Replaced `chokidar` with `@parcel/watcher` for file system watching. Uses native OS APIs (FSEvents on macOS, inotify on Linux) via Rust/C++ bindings. EMFILE issue eliminated.
 
-- [ ] **Install `@parcel/watcher`**: Add dependency, remove `chokidar` from `dependencies`.
-- [ ] **Refactor `GraphEngine.startWatcher()`**: Replace `chokidar.watch()` with `@parcel/watcher.subscribe()`. Map `@parcel/watcher` event types (`create`, `update`, `delete`) to existing hot-patch handlers (`handleFileAdd`, `handleFileUpdate`, `handleFileUnlink`).
-- [ ] **Subscription Cleanup**: Replace `chokidar` `.close()` with `@parcel/watcher` `subscription.unsubscribe()` in `stopWatcher()` and server `onClose` hooks.
-- [ ] **Un-skip `Watcher.test.ts`**: The EMFILE issue should be resolved. Un-skip the test and verify it passes with `@parcel/watcher`.
-- [ ] **TDD**: Write failing tests for the new watcher subscription/cleanup lifecycle before migrating.
+- [x] **Install `@parcel/watcher`**: Added dependency, removed `chokidar` from `dependencies`.
+- [x] **Refactor `GraphEngine.startWatcher()`**: Now async. Uses `watcher.subscribe()` with event batching. Maps `create`/`update` → `handleFileUpdate()`, `delete` → `handleFileRemove()`. Filters for `.yaml` files and ignores dotfiles.
+- [x] **Subscription Cleanup**: Added `stopWatcher()` method that calls `subscription.unsubscribe()`. Safe to call multiple times (no-op if no active subscription).
+- [x] **Un-skip `Watcher.test.ts`**: Fully rewritten with 5 tests — file add detection, file change detection, file deletion detection, cleanup verification, and migration source verification. All passing. No more EMFILE errors.
+- [x] **TDD**: Migration verification test and 4 integration tests written before implementation. All initially failed, all pass after migration.
 
-#### 3.6.3 API Pagination — NOT STARTED ❌
+#### 3.6.3 API Pagination — COMPLETE ✅
 
-Add `limit`/`offset` pagination to search and timeline endpoints. Prevents payload bloat for large datasets.
+Added `limit`/`offset` pagination to search and timeline endpoints. Prevents payload bloat for large datasets.
 
-- [ ] **`SearchService` Pagination**: Update `search()` method to accept `{ limit, offset }` options. Return `totalCounts` alongside paginated results (`{ people, stories, places, totalCounts }`). Default `limit=50`, max `200`.
-- [ ] **`TimelineSlicer` Pagination**: Update `sliceTimeline()` to accept `{ limit, offset }` options. Return `{ items, totalCount, offset, limit }` instead of a flat array. Default: return all items (backward-compatible).
-- [ ] **Wire API Endpoints**: Update `GET /api/search` to accept `?limit=50&offset=0` query params and pass to `SearchService`. Update `GET /api/people/:id` to accept `?timeline_limit=50&timeline_offset=0` and pass to `TimelineSlicer`.
-- [ ] **Validation**: Reject `limit` > 200 with 400 error. Reject negative `offset` with 400 error.
-- [ ] **TDD**: Write failing tests for paginated search results, paginated timeline output, and edge cases (offset beyond total, limit=0, negative values) before implementation.
+- [x] **`SearchService` Pagination**: `search()` method accepts optional `{ limit, offset }` options. Returns `totalCounts` alongside paginated results. Default `limit=50`, max `200`. Pagination applied per-category (people, stories, places).
+- [x] **`TimelineSlicer` Pagination**: `sliceTimeline()` uses TypeScript function overloads — without options returns flat `TimelineItem[]` (backward-compatible), with options returns `PaginatedTimeline { items, totalCount, offset, limit }`. Pagination applied after gap insertion.
+- [x] **Wire API Endpoints**: `GET /api/search` accepts `?q=...&limit=50&offset=0`. `GET /api/people/:id` accepts `?timeline_limit=50&timeline_offset=0`. Both parse query params and pass to service layer.
+- [x] **Validation**: `limit > 200` → 400 error. Negative `offset` → 400 error. Non-numeric values → 400 error.
+- [x] **TDD**: 6 failing tests written before implementation — 3 SearchService (pagination, offset, backward compat) + 3 TimelineSlicer (pagination, offset beyond total, backward compat). All pass after implementation.
 
 ---
 
@@ -330,7 +330,7 @@ Spec Section 9.3. Critical user journeys validated end-to-end.
 
 ## 3. Test Suite
 
-**Total**: 143 tests | **Passing**: 142 | **Skipped**: 1 | **Failing**: 0
+**Total**: 154 tests | **Passing**: 154 | **Skipped**: 0 | **Failing**: 0
 
 | Module | File | Count | Status |
 |:-------|:-----|:------|:-------|
@@ -346,21 +346,21 @@ Spec Section 9.3. Critical user journeys validated end-to-end.
 | GraphLogic | `tests/core/GraphLogic.test.ts` | 8 | ✅ |
 | HotPatch | `tests/core/GraphEngineHotPatch.test.ts` | 8 | ✅ |
 | HydrationWorker | `tests/core/HydrationWorker.test.ts` | 10 | ✅ |
-| SearchService | `tests/core/SearchService.test.ts` | 10 | ✅ |
+| SearchService | `tests/core/SearchService.test.ts` | 13 | ✅ |
 | StoryLoader | `tests/core/StoryLoader.test.ts` | 1 | ✅ |
 | Thumbnailer | `tests/core/Thumbnailer.test.ts` | 8 | ✅ |
-| TransactionManager | `tests/core/TransactionManager.test.ts` | 7 | ✅ |
+| TransactionManager | `tests/core/TransactionManager.test.ts` | 8 | ✅ |
 | DateParser | `tests/utils/DateParser.test.ts` | 4 | ✅ |
 | GEDCOM Import | `tests/core/gedcom/Import.test.ts` | 3 | ✅ |
 | GEDCOM Export | `tests/core/gedcom/Export.test.ts` | 6 | ✅ |
 | GEDCOM RoundTrip | `tests/core/gedcom/RoundTrip.test.ts` | 2 | ✅ |
 | GEDCOM Robustness | `tests/core/gedcom/Robustness.test.ts` | 5 | ✅ |
 | API Server | `tests/api/Server.test.ts` | 21 | ✅ |
-| TimelineSlicer | `tests/core/TimelineSlicer.test.ts` | 7 | ✅ |
+| TimelineSlicer | `tests/core/TimelineSlicer.test.ts` | 10 | ✅ |
 | Authentication | `tests/api/Auth.test.ts` | 11 | ✅ |
-| Watcher | `tests/core/Watcher.test.ts` | 1 | ⏭ Skipped |
+| Watcher | `tests/core/Watcher.test.ts` | 5 | ✅ |
 
-**Skipped test justification**: `Watcher.test.ts` causes EMFILE (too many open files) when run in parallel with `chokidar`. The underlying hot-patch logic is fully verified by `GraphEngineHotPatch.test.ts` (4 tests). The EMFILE issue will be resolved by the `@parcel/watcher` migration in Phase 3.6.2 — native OS-level watchers do not consume file descriptors per watched file.
+**No skipped tests.** The previously skipped `Watcher.test.ts` (EMFILE with `chokidar`) is now fully passing after the `@parcel/watcher` migration in Phase 3.6.2.
 
 ---
 

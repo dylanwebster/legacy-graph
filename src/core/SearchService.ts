@@ -15,10 +15,20 @@ export interface PlaceResult {
     count: number;
 }
 
+export interface PaginationOptions {
+    limit?: number;  // Default: 50, max: 200
+    offset?: number; // Default: 0
+}
+
 export interface SearchResponse {
     people: SearchResult[];
     stories: SearchResult[];
     places: PlaceResult[];
+    totalCounts: {
+        people: number;
+        stories: number;
+        places: number;
+    };
 }
 
 interface PersonIndexDoc {
@@ -143,9 +153,11 @@ export class SearchService {
 
     /**
      * Full-text search across people, stories, and places.
+     * Supports pagination via optional limit/offset parameters.
      */
-    public async search(query: string): Promise<SearchResponse> {
-        const response: SearchResponse = { people: [], stories: [], places: [] };
+    public async search(query: string, options?: PaginationOptions): Promise<SearchResponse> {
+        const limit = Math.min(options?.limit ?? 50, 200);
+        const offset = options?.offset ?? 0;
 
         // 1. Search People
         const personResults = await this.personIndex.searchAsync(query, {
@@ -168,7 +180,7 @@ export class SearchService {
                 }
             });
         });
-        response.people = Array.from(peopleMap.values());
+        const allPeople = Array.from(peopleMap.values());
 
         // 2. Search Stories
         const storyResults = await this.storyIndex.searchAsync(query, {
@@ -187,20 +199,31 @@ export class SearchService {
                 }
             });
         });
-        response.stories = Array.from(storyMap.values());
+        const allStories = Array.from(storyMap.values());
 
         // 3. Search Places (case-insensitive substring match)
+        const allPlaces: PlaceResult[] = [];
         const lowerQuery = query.toLowerCase();
         for (const [location, personIds] of this.placeMap) {
             if (location.toLowerCase().includes(lowerQuery)) {
-                response.places.push({
+                allPlaces.push({
                     location,
                     count: personIds.size
                 });
             }
         }
 
-        return response;
+        // 4. Build response with totalCounts and pagination
+        return {
+            people: allPeople.slice(offset, offset + limit),
+            stories: allStories.slice(offset, offset + limit),
+            places: allPlaces.slice(offset, offset + limit),
+            totalCounts: {
+                people: allPeople.length,
+                stories: allStories.length,
+                places: allPlaces.length
+            }
+        };
     }
 
     /**

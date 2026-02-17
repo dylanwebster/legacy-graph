@@ -1,6 +1,7 @@
 import Graph from 'graphology';
 import * as path from 'path';
-import * as chokidar from 'chokidar';
+import watcher from '@parcel/watcher';
+import type { AsyncSubscription } from '@parcel/watcher';
 import fg from 'fast-glob';
 import pLimit from 'p-limit';
 import { Worker } from 'worker_threads';
@@ -328,29 +329,55 @@ export class GraphEngine {
         return { results, fromCache, parsed };
     }
 
+    private watcherSubscription: AsyncSubscription | null = null;
+
     /**
-     * Starts the File System Watcher.
-     * Any change to files in rootDir will trigger a full re-hydration.
+     * Starts the File System Watcher using @parcel/watcher (native OS APIs).
+     * Uses FSEvents on macOS, ReadDirectoryChangesW on Windows, inotify on Linux.
+     * Watches the `people/` directory for hot-patching.
      */
-    public startWatcher(): chokidar.FSWatcher {
-        // Only watch 'people' for hot patching for now, as story logic is simpler
-        // But the requirement implies general watching.
-        // We'll focus on People hot-patching as that's the complex part.
+    public async startWatcher(): Promise<void> {
         const watchPath = path.join(this.rootDir, 'people');
         console.log(`[GraphEngine] Starting FS Watcher on ${watchPath}...`);
-        
-        const watcher = chokidar.watch(watchPath, { 
-            ignoreInitial: true, // Don't trigger 'add' events for existing files on boot
-            ignored: /(^|[\/\\])\../, // Ignore dotfiles
-            persistent: true
-        });
-        
-        // Granular Updates
-        watcher.on('add', (fp) => this.handleFileUpdate(fp));
-        watcher.on('change', (fp) => this.handleFileUpdate(fp));
-        watcher.on('unlink', (fp) => this.handleFileRemove(fp));
 
-        return watcher;
+        this.watcherSubscription = await watcher.subscribe(
+            watchPath,
+            (err, events) => {
+                if (err) {
+                    console.error('[GraphEngine] Watcher error:', err);
+                    return;
+                }
+                for (const event of events) {
+                    // Only handle YAML files, ignore dotfiles
+                    if (!event.path.endsWith('.yaml')) continue;
+                    if (path.basename(event.path).startsWith('.')) continue;
+
+                    switch (event.type) {
+                        case 'create':
+                        case 'update':
+                            this.handleFileUpdate(event.path);
+                            break;
+                        case 'delete':
+                            this.handleFileRemove(event.path);
+                            break;
+                    }
+                }
+            },
+            {
+                ignore: ['.*', '**/.git/**']
+            }
+        );
+    }
+
+    /**
+     * Stops the file system watcher and cleans up the subscription.
+     * Safe to call multiple times (no-op if no active subscription).
+     */
+    public async stopWatcher(): Promise<void> {
+        if (this.watcherSubscription) {
+            await this.watcherSubscription.unsubscribe();
+            this.watcherSubscription = null;
+        }
     }
 
     private async handleFileUpdate(filePath: string) {

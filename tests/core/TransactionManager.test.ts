@@ -1,8 +1,9 @@
 // tests/core/TransactionManager.test.ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
+import * as nodeFs from 'fs';
 import * as path from 'path';
-import simpleGit from 'simple-git';
+import git from 'isomorphic-git';
 import { TransactionManager } from '../../src/core/TransactionManager';
 
 const REPO_DIR = path.join(__dirname, 'temp_repo');
@@ -11,13 +12,12 @@ describe('TransactionManager', () => {
     let txManager: TransactionManager;
 
     beforeEach(async () => {
-        // Initialize a real git repo for testing
+        // Initialize a real git repo using isomorphic-git
         if (fs.existsSync(REPO_DIR)) fs.rmSync(REPO_DIR, { recursive: true, force: true });
         fs.mkdirSync(REPO_DIR, { recursive: true });
-        const git = simpleGit(REPO_DIR);
-        await git.init();
-        await git.addConfig('user.name', 'Tester');
-        await git.addConfig('user.email', 'test@test.com');
+        await git.init({ fs: nodeFs, dir: REPO_DIR });
+        await git.setConfig({ fs: nodeFs, dir: REPO_DIR, path: 'user.name', value: 'Tester' });
+        await git.setConfig({ fs: nodeFs, dir: REPO_DIR, path: 'user.email', value: 'test@test.com' });
 
         txManager = new TransactionManager(REPO_DIR, { debounceMs: 200 }); // Short debounce for tests
     });
@@ -48,11 +48,10 @@ describe('TransactionManager', () => {
         // Flush to commit all pending writes (tests batching without timer flakiness)
         await txManager.flush();
 
-        // Verify exactly ONE commit was created (not 3 separate ones)
-        const git = simpleGit(REPO_DIR);
-        const log = await git.log();
-        expect(log.total).toBe(1);
-        expect(log.latest?.message).toContain('Update 3 files');
+        // Verify exactly ONE commit was created (not 3 separate ones) via isomorphic-git
+        const log = await git.log({ fs: nodeFs, dir: REPO_DIR });
+        expect(log.length).toBe(1);
+        expect(log[0].commit.message).toContain('Update 3 files');
     });
 
     it('should flush pending changes immediately on demand', async () => {
@@ -61,21 +60,19 @@ describe('TransactionManager', () => {
         // Flush immediately — don't wait for debounce
         await txManager.flush();
 
-        const git = simpleGit(REPO_DIR);
-        const log = await git.log();
-        expect(log.total).toBe(1);
-        expect(log.latest?.message).toContain('Update 1 file');
+        const log = await git.log({ fs: nodeFs, dir: REPO_DIR });
+        expect(log.length).toBe(1);
+        expect(log[0].commit.message).toContain('Update 1 file');
     });
 
     it('should not create empty commits when no pending changes', async () => {
         await txManager.flush(); // Nothing pending
 
-        const git = simpleGit(REPO_DIR);
         try {
-            const log = await git.log();
-            expect(log.total).toBe(0);
+            const log = await git.log({ fs: nodeFs, dir: REPO_DIR });
+            expect(log.length).toBe(0);
         } catch {
-            // No commits at all — expected for an empty repo
+            // No commits at all — expected for an empty repo (isomorphic-git throws NotFoundError)
         }
     });
 
@@ -84,10 +81,9 @@ describe('TransactionManager', () => {
         await txManager.writeFile('people/jane.yaml', 'name: Jane', 'Jane Doe');
         await txManager.flush();
 
-        const git = simpleGit(REPO_DIR);
-        const log = await git.log();
-        expect(log.latest?.message).toContain('John Doe');
-        expect(log.latest?.message).toContain('Jane Doe');
+        const log = await git.log({ fs: nodeFs, dir: REPO_DIR });
+        expect(log[0].commit.message).toContain('John Doe');
+        expect(log[0].commit.message).toContain('Jane Doe');
     });
 
     it('should truncate commit messages at 72 chars', async () => {
@@ -97,10 +93,9 @@ describe('TransactionManager', () => {
         }
         await txManager.flush();
 
-        const git = simpleGit(REPO_DIR);
-        const log = await git.log();
+        const log = await git.log({ fs: nodeFs, dir: REPO_DIR });
         // First line of commit message should be ≤72 chars
-        const firstLine = log.latest!.message.split('\n')[0];
+        const firstLine = log[0].commit.message.split('\n')[0];
         expect(firstLine.length).toBeLessThanOrEqual(72);
     });
 
@@ -113,8 +108,16 @@ describe('TransactionManager', () => {
         await txManager.writeFile('people/second.yaml', 'name: Second', 'Second');
         await txManager.flush();
 
-        const git = simpleGit(REPO_DIR);
-        const log = await git.log();
-        expect(log.total).toBe(2);
+        const log = await git.log({ fs: nodeFs, dir: REPO_DIR });
+        expect(log.length).toBe(2);
+    });
+
+    it('should use isomorphic-git for in-process git operations (no child-process spawning)', () => {
+        // Migration verification: TransactionManager must use isomorphic-git (pure JS, in-process)
+        // instead of simple-git (which spawns child processes for every git command).
+        const sourcePath = path.resolve(__dirname, '../../src/core/TransactionManager.ts');
+        const source = fs.readFileSync(sourcePath, 'utf8');
+        expect(source).not.toContain("from 'simple-git'");
+        expect(source).toContain('isomorphic-git');
     });
 });

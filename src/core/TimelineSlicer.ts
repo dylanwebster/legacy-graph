@@ -23,18 +23,40 @@ export interface TimelineGap {
 
 export type TimelineItem = TimelineEvent | TimelineStory | TimelineGap;
 
+export interface TimelinePaginationOptions {
+    limit?: number;
+    offset?: number;
+}
+
+export interface PaginatedTimeline {
+    items: TimelineItem[];
+    totalCount: number;
+    offset: number;
+    limit: number;
+}
+
 /**
  * Pre-computes the "Integrated Feed" for the Person Detail page.
  *
  * 1. Collects all Person Events + Story Mentions
  * 2. Sorts by sort_date
  * 3. Inserts Gap objects when year difference > 10
+ * 4. Optionally paginates with limit/offset
+ *
+ * When called without pagination options, returns a flat TimelineItem[] (backward compatible).
+ * When called with pagination options, returns a PaginatedTimeline object.
  */
-export function sliceTimeline(graph: Graph, personId: string): TimelineItem[] {
-    if (!graph.hasNode(personId)) return [];
+export function sliceTimeline(graph: Graph, personId: string): TimelineItem[];
+export function sliceTimeline(graph: Graph, personId: string, options: TimelinePaginationOptions): PaginatedTimeline;
+export function sliceTimeline(graph: Graph, personId: string, options?: TimelinePaginationOptions): TimelineItem[] | PaginatedTimeline {
+    const emptyResult = options
+        ? { items: [], totalCount: 0, offset: options.offset ?? 0, limit: options.limit ?? 0 }
+        : [];
+
+    if (!graph.hasNode(personId)) return emptyResult as any;
 
     const nodeAttr = graph.getNodeAttributes(personId);
-    if (nodeAttr.type !== 'person') return [];
+    if (nodeAttr.type !== 'person') return emptyResult as any;
 
     const person = nodeAttr.data as Person;
     const sortable: Array<{ sort_date: string; item: TimelineEvent | TimelineStory }> = [];
@@ -75,13 +97,13 @@ export function sliceTimeline(graph: Graph, personId: string): TimelineItem[] {
         });
     }
 
-    if (sortable.length === 0) return [];
+    if (sortable.length === 0) return emptyResult as any;
 
     // 3. Sort by sort_date
     sortable.sort((a, b) => a.sort_date.localeCompare(b.sort_date));
 
     // 4. Gap Detection — insert gaps when year difference > 10
-    const result: TimelineItem[] = [sortable[0].item];
+    const allItems: TimelineItem[] = [sortable[0].item];
 
     for (let i = 1; i < sortable.length; i++) {
         const prevYear = extractYear(sortable[i - 1].sort_date);
@@ -90,14 +112,26 @@ export function sliceTimeline(graph: Graph, personId: string): TimelineItem[] {
         if (prevYear !== null && currYear !== null) {
             const diff = currYear - prevYear;
             if (diff > 10) {
-                result.push({ type: 'gap', years: diff });
+                allItems.push({ type: 'gap', years: diff });
             }
         }
 
-        result.push(sortable[i].item);
+        allItems.push(sortable[i].item);
     }
 
-    return result;
+    // 5. Apply pagination if options provided
+    if (options) {
+        const limit = options.limit ?? allItems.length;
+        const offset = options.offset ?? 0;
+        return {
+            items: allItems.slice(offset, offset + limit),
+            totalCount: allItems.length,
+            offset,
+            limit
+        };
+    }
+
+    return allItems;
 }
 
 /**
