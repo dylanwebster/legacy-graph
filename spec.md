@@ -39,7 +39,7 @@ LegacyGraph is a professional-grade, self-hosted genealogy platform. It rejects 
 - **Engine**: Node.js (Fastify) + Graphology (In-Memory Graph).
 - **Behavior**:
   - **Nuclear Hydration**: On boot, the engine reads **all** files to build the graph in RAM (see 2.3 for scaling strategy).
-  - **Hot-Patching**: `chokidar` watches the disk. Granular handlers (`add`, `change`, `unlink`) update/patch specific nodes in <100ms without full reloads. Edge updates use a **Diff-Based Reconciliation** strategy (see 4.1).
+  - **Hot-Patching**: `@parcel/watcher` watches the disk via native OS APIs (FSEvents on macOS, ReadDirectoryChangesW on Windows, inotify on Linux). Granular handlers (`add`, `change`, `unlink`) update/patch specific nodes in <100ms without full reloads. Edge updates use a **Diff-Based Reconciliation** strategy (see 4.1).
   - **Indexing**: FlexSearch (In-Memory) for full-text search. Rebuilt on hydration and incrementally updated during hot-patching.
   - **Computed Cache**: Derived relationships (spouses, siblings) are pre-computed and stored as volatile `_computed` attributes on Graphology nodes, invalidated surgically on change events (see 4.1).
 
@@ -55,12 +55,20 @@ Nuclear Hydration (parsing and Zod-validating every YAML on boot) scales linearl
 - **Incremental Rebuild**: The cache stores the `mtime` (last modified time) of every source YAML file. On boot, only files whose `mtime` is newer than the cached entry are re-parsed from YAML. All other nodes load directly from the pre-validated cache.
 - **Cache Invalidation**: The cache is considered stale and triggers full Nuclear Hydration when: (a) the cache file is missing, (b) the `spec_version` in the cache header does not match the current schema version, or (c) the user explicitly requests a full rebuild via the API.
 
-**B. Worker Thread Hydration**
+**B. Memory Budget & Scaling Ceiling**
+
+Graphology and FlexSearch run entirely in memory. While 10,000 nodes is trivial (~50MB), 100,000 nodes with rich Markdown scrapbooks and extensive FlexSearch indices can push Node.js toward the default V8 heap limit (~1.5–2GB).
+
+- **Awareness**: The current architecture is designed for the typical genealogy dataset (hundreds to low thousands of people). It will comfortably serve datasets up to ~50,000 nodes within default V8 memory.
+- **Monitoring**: `GET /system/status` should be extended (Phase 5+) to expose `heapUsedMB` from `process.memoryUsage()` so operators can monitor runtime memory consumption.
+- **Future Mitigation**: If datasets routinely exceed 100K nodes, the architecture should evolve toward lazy-loading strategies (e.g., LRU eviction of `scrapbook_md` content from the in-memory graph, loading full Markdown only on detail-page request). This is explicitly out of scope for Phases 3–4 but acknowledged as a known ceiling.
+
+**C. Worker Thread Hydration**
 
 Hydration is offloaded from the main event loop via `worker_threads`, allowing the Fastify server to start immediately and serve health checks while data is being loaded. This applies to **all** dataset sizes — even for modest datasets it ensures the server is never unresponsive during startup.
 
 - **Strategy**: Use Node.js `worker_threads` to perform YAML parsing, Zod validation, and story loading in a background thread. The main thread remains responsive and serves `GET /system/status` with `hydrationState: "loading"` to clients.
-- **503 During Loading**: While hydration is in progress, all API endpoints except `GET /system/status` and auth endpoints (`POST /auth/login`, `POST /auth/logout`) return `503 Service Unavailable` with `{ error: "Graph is loading", code: "HYDRATION_IN_PROGRESS" }`.
+- **503 During Loading**: While hydration is in progress, all API endpoints except `GET /system/status`, `GET /system/hydration/stream`, and auth endpoints (`POST /auth/login`, `POST /auth/logout`) return `503 Service Unavailable` with `{ error: "Graph is loading", code: "HYDRATION_IN_PROGRESS" }`.
 - **Cache-Aware**: The worker performs the tiered cache comparison (Section 2.3A) internally — only stale files are re-parsed from YAML. Both full nuclear and incremental paths run inside the worker.
 - **Handoff**: The worker serializes the validated node map, story list, and mtime entries back to the main thread via `postMessage` (structured clone). The main thread then performs the final Graphology graph construction, edge building, search indexing, and `_computed` relationship computation (which is fast, as it's just inserting pre-validated data).
 - **Fallback**: If the worker thread fails (e.g., crash, unhandled error), the engine automatically falls back to inline hydration on the main thread to guarantee startup.
@@ -197,7 +205,7 @@ Executing the Henry VIII traversal and sibling lookups on every API request degr
   }
   ```
 - **Population**: `_computed` is populated during hydration, immediately after all nodes and edges are loaded. The `GraphLogic` module exposes a `computeRelationships(nodeId)` function that writes results directly to the node attributes.
-- **Invalidation**: When a `chokidar` change event fires for a node, the engine recomputes `_computed` for **that node AND all immediate neighbors** (parents, children, spouses). This ensures a marriage event added to Person A also updates Person B's `_computed.currentSpouse`.
+- **Invalidation**: When a file-watcher change event fires for a node, the engine recomputes `_computed` for **that node AND all immediate neighbors** (parents, children, spouses). This ensures a marriage event added to Person A also updates Person B's `_computed.currentSpouse`.
 - **API Reads**: API endpoints read directly from `_computed` — no traversal at request time. This turns O(n) graph walks into O(1) attribute lookups.
 
 **Diff-Based Edge Reconciliation (Hot-Patching)**:
@@ -216,12 +224,13 @@ The current hot-patching approach drops all outgoing edges and rebuilds them, wh
 
 Pre-computes the "Integrated Feed" for the UI Person Detail page.
 
-- **Input**: Person ID.
+- **Input**: Person ID, optional pagination params (`limit`, `offset`).
 - **Process**:
   1.  **Collection**: Merge Person Events + Story Mentions (Stories mentioning this person).
   2.  **Sorting**: Strict Sort by `sort_date`.
   3.  **Gap Detection**: Iterate sorted list. If `Item[i+1].year - Item[i].year > 10`, insert a `Gap` object: `{ type: 'gap', years: diff }`.
-- **Output**: `Array<Event | Story | Gap>`.
+  4.  **Pagination**: Apply `offset` and `limit` to the final sorted array (after gap insertion). Return `totalCount` alongside the page slice.
+- **Output**: `{ items: Array<Event | Story | Gap>, totalCount: number, offset: number, limit: number }`.
 
 ### **4.3 GEDCOM Engine**
 
@@ -248,6 +257,7 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 ### **5.1 Entity Endpoints**
 
 - `GET /people/:id`: Returns hydrated Person object (Schema Data + Computed Relations + Timeline).
+  - **Query**: `?timeline_limit=50&timeline_offset=0` (optional, paginates the embedded timeline).
   - _404_: Person not found.
 - `POST /people`: Create new Person.
   - _Body_: Partial Person Schema.
@@ -262,9 +272,13 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 ### **5.2 Search & Discovery**
 
 - `GET /search`:
-  - **Query**: `?q=string`.
+  - **Query**: `?q=string&limit=50&offset=0`.
+  - **Params**:
+    - `q` (required): Search query string.
+    - `limit` (optional, default `50`, max `200`): Maximum results per category.
+    - `offset` (optional, default `0`): Pagination offset per category.
   - **Engine**: FlexSearch.
-  - **Returns**: `{ people: [], stories: [], places: [] }`.
+  - **Returns**: `{ people: [], stories: [], places: [], totalCounts: { people: number, stories: number, places: number } }`.
 
 ### **5.3 System Operations**
 
@@ -272,9 +286,13 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
   - _Body_: `{ name: string }`.
 - `POST /import/gedcom`: Bulk Import.
   - _Warning_: Destructive. Wipes current data directory (except `.git`).
-- `GET /system/status`: Returns runtime health info. **Always available**, even during hydration (see 2.3B).
+- `GET /system/status`: Returns runtime health info. **Always available**, even during hydration (see 2.3C).
   - _Returns_: `{ nodeCount: number, edgeCount: number, hydrationState: "ready" | "loading", cacheAge: string | null }`.
   - _Note_: When `hydrationState` is `"loading"`, `nodeCount` and `edgeCount` are `0` until hydration completes.
+- `GET /system/hydration/stream`: Server-Sent Events (SSE) stream of hydration progress. **Always available**.
+  - _Content-Type_: `text/event-stream`.
+  - _Events_: `{ event: "progress", data: { phase: string, loaded: number, total: number, percent: number } }`, `{ event: "complete", data: { nodeCount: number, edgeCount: number, elapsedMs: number } }`, `{ event: "error", data: { message: string } }`.
+  - _Behavior_: If hydration is already complete when the client connects, immediately sends a `complete` event and closes. During loading, streams periodic `progress` events as the worker processes files, followed by a final `complete` event.
 - `POST /system/rebuild`: Force a full Nuclear Hydration, bypassing the tiered cache.
   - _Effect_: Invalidates `/_meta/.graph-cache.json`, re-parses all YAML files, rebuilds graph and search index from scratch.
 
@@ -297,14 +315,22 @@ _Note: UI implementation is Phase 4. This section is a design reference._
 ### **6.1 Layout Strategy**
 
 - **Theme**: Dark Mode default (High Contrast).
-- **Global Command Palette (Cmd+K)**: The primary navigation tool.
+- **Global Command Palette (Cmd+K)**: The primary navigation tool. Build early — it should directly query `/api/search` with debounced input (300ms).
 
-### **6.2 "The Holy Grail" Detail Page**
+### **6.2 Technical Constraints (Mandatory)**
+
+These constraints are non-negotiable for any data-dense genealogy UI:
+
+1.  **Virtualization is Mandatory**: The Timeline Feed and Search Results must use virtual scrolling (`@tanstack/react-virtual` or `react-virtuoso`). DOM nodes are only rendered for visible items. This is critical for datasets with thousands of events or search results.
+2.  **Optimistic UI with TanStack Query**: Because the backend uses a debounced Git queue (Section 7.1), writes have slight latency. The React UI must use optimistic updates: update local React Query cache immediately on user action, send the `PUT`/`POST`, and only roll back if the API returns an error.
+3.  **Hydration-Aware Shell**: The app shell must handle the 503 loading gate gracefully. On first load, poll `GET /system/status` (or connect to `GET /system/hydration/stream` via SSE) and display a progress indicator. Do not render data-dependent views until `hydrationState === "ready"`.
+
+### **6.3 "The Holy Grail" Detail Page**
 
 A dense, 3-column layout:
 
 1.  **Identity (Left)**: Static bio, stats, relationship chips (Parents/Spouses/Children).
-2.  **Timeline (Center)**: The "Feed" of life events, stories, and gaps.
+2.  **Timeline (Center)**: The "Feed" of life events, stories, and gaps. **Virtualized** — only visible events are rendered. Paginated via `?timeline_limit=50&timeline_offset=0` with infinite-scroll loading.
 3.  **Context (Right)**: Assets grid, Markdown Notebook (`scrapbook_md`), Raw YAML tab.
 
 ---
@@ -324,8 +350,9 @@ Spawning a child process via `simple-git` for every discrete save creates massiv
 - **Flush on Demand**: The API exposes a mechanism to force an immediate flush (e.g., before a snapshot or on graceful shutdown), bypassing the debounce window.
 - **Mutex Retained**: The global Mutex still protects concurrent write access to the file system. The debounce only affects when `git commit` is invoked, not when files are written.
 
-**isomorphic-git Migration**:
+**isomorphic-git Migration (Immediate — Phase 3.6)**:
 
+- **Priority**: **Immediate**. This migration must be completed before beginning frontend work (Phase 4). Shelling out to `simple-git` for every commit spawns child processes, which is expensive in Node.js and creates measurable latency during rapid edits. Eliminating this overhead before the UI consumes the API ensures the write path is production-grade.
 - **Rationale**: `simple-git` shells out to the OS Git binary for every operation, incurring process-spawn overhead. `isomorphic-git` is a pure JavaScript Git implementation that runs entirely in the Node.js process — dramatically faster for high-frequency programmatic commits.
 - **Scope**: Replace `simple-git` with `isomorphic-git` for all programmatic operations (`add`, `commit`, `tag`, `log`). The user's system Git remains available for manual CLI use and is unaffected.
 - **Tradeoff**: `isomorphic-git` does not support every Git feature (e.g., advanced merge strategies). For operations like `push`/`pull` (future network sync), fall back to spawning system Git.
@@ -351,15 +378,16 @@ This spec defines _what_ to build. `progress.md` tracks _how far_ and _what's ne
 ### **9.1 Unit Tests (Vitest)**
 
 *   **GEDCOM**: Verify parsing of 5.5.1 and 7.0 specific tags. Verify export round-trip preserves `_gedcom` tags.
-*   **Search**: Verify fuzzy matching for typos in names.
-*   **Timeline**: Verify Gap Detection logic.
+*   **Search**: Verify fuzzy matching for typos in names. Verify pagination (`limit`, `offset`) returns correct slices and `totalCounts`.
+*   **Timeline**: Verify Gap Detection logic. Verify pagination returns correct slices with `totalCount`.
 *   **Schemas**: Verify Zod schemas reject invalid data and accept new fields (`scrapbook_md`, `_gedcom`).
 *   **Computed Cache (`_computed`)**: Verify `computeRelationships()` populates correct spouse, sibling, and children data. Verify invalidation recomputes only affected nodes and neighbors.
 *   **Edge Reconciliation**: Verify diff-based patching adds/removes exact edges for parent and marriage changes without touching unrelated edges.
 *   **Graph Cache**: Verify cache hit skips YAML parsing. Verify stale `mtime` triggers selective re-parse. Verify missing/corrupt cache triggers full Nuclear Hydration.
-*   **TransactionManager**: Verify debounced batching collapses rapid writes into a single commit. Verify flush-on-demand bypasses the debounce window.
+*   **TransactionManager**: Verify debounced batching collapses rapid writes into a single commit. Verify flush-on-demand bypasses the debounce window. Verify `isomorphic-git` operations run in-process (no child-process spawning).
 *   **SearchService Hot-Patch**: Verify incremental index update on node change. Verify index removal on node unlink.
 *   **Worker Thread Hydration**: Verify worker function produces identical people/story output as inline BootLoader. Verify `hydrateInBackground()` completes and populates graph to same state as `hydrate()`. Verify `hydrationState` transitions correctly. Verify API returns 503 during loading for non-exempt endpoints.
+*   **File Watcher (`@parcel/watcher`)**: Verify watcher detects add, change, unlink events. Verify subscription cleanup on shutdown.
 
 ### **9.2 Integration Tests (Supertest)**
 
@@ -369,6 +397,8 @@ This spec defines _what_ to build. `progress.md` tracks _how far_ and _what's ne
 *   **API `_computed` Contract**: Verify `GET /people/:id` returns pre-computed relationships without triggering on-the-fly traversal.
 *   **System Status**: Verify `GET /system/status` returns accurate node/edge counts and hydration state.
 *   **System Rebuild**: Verify `POST /system/rebuild` invalidates cache and triggers full re-hydration.
+*   **Hydration SSE Stream**: Verify `GET /system/hydration/stream` sends `progress` events during loading and a `complete` event when finished. Verify immediate `complete` if already hydrated.
+*   **Search Pagination**: Verify `GET /search?q=...&limit=10&offset=5` returns correct paginated slices with `totalCounts`.
 *   **Authentication**: Verify login returns HttpOnly JWT cookie. Verify protected endpoints reject unauthenticated requests. Verify logout clears session.
 
 ### **9.3 E2E Tests (Playwright)**

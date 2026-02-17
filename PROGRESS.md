@@ -5,7 +5,7 @@
 
 **Last Updated**: 2026-02-16
 **Test Suite**: 142 passing, 1 skipped (143 total)
-**Overall Completion**: ~62% of full spec
+**Overall Completion**: ~58% of full spec (revised to reflect expanded scope from architecture review)
 
 ---
 
@@ -19,6 +19,7 @@
 | **3.3** | Media Services | ✅ Complete |
 | **3.4** | API Server & Auth | ✅ Complete |
 | **3.5** | Backend Optimizations (7 items) | ✅ Complete (all 7 items) |
+| **3.6** | Production Hardening (3 items) | ❌ Not started — **NEXT** |
 | **4** | Frontend (React UI) + E2E Tests | ❌ Not started |
 | **5** | Immersion & Polish | ❌ Not started |
 | **6** | Distribution & Deployment | ❌ Not started |
@@ -51,7 +52,7 @@ All foundational modules are implemented and tested.
 - ~~Hot-patching uses "drop all outgoing edges and rebuild" rather than diff-based reconciliation (spec 4.1) → 3.5.4~~ **RESOLVED**
 - ~~`_computed` attributes are not populated during hydration (spec 4.1) → 3.5.2~~ **RESOLVED**
 - ~~TransactionManager is minimal (one commit per write, no debouncing) (spec 7.1) → 3.5.1~~ **RESOLVED**
-- `isomorphic-git` migration deferred (still uses `simple-git`) → 3.5.1 future
+- ~~`isomorphic-git` migration deferred (still uses `simple-git`) → Elevated to Phase 3.6.1 (immediate, before frontend)~~
 
 ---
 
@@ -148,7 +149,7 @@ Refactored TransactionManager from minimal one-commit-per-write to production-gr
 - [x] **Flush on Demand**: `flush()` bypasses debounce, commits immediately. `destroy()` flushes + cleans up timers.
 - [x] **Track File**: `trackFile()` for files written by other means (binary uploads) that still need git staging.
 - [x] **Wire Snapshot Flush**: `POST /system/snapshot` flushes pending commits before creating git tag.
-- [ ] **isomorphic-git Migration**: Deferred. `simple-git` remains for now. Migration is an optimization, not a correctness issue.
+- [ ] **isomorphic-git Migration**: **Elevated to Phase 3.6.1** (immediate, before frontend). `simple-git` remains for now but will be replaced. See Phase 3.6.1 for detailed plan.
 - [x] **Wire API Endpoints**: `POST /people`, `PUT /people/:id`, `PUT /people/:id/media`, `POST /import/gedcom` all route through TransactionManager.
 - [x] **TDD**: `tests/core/TransactionManager.test.ts` (7 tests) — Batching, flush-on-demand, file labels, truncation, sequential batches, empty flush safety.
 
@@ -188,7 +189,7 @@ Replace the current "drop all edges and rebuild" hot-patching with precise edge 
 
 #### 3.5.5 Worker Thread Hydration — COMPLETE ✅
 
-Hydration runs in a background `worker_threads` Worker by default. The server starts immediately and remains responsive while data is loading. Applies to all dataset sizes (spec Section 2.3B).
+Hydration runs in a background `worker_threads` Worker by default. The server starts immediately and remains responsive while data is loading. Applies to all dataset sizes (spec Section 2.3C).
 
 - [x] **Worker Script**: `src/core/HydrationWorker.ts` — Standalone module with `runHydrationWorker()` function + worker entry point (`if (!isMainThread)`). Runs BootLoader, StoryLoader, cache comparison, YAML parsing, and Zod validation inside the worker thread.
 - [x] **Cache-Aware**: Worker performs tiered cache comparison internally — reads existing cache, compares mtimes, re-parses only stale/new files. Saves updated cache after loading.
@@ -223,25 +224,65 @@ Spec Section 4.2. Pre-computes the "Integrated Feed" for the Person Detail page.
 
 ---
 
+### Phase 3.6: Production Hardening — NOT STARTED ❌ (NEXT)
+
+> **Context**: Principal Engineer architecture review identified three backend refinements that must be completed before beginning frontend work. These address scaling fragility (file watchers), write-path overhead (git subprocess spawning), and API payload bloat (missing pagination). Completing these now prevents the frontend from being built atop known architectural weaknesses.
+
+#### 3.6.1 isomorphic-git Migration — NOT STARTED ❌
+
+Replace `simple-git` with `isomorphic-git` for all programmatic git operations. Eliminates child-process overhead on every commit.
+
+- [ ] **Install `isomorphic-git`**: Add dependency, remove `simple-git` from `dependencies`.
+- [ ] **Refactor `TransactionManager`**: Replace all `simple-git` calls (`add`, `commit`, `log`) with `isomorphic-git` equivalents (`git.add`, `git.commit`, `git.log`). All operations run in-process via Node.js `fs` — no child-process spawning.
+- [ ] **Refactor Snapshot (`POST /system/snapshot`)**: Replace `simple-git` tag creation with `isomorphic-git` `git.tag`.
+- [ ] **Refactor Server bootstrap**: Replace `simple-git` init/status checks with `isomorphic-git` equivalents.
+- [ ] **Update tests**: All `TransactionManager.test.ts`, `Server.test.ts`, and `Auth.test.ts` tests must pass with the new implementation. Add a test verifying no child processes are spawned during commit operations.
+- [ ] **TDD**: Write failing tests first — particularly for the `isomorphic-git` commit/tag/add paths — before migrating the implementation.
+
+#### 3.6.2 @parcel/watcher Migration — NOT STARTED ❌
+
+Replace `chokidar` with `@parcel/watcher` for file system watching. Uses native OS APIs via Rust/C++ bindings, eliminating the EMFILE issue.
+
+- [ ] **Install `@parcel/watcher`**: Add dependency, remove `chokidar` from `dependencies`.
+- [ ] **Refactor `GraphEngine.startWatcher()`**: Replace `chokidar.watch()` with `@parcel/watcher.subscribe()`. Map `@parcel/watcher` event types (`create`, `update`, `delete`) to existing hot-patch handlers (`handleFileAdd`, `handleFileUpdate`, `handleFileUnlink`).
+- [ ] **Subscription Cleanup**: Replace `chokidar` `.close()` with `@parcel/watcher` `subscription.unsubscribe()` in `stopWatcher()` and server `onClose` hooks.
+- [ ] **Un-skip `Watcher.test.ts`**: The EMFILE issue should be resolved. Un-skip the test and verify it passes with `@parcel/watcher`.
+- [ ] **TDD**: Write failing tests for the new watcher subscription/cleanup lifecycle before migrating.
+
+#### 3.6.3 API Pagination — NOT STARTED ❌
+
+Add `limit`/`offset` pagination to search and timeline endpoints. Prevents payload bloat for large datasets.
+
+- [ ] **`SearchService` Pagination**: Update `search()` method to accept `{ limit, offset }` options. Return `totalCounts` alongside paginated results (`{ people, stories, places, totalCounts }`). Default `limit=50`, max `200`.
+- [ ] **`TimelineSlicer` Pagination**: Update `sliceTimeline()` to accept `{ limit, offset }` options. Return `{ items, totalCount, offset, limit }` instead of a flat array. Default: return all items (backward-compatible).
+- [ ] **Wire API Endpoints**: Update `GET /api/search` to accept `?limit=50&offset=0` query params and pass to `SearchService`. Update `GET /api/people/:id` to accept `?timeline_limit=50&timeline_offset=0` and pass to `TimelineSlicer`.
+- [ ] **Validation**: Reject `limit` > 200 with 400 error. Reject negative `offset` with 400 error.
+- [ ] **TDD**: Write failing tests for paginated search results, paginated timeline output, and edge cases (offset beyond total, limit=0, negative values) before implementation.
+
+---
+
 ### Phase 4: Frontend — NOT STARTED ❌
 
-Build the "VS Code for Genealogy" interface. Start with the Person Detail page to expose API design issues early.
+Build the "VS Code for Genealogy" interface. Start with the Command Palette and Person Detail page to expose API design issues early.
+
+> **Technical Constraints (Mandatory)**: See spec Section 6.2. Virtualization, optimistic UI, and hydration-aware shell are non-negotiable.
 
 #### 4.1 Scaffolding & Design System
 - [ ] Vite + React + TypeScript + TanStack Router
-- [ ] TanStack Query for caching and optimistic updates
+- [ ] TanStack Query for caching and **optimistic updates** (spec 6.2 constraint)
 - [ ] Tailwind CSS with Dark Mode palette (Slate/Zinc/Neutral)
 - [ ] Typography: `Inter` (UI), `Fira Code` (Data), `Merriweather` (Stories)
 - [ ] Base components: `Button`, `Input`, `Modal` (radix-ui primitives)
 - [ ] `Avatar` component (image or initials)
-- [ ] `CmdK` Command Palette
+- [ ] **`CmdK` Command Palette** — build early. Debounced (300ms) queries to `/api/search`. Primary navigation tool.
+- [ ] **Hydration-aware app shell**: Poll `GET /system/status` or connect to `GET /system/hydration/stream` (SSE). Show progress indicator during loading, block data views until `hydrationState === "ready"`.
 
 #### 4.2 The "Holy Grail" Person Detail Page
 - [ ] CSS Grid 3-column layout (Fixed Left, Scrollable Center, Collapsible Right)
-- [ ] **Timeline Feed** (center): Consume `TimelineSlicer` output, render `EventCard` and `Gap` components
+- [ ] **Timeline Feed** (center): Consume paginated `TimelineSlicer` output, render `EventCard` and `Gap` components. **Virtualized** via `@tanstack/react-virtual` — only visible items rendered. Infinite-scroll pagination via `timeline_limit`/`timeline_offset`.
 - [ ] **Identity Panel** (left): Bio, stats, relationship chips from `_computed`
 - [ ] **Context Panel** (right): Assets grid, Markdown Notebook (`scrapbook_md`), Raw YAML tab
-- [ ] Inline editing for simple fields (Name, Birth Date)
+- [ ] Inline editing for simple fields (Name, Birth Date) — **optimistic updates** via TanStack Query mutation
 - [ ] Embedded Markdown editor for `scrapbook_md`
 
 #### 4.3 Dashboard
@@ -254,8 +295,8 @@ Build the "VS Code for Genealogy" interface. Start with the Person Detail page t
 Spec Section 9.3. Critical user journeys validated end-to-end.
 
 - [ ] Playwright setup with Vite dev server integration
-- [ ] **CUJ: Import Flow**: Upload GEDCOM → Wait for hydration → Verify node count
-- [ ] **CUJ: Holy Grail**: Navigate to Person → Edit Note → Save → Verify persistence
+- [ ] **CUJ: Import Flow**: Upload GEDCOM → Wait for hydration (via SSE stream) → Verify node count
+- [ ] **CUJ: Holy Grail**: Navigate to Person → Edit Note → Save → Verify persistence (optimistic + server confirm)
 - [ ] **CUJ: Time Tunnel** (Phase 5): Load view → Scroll → Verify camera Z position changes
 
 ---
@@ -271,6 +312,11 @@ Spec Section 9.3. Critical user journeys validated end-to-end.
 - [ ] `react-three-fiber` setup
 - [ ] "Tunnel" geometry mapped to timeline events at Z-depth
 - [ ] Scroll-based camera movement
+
+#### 5.3 Observability & Monitoring
+- [ ] Expose `heapUsedMB` from `process.memoryUsage()` in `GET /system/status` response
+- [ ] Add startup timing metrics (hydration duration, cache hit ratio, node/edge counts) to status endpoint
+- [ ] Log memory warnings if heap usage exceeds 75% of V8 limit
 
 ---
 
@@ -314,7 +360,7 @@ Spec Section 9.3. Critical user journeys validated end-to-end.
 | Authentication | `tests/api/Auth.test.ts` | 11 | ✅ |
 | Watcher | `tests/core/Watcher.test.ts` | 1 | ⏭ Skipped |
 
-**Skipped test justification**: `Watcher.test.ts` causes EMFILE (too many open files) when run in parallel. The underlying hot-patch logic is fully verified by `GraphEngineHotPatch.test.ts` (4 tests). The issue is system file descriptor limits, not a code bug.
+**Skipped test justification**: `Watcher.test.ts` causes EMFILE (too many open files) when run in parallel with `chokidar`. The underlying hot-patch logic is fully verified by `GraphEngineHotPatch.test.ts` (4 tests). The EMFILE issue will be resolved by the `@parcel/watcher` migration in Phase 3.6.2 — native OS-level watchers do not consume file descriptors per watched file.
 
 ---
 
@@ -326,7 +372,7 @@ Decisions made during implementation that deviate from or elaborate on the spec.
 |:--|:---------|:----------|
 | 1 | Use `nanoid()` for media upload filenames | Prevents collisions, URL-safe, preserves file extension |
 | 2 | GEDCOM import is destructive (deletes all `*.yaml`) | Clean slate prevents orphaned data; `.git` history preserved |
-| 3 | Snapshot uses `simple-git` (not `isomorphic-git` yet) | Already a dependency. Migration deferred to 3.5.1 TransactionManager refactor |
+| 3 | ~~Snapshot uses `simple-git` (not `isomorphic-git` yet)~~ | ~~Already a dependency. Migration deferred to 3.5.1~~ → Superseded by Decision #14 (Phase 3.6.1) |
 | 4 | Snapshot auto-creates initial commit if HEAD missing | Handles fresh repos gracefully without requiring manual setup |
 | 5 | API Server tests init a git repo in `tests/fixtures/data/` | Required for snapshot endpoint testing; created in `beforeEach` |
 | 6 | Auth is optional (graceful degradation) | If `/_meta/auth.yaml` missing, all routes remain public. Allows dev/testing without auth setup |
@@ -337,4 +383,9 @@ Decisions made during implementation that deviate from or elaborate on the spec.
 | 11 | `cacheAge` is an ISO-8601 timestamp (not duration string) | Unambiguous, machine-parseable. Frontend can compute "X minutes ago" from the timestamp |
 | 12 | Worker thread uses `tsx/cjs` for ESM interop | `p-limit` v7 and `remark` v15 are ESM-only; the project uses CommonJS. `tsx` resolves `require()` of ESM modules in the worker thread. Added as devDependency |
 | 13 | `awaitHydration` defaults to `true` in `ServerConfig` | Preserves backward compatibility for tests (which expect hydration complete before assertions). Set `false` for production immediate-availability |
+| 14 | `isomorphic-git` migration elevated to immediate (Phase 3.6.1) | Principal Engineer review: child-process overhead from `simple-git` is an architectural flaw, not an optimization deferral. Must resolve before frontend consumes write APIs |
+| 15 | Replace `chokidar` with `@parcel/watcher` (Phase 3.6.2) | Native OS watcher APIs via Rust/C++ bindings eliminate EMFILE limits. Resolves skipped `Watcher.test.ts` |
+| 16 | API pagination mandatory before frontend (Phase 3.6.3) | Unbounded search/timeline responses would lock up the browser DOM for large datasets. `limit`/`offset` with `totalCounts` prevents payload bloat |
+| 17 | Virtualization mandatory in frontend (Phase 4) | Timeline Feed and Search Results must use `@tanstack/react-virtual` or equivalent. No DOM nodes for off-screen items |
+| 18 | SSE hydration stream (`GET /system/hydration/stream`) | Replaces polling `GET /system/status` with a push-based progress stream. Frontend connects on boot, shows real progress bar |
 
