@@ -4,8 +4,8 @@
 > For the _how far_ and _what's next_, read this document.
 
 **Last Updated**: 2026-02-17
-**Test Suite**: 154 passing, 0 skipped (154 total)
-**Overall Completion**: ~60% of full spec
+**Test Suite**: 179 passing, 0 skipped (179 total)
+**Overall Completion**: ~65% of full spec
 
 ---
 
@@ -20,8 +20,8 @@
 | **3.4** | API Server & Auth | ✅ Complete |
 | **3.5** | Backend Optimizations (7 items) | ✅ Complete (all 7 items) |
 | **3.6** | Production Hardening (3 items) | ✅ Complete (all 3 items) |
-| **3.7** | Data Layer Hardening (3 items) | ❌ Not started — **NEXT** |
-| **4** | Frontend (React UI) + E2E Tests | ❌ Not started |
+| **3.7** | Data Layer Hardening (3 items) | ✅ Complete |
+| **4** | Frontend (React UI) + E2E Tests | ❌ Not started — **NEXT** |
 | **5** | Immersion & Polish | ❌ Not started |
 | **6** | Distribution & Deployment | ❌ Not started |
 
@@ -266,41 +266,44 @@ Added `limit`/`offset` pagination to search and timeline endpoints. Prevents pay
 
 > **Context**: Principal Engineer scaling review identified three structural limits that will degrade performance at 50,000+ nodes. These must be resolved before the frontend consumes the API, ensuring the data layer is rock-solid under load.
 
-#### 3.7.1 Slim Node Strategy (Memory Budgeting) — NOT STARTED
+#### 3.7.1 Slim Node Strategy (Memory Budgeting) — COMPLETE ✅
 
 Strip `scrapbook_md` and `_gedcom` from the in-memory Graphology runtime. At 50K nodes with 2KB of markdown each, these fields consume ~100MB of V8 heap doing nothing until a detail page is opened. See spec Section 2.3B.
 
-- [ ] **Define `SlimPerson` type**: TypeScript type that omits `scrapbook_md` and `_gedcom` from `Person`. Used as the Graphology node `data` attribute type.
-- [ ] **Strip during hydration**: `buildGraphFromData()` strips heavy fields before calling `graph.addNode()`. Only slim data enters the Graphology runtime.
-- [ ] **Strip during hot-patch**: `handleFileUpdate()` strips heavy fields before `graph.mergeNodeAttributes()`.
-- [ ] **Strip in graph cache**: `GraphCache.save()` serializes only slim data. `GraphCache.load()` returns slim data. Reduces cache file size proportionally.
-- [ ] **Strip in worker handoff**: `HydrationWorker` strips heavy fields from `PersonEntry.data` before `postMessage()` — reduces structured clone transfer size.
-- [ ] **Lazy load in API**: `GET /api/people/:id` reads the source YAML from disk (`fileMap` lookup → `fs.readFile` → YAML parse), extracts `scrapbook_md` and `_gedcom`, and merges them into the response alongside in-memory graph data and `_computed` relationships.
-- [ ] **Search indexing**: `SearchService.indexPerson()` currently reads `scrapbook_md` from the Person object for the `bio` field. Update to accept an optional `bio` parameter sourced during hydration/hot-patch (before stripping), or read from disk during indexing.
-- [ ] **TDD**: Tests for slim node verification (assert `scrapbook_md` absent from node attributes), lazy-load round-trip (write YAML with scrapbook → GET returns it), cache size reduction, search still indexes bio content.
+- [x] **Define `SlimPerson` type**: `Omit<Person, 'scrapbook_md' | '_gedcom'>` in `PersonSchema.ts`. Utility `toSlimPerson()` strips heavy fields via destructuring.
+- [x] **Strip during hydration**: `buildGraphFromData()` calls `toSlimPerson()` before `graph.addNode()`. Inline search indexing with bio extracted before stripping (replaces `rebuild()` call).
+- [x] **Strip during hot-patch**: `handleFileUpdate()` calls `toSlimPerson()` before `graph.mergeNodeAttributes()`. Bio passed to `indexPerson()` from full Person data.
+- [x] **Reverse file map**: `reverseFileMap: Map<PersonID, FilePath>` maintained alongside `fileMap` for O(1) lazy-load lookups. `getFilePathForPerson()` public accessor.
+- [x] **Lazy load in API**: `loadHeavyFields(personId)` reads source YAML from disk, extracts `scrapbook_md` and `_gedcom`. `GET /api/people/:id` merges lazy-loaded fields into response. `PUT /people/:id/media` reconstructs full Person from slim + disk for YAML write.
+- [x] **Search indexing**: `SearchService.indexPerson()` accepts optional `bio` parameter. Falls back to `p.scrapbook_md` for backward compat with full Person objects (tests). Slim callers pass bio explicitly.
+- [x] **Server write handlers**: `POST /people`, `PUT /people/:id`, `PUT /people/:id/media` all store `toSlimPerson()` in graph.
+- [x] **TDD**: `tests/core/SlimNode.test.ts` (10 tests) — toSlimPerson utility, scrapbook_md absent after hydration, _gedcom absent after hydration, slim after hot-patch, file path lookup, unknown ID returns undefined, lazy-load round-trip, null for unknown ID, bio search after hydration, bio search after hot-patch.
+- [x] **Deferred**: Cache stripping (`GraphCache`) and worker handoff stripping (`HydrationWorker`) deferred to after 3.7.2 — cache/worker provide full Person data needed for bio search indexing; stripping them before search index persistence exists would break bio search on incremental boots.
 
-#### 3.7.2 Search Index Persistence — NOT STARTED
+#### 3.7.2 Search Index Persistence — COMPLETE ✅
 
 FlexSearch indices are fully rebuilt on every boot. For 50K+ nodes, tokenizing and indexing is heavy CPU work even with the worker thread. FlexSearch supports export/import of compiled indices. See spec Section 2.3D.
 
-- [ ] **`SearchService.exportIndex()`**: Serialize person index, story index, and place map to `/_meta/.search-index.json`. Include `spec_version` header for cache invalidation.
-- [ ] **`SearchService.importIndex()`**: Load pre-compiled index from disk. Validate `spec_version` — mismatch triggers full rebuild.
-- [ ] **Incremental boot integration**: After importing the cached index, surgically re-index only nodes whose `mtime` changed (list provided by the tiered cache comparison). Remove stale entries, re-add with fresh data.
-- [ ] **Wire to hydration**: `GraphEngine.buildGraphFromData()` attempts `importIndex()` before falling back to `rebuild()`. After successful hydration, calls `exportIndex()`.
-- [ ] **Wire to `POST /system/rebuild`**: Invalidate `/_meta/.search-index.json` alongside `/_meta/.graph-cache.json`.
-- [ ] **Debounced hot-patch persistence**: After incremental `indexPerson()` / `removePerson()` calls during hot-patching, re-export the index on a debounced timer to keep the on-disk index fresh.
-- [ ] **TDD**: Tests for export/import round-trip (search results identical), incremental re-index (only changed nodes), corrupt index → full rebuild, missing index → full rebuild, version mismatch → full rebuild.
+- [x] **`SearchService.exportIndex(filePath)`**: Serializes FlexSearch person/story indexes, place map, and tracked person/story IDs to `/_meta/.search-index.json`. Uses FlexSearch's native `export()` API. Includes `spec_version` header for cache invalidation.
+- [x] **`SearchService.importIndex(filePath)`**: Loads and validates cached index from disk. Returns `null` on missing file, corrupt JSON, or `spec_version` mismatch (triggers full rebuild). Restores FlexSearch indexes, place map, and tracked IDs.
+- [x] **Incremental boot integration**: `buildGraphFromData()` attempts `importIndex()` first. If successful, only entries with `wasParsed === true` (mtime changed) are re-indexed. Cached entries are skipped. Deleted people (in old index but not in current data) are removed from the imported index.
+- [x] **`wasParsed` flag on `PersonEntry`**: Added optional `wasParsed: boolean` to `PersonEntry` interface. Set `true` for YAML-parsed entries, `false` for cache-hit entries. Propagated through both inline hydration and worker thread paths.
+- [x] **Wire to hydration**: `exportIndex()` called after both `hydrate()` and `hydrateInBackground()` complete. Both inline and worker paths persist the search index.
+- [x] **Wire to `POST /system/rebuild`**: `forceFullRebuild` path ignores both graph cache and search index cache — full nuclear rebuild.
+- [x] **ID tracking**: `trackPerson()` / `untrackPerson()` / `trackStory()` maintain lists of indexed IDs for deletion detection on incremental boots.
+- [x] **TDD**: `tests/core/SearchPersistence.test.ts` (8 tests) — Index file written after hydration, identical search results from cache, incremental re-index of changed nodes, deleted people removed from search, missing index → full rebuild, corrupt index → full rebuild, version mismatch → full rebuild, forceFullRebuild writes fresh index.
+- [x] **Deferred**: Debounced hot-patch persistence (re-exporting index during live edits) deferred to Phase 5 — the index is correctly rebuilt on every boot, and the overhead is minimal for typical edit sessions.
 
-#### 3.7.3 Write-Event Deduplication — NOT STARTED
+#### 3.7.3 Write-Event Deduplication — COMPLETE ✅
 
-When the API writes a YAML file, the file watcher detects the change and triggers a redundant hot-patch for an update the engine already applied. See spec Section 4.1. Additionally, the server's API handlers currently update the graph manually after writes — the watcher then fires a second, redundant update.
+When the API writes a YAML file, the file watcher detects the change and triggers a redundant hot-patch for an update the engine already applied. See spec Section 4.1.
 
-- [ ] **Write-origin set on `GraphEngine`**: `registerSelfWrite(absolutePath: string)` adds a path to a `Map<string, number>` (path → timestamp). Entries expire after 10s TTL.
-- [ ] **Watcher deduplication**: `handleFileUpdate()` and `handleFileRemove()` check the write-origin set. If present, consume the entry (delete from map) and skip the hot-patch.
-- [ ] **Wire `TransactionManager`**: After `writeFile()` completes the disk write, call `graphEngine.registerSelfWrite()` with the absolute file path. Requires `TransactionManager` to hold a reference to `GraphEngine` (or use an event emitter / callback).
-- [ ] **Wire server API handlers**: Remove the manual graph-update calls in `POST /people`, `PUT /people/:id`, and `POST /import/gedcom` server handlers. Instead, let the watcher handle graph updates for external edits, and let the self-write path skip watcher processing for API writes. The API handlers should update the in-memory graph directly (as they do now) and register the self-write so the watcher doesn't double-process.
-- [ ] **TTL cleanup**: Periodic sweep (every 30s) removes expired entries from the write-origin map. Or use lazy expiration — check timestamp on lookup.
-- [ ] **TDD**: Tests for self-write registration, watcher skip for registered paths, watcher processes unregistered paths (external edits), TTL expiration of stale entries.
+- [x] **Self-write map on `GraphEngine`**: `Map<string, number>` maps absolute file paths to expiry timestamps. `registerSelfWrite(path, ttlMs?)`, `hasSelfWrite(path)`, `consumeSelfWrite(path)` — consume is single-use (removes entry on first check).
+- [x] **Watcher deduplication**: Both `handleFileUpdate()` and `handleFileRemove()` call `consumeSelfWrite()` first. If the path is present and not expired, the hot-patch is skipped entirely.
+- [x] **Wire `TransactionManager`**: New `onFileWritten` callback in `TransactionManagerOptions`. Called after `fs.writeFile()` completes in `writeFile()`. Registered in `server.ts` to call `graphEngine.registerSelfWrite()`.
+- [x] **Wire API handlers**: All writes go through `TransactionManager.writeFile()` → `onFileWritten` → `registerSelfWrite`. Covers `POST /people`, `PUT /people/:id`, `PUT /people/:id/media`, and `POST /import/gedcom`.
+- [x] **TTL cleanup**: Default TTL is 10 seconds. Configurable per call (useful for tests). Expired entries are lazily cleaned up on `hasSelfWrite()` and `consumeSelfWrite()` checks.
+- [x] **TDD**: `tests/core/WriteDedup.test.ts` (7 tests) — Register self-write, consume removes entry (single-use), unregistered returns false, skip hot-patch for self-written files, process external edits normally, skip handleFileRemove for self-written deletions, TTL expiration.
 
 ---
 
@@ -387,7 +390,7 @@ Spec Section 9.3. Build the Playwright pipeline as soon as the Holy Grail page c
 
 ## 3. Test Suite
 
-**Total**: 154 tests | **Passing**: 154 | **Skipped**: 0 | **Failing**: 0
+**Total**: 179 tests | **Passing**: 179 | **Skipped**: 0 | **Failing**: 0
 
 | Module | File | Count | Status |
 |:-------|:-----|:------|:-------|
@@ -415,6 +418,9 @@ Spec Section 9.3. Build the Playwright pipeline as soon as the Holy Grail page c
 | API Server | `tests/api/Server.test.ts` | 21 | ✅ |
 | TimelineSlicer | `tests/core/TimelineSlicer.test.ts` | 10 | ✅ |
 | Authentication | `tests/api/Auth.test.ts` | 11 | ✅ |
+| SlimNode | `tests/core/SlimNode.test.ts` | 10 | ✅ |
+| SearchPersistence | `tests/core/SearchPersistence.test.ts` | 8 | ✅ |
+| WriteDedup | `tests/core/WriteDedup.test.ts` | 7 | ✅ |
 | Watcher | `tests/core/Watcher.test.ts` | 5 | ✅ |
 
 **No skipped tests.** The previously skipped `Watcher.test.ts` (EMFILE with `chokidar`) is now fully passing after the `@parcel/watcher` migration in Phase 3.6.2.

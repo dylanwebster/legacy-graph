@@ -3,7 +3,7 @@ import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import cookie from '@fastify/cookie';
 import { GraphEngine } from './core/GraphEngine';
-import { Person, PersonSchema } from './schemas/PersonSchema';
+import { Person, PersonSchema, toSlimPerson } from './schemas/PersonSchema';
 import { GedcomReader } from './core/gedcom/Import';
 import git from 'isomorphic-git';
 import * as nodeFs from 'fs';
@@ -78,8 +78,12 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         await hydrationPromise;
     }
 
-    // Initialize TransactionManager for git-tracked writes
-    txManager = new TransactionManager(config.dataDir);
+    // Initialize TransactionManager for git-tracked writes (with write-event dedup wiring)
+    txManager = new TransactionManager(config.dataDir, {
+        onFileWritten: (absolutePath: string) => {
+            graphEngine?.registerSelfWrite(absolutePath);
+        }
+    });
 
     // 503 Loading Gate — reject non-exempt endpoints while hydration is in progress (spec 2.3B)
     server.addHook('onRequest', async (request, reply) => {
@@ -232,7 +236,7 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         }
 
         const nodeData = graph.getNodeAttributes(id);
-        const person: Person = nodeData.data;
+        const slimPerson = nodeData.data;
         
         // Read from pre-computed _computed cache (populated during hydration/hot-patch)
         const computed = nodeData._computed || {
@@ -241,6 +245,9 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
             children: [],
             allSpouses: []
         };
+
+        // Lazy-load heavy fields from disk (Slim Node Strategy — spec 2.3B)
+        const heavyFields = await graphEngine!.loadHeavyFields(id);
 
         // Pre-compute timeline feed (with optional pagination)
         let timeline: any;
@@ -267,7 +274,9 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         }
 
         return {
-            ...person,
+            ...slimPerson,
+            scrapbook_md: heavyFields?.scrapbook_md ?? '',
+            _gedcom: heavyFields?._gedcom,
             _computed: computed,
             timeline
         };
@@ -320,9 +329,9 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
             const label = `${primaryName.first} ${primaryName.last}`;
             await txManager!.writeFile(relativePath, yaml.dump(newPerson), label);
 
-            // Add to graph
+            // Add slim data to graph (Slim Node Strategy)
             const graph = graphEngine!.getGraph();
-            graph.addNode(newPerson.id, { type: 'person', data: newPerson });
+            graph.addNode(newPerson.id, { type: 'person', data: toSlimPerson(newPerson) });
 
             return reply.status(201).send(newPerson);
         } catch (error: any) {
@@ -364,8 +373,8 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
             const label = primaryName ? `${primaryName.first} ${primaryName.last}` : id;
             await txManager!.writeFile(relativePath, yaml.dump(updates), label);
 
-            // Update graph
-            graph.setNodeAttribute(id, 'data', updates);
+            // Update graph with slim data (Slim Node Strategy)
+            graph.setNodeAttribute(id, 'data', toSlimPerson(updates));
 
             return updates;
         } catch (error: any) {
@@ -418,29 +427,36 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
             // Track the uploaded asset for git staging
             await txManager!.trackFile(path.join('assets', uniqueFilename), `asset ${uniqueFilename}`);
 
-            // Update person's assets array
-            const nodeData = graph.getNodeAttributes(id);
-            const person: Person = nodeData.data;
+            // Read full person data from disk (graph only stores slim data)
+            const heavyFields = await graphEngine!.loadHeavyFields(id);
+            const slimData = graph.getNodeAttributes(id).data;
             
-            if (!person.assets.includes(uniqueFilename)) {
-                person.assets.push(uniqueFilename);
+            // Reconstruct full Person for YAML write
+            const fullPerson: Person = {
+                ...slimData,
+                scrapbook_md: heavyFields?.scrapbook_md ?? '',
+                _gedcom: heavyFields?._gedcom,
+            } as Person;
+            
+            if (!fullPerson.assets.includes(uniqueFilename)) {
+                fullPerson.assets.push(uniqueFilename);
             }
             
             // Update last_modified
-            person.last_modified = new Date().toISOString();
+            fullPerson.last_modified = new Date().toISOString();
             
             // Write updated person YAML via TransactionManager
             const personRelPath = path.join('people', `${id}.yaml`);
-            const primaryName = person.names?.[0];
+            const primaryName = fullPerson.names?.[0];
             const label = primaryName ? `${primaryName.first} ${primaryName.last}` : id;
-            await txManager!.writeFile(personRelPath, yaml.dump(person), label);
+            await txManager!.writeFile(personRelPath, yaml.dump(fullPerson), label);
             
-            // Update graph
-            graph.setNodeAttribute(id, 'data', person);
+            // Update graph with slim data
+            graph.setNodeAttribute(id, 'data', toSlimPerson(fullPerson));
 
             return {
                 filename: uniqueFilename,
-                assets: person.assets
+                assets: fullPerson.assets
             };
         } catch (error: any) {
             // Handle multipart errors as 400 Bad Request

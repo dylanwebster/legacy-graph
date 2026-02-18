@@ -25,6 +25,7 @@ export interface PersonEntry {
     data: Person;
     filePath: string;
     mtime: number;
+    wasParsed?: boolean;
 }
 
 export interface HydrationWorkerResult {
@@ -106,7 +107,8 @@ async function loadPeopleFull(rootDir: string): Promise<{
             results.push({
                 data: res.data,
                 filePath: res.filePath,
-                mtime: Math.floor(stats.mtimeMs)
+                mtime: Math.floor(stats.mtimeMs),
+                wasParsed: true
             });
         } catch {
             // File deleted between load and stat — skip
@@ -141,13 +143,13 @@ async function loadPeopleIncremental(rootDir: string, cache: GraphCacheFile): Pr
             const cacheEntry = cache.entries[file];
 
             if (cacheEntry && cacheEntry.mtime === mtime) {
-                results.push({ data: cacheEntry.data as Person, filePath: file, mtime });
+                results.push({ data: cacheEntry.data as Person, filePath: file, mtime, wasParsed: false });
                 fromCache++;
             } else {
                 const content = await fs.readFile(file, 'utf8');
                 const raw = yaml.load(content);
                 const data = PersonSchema.parse(raw);
-                results.push({ data, filePath: file, mtime });
+                results.push({ data, filePath: file, mtime, wasParsed: true });
                 parsed++;
             }
         } catch (err: any) {

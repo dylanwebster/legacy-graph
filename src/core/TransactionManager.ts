@@ -8,6 +8,7 @@ import * as path from 'path';
 export interface TransactionManagerOptions {
     debounceMs?: number; // Default: 5000 (5 seconds)
     author?: { name: string; email: string };
+    onFileWritten?: (absolutePath: string) => void;
 }
 
 interface PendingWrite {
@@ -23,6 +24,7 @@ export class TransactionManager {
     private pendingWrites: PendingWrite[] = [];
     private commitMutex: Mutex;
     private author: { name: string; email: string };
+    private onFileWritten?: (absolutePath: string) => void;
 
     constructor(rootDir: string, options: TransactionManagerOptions = {}) {
         this.rootDir = rootDir;
@@ -30,6 +32,7 @@ export class TransactionManager {
         this.commitMutex = new Mutex();
         this.debounceMs = options.debounceMs ?? 5000;
         this.author = options.author ?? { name: 'LegacyGraph', email: 'legacygraph@localhost' };
+        this.onFileWritten = options.onFileWritten;
     }
 
     /**
@@ -45,6 +48,11 @@ export class TransactionManager {
 
             // Write to file system immediately
             await fs.writeFile(targetPath, content, 'utf8');
+
+            // Notify GraphEngine to register self-write (prevents watcher deduplication)
+            if (this.onFileWritten) {
+                this.onFileWritten(targetPath);
+            }
 
             // Queue for commit
             this.pendingWrites.push({ relativePath, label });

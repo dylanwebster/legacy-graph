@@ -1,7 +1,9 @@
 import { Document } from 'flexsearch';
 import Graph from 'graphology';
-import { Person } from '../schemas/PersonSchema';
+import * as fs from 'fs/promises';
+import { Person, SlimPerson } from '../schemas/PersonSchema';
 import { Story } from './StoryLoader';
+import { CACHE_SPEC_VERSION } from './GraphCache';
 
 export interface SearchResult {
     id: string;
@@ -96,8 +98,12 @@ export class SearchService {
     /**
      * Index or update a person in the search index and place map.
      * Removes stale entries first to prevent ghost matches.
+     *
+     * @param p - Person or SlimPerson data
+     * @param bio - Scrapbook markdown for bio indexing. If omitted, falls back to
+     *              p.scrapbook_md (when p is a full Person) or empty string (when p is SlimPerson).
      */
-    public indexPerson(p: Person) {
+    public indexPerson(p: Person | SlimPerson, bio?: string) {
         // Remove old place entries for this person
         this.removePersonPlaces(p.id);
 
@@ -110,17 +116,18 @@ export class SearchService {
             .filter(Boolean)
             .join(" ");
 
-        const bio = p.scrapbook_md || "";
+        const bioText = bio ?? ((p as any).scrapbook_md || '');
 
         this.personIndex.add({
             id: p.id,
             names: p.names,
-            bio: bio,
+            bio: bioText,
             locations: locations
         });
 
         // Update place map
-        this.extractPlaces(p);
+        this.extractPlaces(p as Person);
+        this.trackPerson(p.id);
     }
 
     /**
@@ -129,6 +136,7 @@ export class SearchService {
     public removePerson(id: string) {
         try { this.personIndex.remove(id); } catch { /* might not exist */ }
         this.removePersonPlaces(id);
+        this.untrackPerson(id);
     }
 
     /**
@@ -142,6 +150,7 @@ export class SearchService {
             title: story.metadata.title,
             content: story.content
         });
+        this.trackStory(story.id);
     }
 
     /**
@@ -252,5 +261,115 @@ export class SearchService {
             }
         }
         toDelete.forEach(loc => this.placeMap.delete(loc));
+    }
+
+    /**
+     * Export the search index to disk for persistence across boots.
+     * Serializes FlexSearch person/story indexes, place map, and tracked IDs.
+     */
+    public async exportIndex(filePath: string): Promise<void> {
+        const personExport: Record<string, any> = {};
+        this.personIndex.export(function(key: string, data: any) {
+            personExport[key] = data;
+        });
+
+        const storyExport: Record<string, any> = {};
+        this.storyIndex.export(function(key: string, data: any) {
+            storyExport[key] = data;
+        });
+
+        // FlexSearch export is synchronous — give a tick for completion
+        await new Promise(r => setTimeout(r, 10));
+
+        const placeMapSerialized: Array<[string, string[]]> = [];
+        for (const [loc, ids] of this.placeMap) {
+            placeMapSerialized.push([loc, Array.from(ids)]);
+        }
+
+        const data = {
+            spec_version: CACHE_SPEC_VERSION,
+            exportedAt: new Date().toISOString(),
+            personIds: this.trackedPersonIds,
+            storyIds: this.trackedStoryIds,
+            personIndex: personExport,
+            storyIndex: storyExport,
+            placeMap: placeMapSerialized
+        };
+
+        const dir = filePath.substring(0, filePath.lastIndexOf('/'));
+        if (dir) await fs.mkdir(dir, { recursive: true }).catch(() => {});
+        await fs.writeFile(filePath, JSON.stringify(data), 'utf8');
+    }
+
+    /**
+     * Import a previously exported search index from disk.
+     * Returns the set of person IDs that were in the old index (for deletion tracking),
+     * or null if the cache is invalid/missing.
+     */
+    public async importIndex(filePath: string): Promise<{ personIds: string[]; storyIds: string[] } | null> {
+        try {
+            const content = await fs.readFile(filePath, 'utf8');
+            const data = JSON.parse(content);
+
+            if (!data || data.spec_version !== CACHE_SPEC_VERSION) return null;
+            if (!data.personIndex || !data.storyIndex) return null;
+
+            // Import person index
+            for (const [key, val] of Object.entries(data.personIndex)) {
+                this.personIndex.import(key, val as any);
+            }
+
+            // Import story index
+            for (const [key, val] of Object.entries(data.storyIndex)) {
+                this.storyIndex.import(key, val as any);
+            }
+
+            // Import place map
+            if (Array.isArray(data.placeMap)) {
+                this.placeMap.clear();
+                for (const [loc, ids] of data.placeMap) {
+                    this.placeMap.set(loc, new Set(ids));
+                }
+            }
+
+            // Restore tracked IDs
+            this.trackedPersonIds = data.personIds || [];
+            this.trackedStoryIds = data.storyIds || [];
+
+            return {
+                personIds: data.personIds || [],
+                storyIds: data.storyIds || []
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    private trackedPersonIds: string[] = [];
+    private trackedStoryIds: string[] = [];
+
+    /**
+     * Track a person ID for export persistence.
+     */
+    public trackPerson(id: string): void {
+        if (!this.trackedPersonIds.includes(id)) {
+            this.trackedPersonIds.push(id);
+        }
+    }
+
+    /**
+     * Untrack a removed person ID.
+     */
+    public untrackPerson(id: string): void {
+        this.trackedPersonIds = this.trackedPersonIds.filter(pid => pid !== id);
+    }
+
+    /**
+     * Track a story ID for export persistence.
+     */
+    public trackStory(id: string): void {
+        if (!this.trackedStoryIds.includes(id)) {
+            this.trackedStoryIds.push(id);
+        }
     }
 }

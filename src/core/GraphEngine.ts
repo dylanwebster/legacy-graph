@@ -12,7 +12,7 @@ import { GraphCache, GraphCacheFile } from './GraphCache';
 import { HydrationWorkerResult, HydrationWorkerError, PersonEntry } from './HydrationWorker';
 import * as fs from 'fs/promises';
 import yaml from 'js-yaml';
-import { PersonSchema, Person } from '../schemas/PersonSchema';
+import { PersonSchema, Person, SlimPerson, toSlimPerson } from '../schemas/PersonSchema';
 import { computeAllRelationships, invalidateComputed } from './GraphLogic';
 
 export interface HydrationResult {
@@ -57,12 +57,87 @@ export class GraphEngine {
     }
 
     private fileMap: Map<string, string> = new Map(); // FilePath -> PersonID
+    private reverseFileMap: Map<string, string> = new Map(); // PersonID -> FilePath
+    private selfWriteMap: Map<string, number> = new Map(); // AbsolutePath -> expiry timestamp
+
+    /**
+     * Register a file path as written by the application itself.
+     * The watcher will skip hot-patching for this file on the next event.
+     * Entries expire after ttlMs (default 10000ms) to prevent memory leaks.
+     */
+    public registerSelfWrite(absolutePath: string, ttlMs: number = 10000): void {
+        this.selfWriteMap.set(absolutePath, Date.now() + ttlMs);
+    }
+
+    /**
+     * Check if a file path is in the self-write set (not expired).
+     */
+    public hasSelfWrite(absolutePath: string): boolean {
+        const expiry = this.selfWriteMap.get(absolutePath);
+        if (expiry === undefined) return false;
+        if (Date.now() > expiry) {
+            this.selfWriteMap.delete(absolutePath);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Consume (remove) a self-write entry if it exists and is not expired.
+     * Returns true if the entry was consumed, false if not found or expired.
+     */
+    public consumeSelfWrite(absolutePath: string): boolean {
+        const expiry = this.selfWriteMap.get(absolutePath);
+        if (expiry === undefined) return false;
+        if (Date.now() > expiry) {
+            this.selfWriteMap.delete(absolutePath);
+            return false;
+        }
+        this.selfWriteMap.delete(absolutePath);
+        return true;
+    }
+
+    /**
+     * Reverse lookup: get the source YAML file path for a person ID.
+     * Used by the API to lazy-load heavy fields (scrapbook_md, _gedcom) from disk.
+     */
+    public getFilePathForPerson(personId: string): string | undefined {
+        return this.reverseFileMap.get(personId);
+    }
+
+    /**
+     * Lazy-load heavy fields (scrapbook_md, _gedcom) from the source YAML on disk.
+     * These fields are stripped from the in-memory graph to reduce V8 heap usage (Slim Node Strategy).
+     * Returns null if the person ID is unknown or the file cannot be read.
+     */
+    public async loadHeavyFields(personId: string): Promise<{ scrapbook_md: string; _gedcom?: Record<string, any> } | null> {
+        const filePath = this.reverseFileMap.get(personId);
+        if (!filePath) return null;
+
+        try {
+            const content = await fs.readFile(filePath, 'utf8');
+            const raw = yaml.load(content) as any;
+            return {
+                scrapbook_md: raw.scrapbook_md ?? '',
+                _gedcom: raw._gedcom
+            };
+        } catch {
+            return null;
+        }
+    }
 
     /**
      * Cache file path for the binary graph cache.
      */
     private get cachePath(): string {
         return path.join(this.rootDir, '_meta', '.graph-cache.json');
+    }
+
+    /**
+     * File path for the persistent search index cache.
+     */
+    private get searchIndexPath(): string {
+        return path.join(this.rootDir, '_meta', '.search-index.json');
     }
 
     /**
@@ -111,6 +186,11 @@ export class GraphEngine {
         await GraphCache.save(this.cachePath, peopleWithMtime);
         this._cacheWrittenAt = new Date().toISOString();
 
+        // 5. Persist search index for next boot
+        await this.searchService.exportIndex(this.searchIndexPath).catch(err => {
+            console.warn(`[GraphEngine] Failed to export search index: ${err.message}`);
+        });
+
         return result;
     }
 
@@ -128,12 +208,17 @@ export class GraphEngine {
 
         try {
             const workerResult = await this.runWorker(options?.forceFullRebuild ?? false);
-            return await this.buildGraphFromData(
+            const result = await this.buildGraphFromData(
                 workerResult.people,
                 workerResult.stories,
                 workerResult.fromCache,
                 workerResult.parsed
             );
+            // Persist search index (worker saved graph cache, but search index is main-thread only)
+            await this.searchService.exportIndex(this.searchIndexPath).catch(err => {
+                console.warn(`[GraphEngine] Failed to export search index: ${err.message}`);
+            });
+            return result;
         } catch (err: any) {
             console.warn(`[GraphEngine] Worker failed, falling back to inline hydration: ${err.message}`);
             return this.hydrate(options);
@@ -198,22 +283,50 @@ export class GraphEngine {
     ): Promise<HydrationResult> {
         this.graph.clear();
         this.fileMap.clear();
+        this.reverseFileMap.clear();
 
-        // 1. Add people nodes
-        peopleWithMtime.forEach(({ data: p, filePath }) => {
-            this.graph.addNode(p.id, { type: 'person', data: p });
+        // 1. Try importing cached search index for incremental indexing
+        const searchImport = await this.searchService.importIndex(this.searchIndexPath).catch(() => null);
+        const currentPersonIds = new Set(peopleWithMtime.map(e => e.data.id));
+
+        // Clean up deleted people from imported index
+        if (searchImport) {
+            for (const oldId of searchImport.personIds) {
+                if (!currentPersonIds.has(oldId)) {
+                    this.searchService.removePerson(oldId);
+                }
+            }
+        }
+
+        // 2. Add people nodes (Slim Node Strategy: strip scrapbook_md and _gedcom)
+        const slimPeople: SlimPerson[] = [];
+        peopleWithMtime.forEach(({ data: p, filePath, wasParsed }) => {
+            const slim = toSlimPerson(p);
+            this.graph.addNode(p.id, { type: 'person', data: slim });
             this.fileMap.set(filePath, p.id);
+            this.reverseFileMap.set(p.id, filePath);
+            slimPeople.push(slim);
+
+            // Index: if search cache loaded, only re-index changed entries; otherwise index all
+            if (!searchImport || wasParsed !== false) {
+                this.searchService.indexPerson(slim, p.scrapbook_md || '');
+            } else {
+                this.searchService.trackPerson(p.id);
+            }
         });
 
-        const people = peopleWithMtime.map(r => r.data);
-
-        // 2. Add story nodes
+        // 3. Add story nodes + index
         stories.forEach(s => {
             this.graph.addNode(s.id, { type: 'story', data: s });
+            if (!searchImport) {
+                this.searchService.indexStory(s);
+            } else {
+                this.searchService.trackStory(s.id);
+            }
         });
 
         // 3. Build Lineage Edges (Child -> Parent)
-        people.forEach(p => {
+        slimPeople.forEach(p => {
             p.relationships.parents.forEach(parent => {
                 if (this.graph.hasNode(parent.id)) {
                     this.graph.addEdge(p.id, parent.id, {
@@ -237,13 +350,10 @@ export class GraphEngine {
             });
         });
 
-        // 5. Search indexing
-        await this.searchService.rebuild(this.graph);
-
-        // 6. Compute derived relationships (_computed cache)
+        // 5. Compute derived relationships (_computed cache)
         computeAllRelationships(this.graph);
 
-        // 7. Update cache metadata (worker already saved cache; inline path saves after this)
+        // 6. Update cache metadata (worker already saved cache; inline path saves after this)
         this._cacheWrittenAt = new Date().toISOString();
         this._hydrationState = 'ready';
 
@@ -268,14 +378,15 @@ export class GraphEngine {
             return [];
         });
 
-        const results: Array<{ data: Person; filePath: string; mtime: number }> = [];
+        const results: Array<{ data: Person; filePath: string; mtime: number; wasParsed?: boolean }> = [];
         for (const res of peopleResults) {
             try {
                 const stats = await fs.stat(res.filePath);
                 results.push({
                     data: res.data,
                     filePath: res.filePath,
-                    mtime: Math.floor(stats.mtimeMs)
+                    mtime: Math.floor(stats.mtimeMs),
+                    wasParsed: true
                 });
             } catch {
                 // File deleted between load and stat — skip
@@ -297,7 +408,7 @@ export class GraphEngine {
         const pattern = path.join(peopleDir, '*.yaml').replace(/\\/g, '/');
         const files = await fg(pattern).catch(() => [] as string[]);
 
-        const results: Array<{ data: Person; filePath: string; mtime: number }> = [];
+        const results: Array<{ data: Person; filePath: string; mtime: number; wasParsed?: boolean }> = [];
         let fromCache = 0;
         let parsed = 0;
 
@@ -311,14 +422,14 @@ export class GraphEngine {
 
                 if (cacheEntry && cacheEntry.mtime === mtime) {
                     // Cache hit — use pre-validated data
-                    results.push({ data: cacheEntry.data as Person, filePath: file, mtime });
+                    results.push({ data: cacheEntry.data as Person, filePath: file, mtime, wasParsed: false });
                     fromCache++;
                 } else {
                     // Cache miss — parse from YAML + Zod validate
                     const content = await fs.readFile(file, 'utf8');
                     const raw = yaml.load(content);
                     const data = PersonSchema.parse(raw);
-                    results.push({ data, filePath: file, mtime });
+                    results.push({ data, filePath: file, mtime, wasParsed: true });
                     parsed++;
                 }
             } catch (err: any) {
@@ -381,10 +492,16 @@ export class GraphEngine {
     }
 
     private async handleFileUpdate(filePath: string) {
+        // Write-event deduplication: skip if this change was made by the application itself
+        if (this.consumeSelfWrite(filePath)) {
+            return;
+        }
+
         try {
             const content = await fs.readFile(filePath, 'utf8');
             const raw = yaml.load(content);
             const newPerson = PersonSchema.parse(raw);
+            const slim = toSlimPerson(newPerson);
 
             // Handle ID changes (rare): treat as remove old + add new
             const existingId = this.fileMap.get(filePath);
@@ -392,30 +509,31 @@ export class GraphEngine {
                 this.removeNode(existingId);
             }
 
-            // Capture old state before updating the node
-            let oldPerson: Person | null = null;
+            // Capture old state before updating the node (already slim in graph)
+            let oldData: SlimPerson | null = null;
             if (this.graph.hasNode(newPerson.id)) {
-                oldPerson = this.graph.getNodeAttributes(newPerson.id).data as Person;
+                oldData = this.graph.getNodeAttributes(newPerson.id).data as SlimPerson;
             }
 
-            // Update (or create) graph node
+            // Update (or create) graph node with slim data
             if (this.graph.hasNode(newPerson.id)) {
-                this.graph.mergeNodeAttributes(newPerson.id, { data: newPerson });
+                this.graph.mergeNodeAttributes(newPerson.id, { data: slim });
             } else {
-                this.graph.addNode(newPerson.id, { type: 'person', data: newPerson });
+                this.graph.addNode(newPerson.id, { type: 'person', data: slim });
             }
             this.fileMap.set(filePath, newPerson.id);
+            this.reverseFileMap.set(newPerson.id, filePath);
 
             // Diff-based edge reconciliation
-            if (oldPerson) {
-                this.reconcileEdges(newPerson.id, oldPerson, newPerson);
+            if (oldData) {
+                this.reconcileEdges(newPerson.id, oldData, slim);
             } else {
                 // New node — add all parent edges
-                this.addParentEdges(newPerson);
+                this.addParentEdges(slim);
             }
 
-            // Update search index
-            this.searchService.indexPerson(newPerson);
+            // Update search index (pass bio from full Person before it was stripped)
+            this.searchService.indexPerson(slim, newPerson.scrapbook_md || '');
 
             // Recompute _computed for this node and all neighbors
             invalidateComputed(this.graph, newPerson.id);
@@ -430,7 +548,7 @@ export class GraphEngine {
      * Compares old vs. new parent references and applies minimal edge changes.
      * Falls back to drop-all-and-rebuild if the diff produces an inconsistent state.
      */
-    private reconcileEdges(nodeId: string, oldPerson: Person, newPerson: Person): void {
+    private reconcileEdges(nodeId: string, oldPerson: SlimPerson, newPerson: SlimPerson): void {
         try {
             const oldParentIds = new Set(oldPerson.relationships.parents.map(p => p.id));
             const newParentIds = new Set(newPerson.relationships.parents.map(p => p.id));
@@ -488,7 +606,7 @@ export class GraphEngine {
      * Mini-hydration fallback: drops all outgoing child_of edges and rebuilds from scratch.
      * Used when diff-based reconciliation detects an inconsistent state.
      */
-    private fallbackRebuildEdges(nodeId: string, person: Person): void {
+    private fallbackRebuildEdges(nodeId: string, person: SlimPerson): void {
         if (this.graph.hasNode(nodeId)) {
             const edgesToDrop = this.graph.outEdges(nodeId).filter(edge =>
                 this.graph.getEdgeAttributes(edge).type === 'child_of'
@@ -501,7 +619,7 @@ export class GraphEngine {
     /**
      * Add child_of edges for all of a person's parents.
      */
-    private addParentEdges(person: Person): void {
+    private addParentEdges(person: SlimPerson): void {
         person.relationships.parents.forEach(parent => {
             if (this.graph.hasNode(parent.id)) {
                 this.graph.addEdge(person.id, parent.id, {
@@ -513,10 +631,16 @@ export class GraphEngine {
     }
 
     private handleFileRemove(filePath: string) {
+        // Write-event deduplication: skip if this change was made by the application itself
+        if (this.consumeSelfWrite(filePath)) {
+            return;
+        }
+
         const id = this.fileMap.get(filePath);
         if (id) {
             this.removeNode(id);
             this.fileMap.delete(filePath);
+            this.reverseFileMap.delete(id);
             console.log(`[GraphEngine] Hot-removed ${id}`);
         }
     }
