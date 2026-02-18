@@ -3,9 +3,9 @@
 > Single source of truth for implementation status. For the _what_ and _why_, see `spec.md`.
 > For the _how far_ and _what's next_, read this document.
 
-**Last Updated**: 2026-02-16
+**Last Updated**: 2026-02-17
 **Test Suite**: 154 passing, 0 skipped (154 total)
-**Overall Completion**: ~65% of full spec
+**Overall Completion**: ~60% of full spec
 
 ---
 
@@ -20,7 +20,8 @@
 | **3.4** | API Server & Auth | ✅ Complete |
 | **3.5** | Backend Optimizations (7 items) | ✅ Complete (all 7 items) |
 | **3.6** | Production Hardening (3 items) | ✅ Complete (all 3 items) |
-| **4** | Frontend (React UI) + E2E Tests | ❌ Not started — **NEXT** |
+| **3.7** | Data Layer Hardening (3 items) | ❌ Not started — **NEXT** |
+| **4** | Frontend (React UI) + E2E Tests | ❌ Not started |
 | **5** | Immersion & Polish | ❌ Not started |
 | **6** | Distribution & Deployment | ❌ Not started |
 
@@ -261,43 +262,99 @@ Added `limit`/`offset` pagination to search and timeline endpoints. Prevents pay
 
 ---
 
+### Phase 3.7: Data Layer Hardening — NOT STARTED ❌
+
+> **Context**: Principal Engineer scaling review identified three structural limits that will degrade performance at 50,000+ nodes. These must be resolved before the frontend consumes the API, ensuring the data layer is rock-solid under load.
+
+#### 3.7.1 Slim Node Strategy (Memory Budgeting) — NOT STARTED
+
+Strip `scrapbook_md` and `_gedcom` from the in-memory Graphology runtime. At 50K nodes with 2KB of markdown each, these fields consume ~100MB of V8 heap doing nothing until a detail page is opened. See spec Section 2.3B.
+
+- [ ] **Define `SlimPerson` type**: TypeScript type that omits `scrapbook_md` and `_gedcom` from `Person`. Used as the Graphology node `data` attribute type.
+- [ ] **Strip during hydration**: `buildGraphFromData()` strips heavy fields before calling `graph.addNode()`. Only slim data enters the Graphology runtime.
+- [ ] **Strip during hot-patch**: `handleFileUpdate()` strips heavy fields before `graph.mergeNodeAttributes()`.
+- [ ] **Strip in graph cache**: `GraphCache.save()` serializes only slim data. `GraphCache.load()` returns slim data. Reduces cache file size proportionally.
+- [ ] **Strip in worker handoff**: `HydrationWorker` strips heavy fields from `PersonEntry.data` before `postMessage()` — reduces structured clone transfer size.
+- [ ] **Lazy load in API**: `GET /api/people/:id` reads the source YAML from disk (`fileMap` lookup → `fs.readFile` → YAML parse), extracts `scrapbook_md` and `_gedcom`, and merges them into the response alongside in-memory graph data and `_computed` relationships.
+- [ ] **Search indexing**: `SearchService.indexPerson()` currently reads `scrapbook_md` from the Person object for the `bio` field. Update to accept an optional `bio` parameter sourced during hydration/hot-patch (before stripping), or read from disk during indexing.
+- [ ] **TDD**: Tests for slim node verification (assert `scrapbook_md` absent from node attributes), lazy-load round-trip (write YAML with scrapbook → GET returns it), cache size reduction, search still indexes bio content.
+
+#### 3.7.2 Search Index Persistence — NOT STARTED
+
+FlexSearch indices are fully rebuilt on every boot. For 50K+ nodes, tokenizing and indexing is heavy CPU work even with the worker thread. FlexSearch supports export/import of compiled indices. See spec Section 2.3D.
+
+- [ ] **`SearchService.exportIndex()`**: Serialize person index, story index, and place map to `/_meta/.search-index.json`. Include `spec_version` header for cache invalidation.
+- [ ] **`SearchService.importIndex()`**: Load pre-compiled index from disk. Validate `spec_version` — mismatch triggers full rebuild.
+- [ ] **Incremental boot integration**: After importing the cached index, surgically re-index only nodes whose `mtime` changed (list provided by the tiered cache comparison). Remove stale entries, re-add with fresh data.
+- [ ] **Wire to hydration**: `GraphEngine.buildGraphFromData()` attempts `importIndex()` before falling back to `rebuild()`. After successful hydration, calls `exportIndex()`.
+- [ ] **Wire to `POST /system/rebuild`**: Invalidate `/_meta/.search-index.json` alongside `/_meta/.graph-cache.json`.
+- [ ] **Debounced hot-patch persistence**: After incremental `indexPerson()` / `removePerson()` calls during hot-patching, re-export the index on a debounced timer to keep the on-disk index fresh.
+- [ ] **TDD**: Tests for export/import round-trip (search results identical), incremental re-index (only changed nodes), corrupt index → full rebuild, missing index → full rebuild, version mismatch → full rebuild.
+
+#### 3.7.3 Write-Event Deduplication — NOT STARTED
+
+When the API writes a YAML file, the file watcher detects the change and triggers a redundant hot-patch for an update the engine already applied. See spec Section 4.1. Additionally, the server's API handlers currently update the graph manually after writes — the watcher then fires a second, redundant update.
+
+- [ ] **Write-origin set on `GraphEngine`**: `registerSelfWrite(absolutePath: string)` adds a path to a `Map<string, number>` (path → timestamp). Entries expire after 10s TTL.
+- [ ] **Watcher deduplication**: `handleFileUpdate()` and `handleFileRemove()` check the write-origin set. If present, consume the entry (delete from map) and skip the hot-patch.
+- [ ] **Wire `TransactionManager`**: After `writeFile()` completes the disk write, call `graphEngine.registerSelfWrite()` with the absolute file path. Requires `TransactionManager` to hold a reference to `GraphEngine` (or use an event emitter / callback).
+- [ ] **Wire server API handlers**: Remove the manual graph-update calls in `POST /people`, `PUT /people/:id`, and `POST /import/gedcom` server handlers. Instead, let the watcher handle graph updates for external edits, and let the self-write path skip watcher processing for API writes. The API handlers should update the in-memory graph directly (as they do now) and register the self-write so the watcher doesn't double-process.
+- [ ] **TTL cleanup**: Periodic sweep (every 30s) removes expired entries from the write-origin map. Or use lazy expiration — check timestamp on lookup.
+- [ ] **TDD**: Tests for self-write registration, watcher skip for registered paths, watcher processes unregistered paths (external edits), TTL expiration of stale entries.
+
+---
+
 ### Phase 4: Frontend — NOT STARTED ❌
 
-Build the "VS Code for Genealogy" interface. Start with the Command Palette and Person Detail page to expose API design issues early.
+Build the "VS Code for Genealogy" interface. Execution order is deliberate — each step battle-tests the API layer under realistic conditions before the next builds on it.
 
 > **Technical Constraints (Mandatory)**: See spec Section 6.2. Virtualization, optimistic UI, and hydration-aware shell are non-negotiable.
+>
+> **Execution Order Rationale** (per Principal Engineer review): TanStack Query must be wired immediately — its optimistic updates are mandatory to mask the slight latency of the debounced Git queue. The app shell must consume the SSE hydration stream before any data views are built. CmdK is built early because it drives all navigation and forces real search latency testing. E2E tests lock in the critical user journey as soon as the detail page can mutate and persist.
 
-#### 4.1 Scaffolding & Design System
+#### 4.1 UI Foundation & Scaffolding
 - [ ] Vite + React + TypeScript + TanStack Router
-- [ ] TanStack Query for caching and **optimistic updates** (spec 6.2 constraint)
+- [ ] **TanStack Query** wired immediately — all API calls go through Query hooks with **optimistic update** wrappers from day one (spec 6.2 constraint). Mutations use `onMutate` → optimistic cache update, `onError` → rollback, `onSettled` → invalidate.
 - [ ] Tailwind CSS with Dark Mode palette (Slate/Zinc/Neutral)
 - [ ] Typography: `Inter` (UI), `Fira Code` (Data), `Merriweather` (Stories)
 - [ ] Base components: `Button`, `Input`, `Modal` (radix-ui primitives)
 - [ ] `Avatar` component (image or initials)
-- [ ] **`CmdK` Command Palette** — build early. Debounced (300ms) queries to `/api/search`. Primary navigation tool.
-- [ ] **Hydration-aware app shell**: Poll `GET /system/status` or connect to `GET /system/hydration/stream` (SSE). Show progress indicator during loading, block data views until `hydrationState === "ready"`.
+- [ ] API client layer: typed fetch wrappers for all backend endpoints, integrated with TanStack Query
 
-#### 4.2 The "Holy Grail" Person Detail Page
+#### 4.2 App Shell & Hydration Awareness
+- [ ] **Hydration-aware app shell**: Connect to `GET /system/hydration/stream` (SSE) on boot. Display real-time startup progress (phase, percent, node count). Gracefully handle 503 errors — show loading state, block data-dependent views until `hydrationState === "ready"`.
+- [ ] Global layout shell: sidebar navigation, top bar with system status indicator
+- [ ] Route structure: `/` (dashboard), `/people/:id` (detail), `/search` (results), `/import` (GEDCOM)
+- [ ] Error boundary: global + per-route error boundaries for graceful API failure handling
+
+#### 4.3 Command Palette (CmdK)
+- [ ] **Build early** — this is the primary navigation tool and forces real testing of the paginated `/api/search` endpoint under user input latency.
+- [ ] Debounced input (300ms) queries `GET /api/search?q=...&limit=20`
+- [ ] Renders People, Stories, and Places results in categorized sections
+- [ ] Keyboard navigation (arrow keys, enter to select, escape to close)
+- [ ] Global hotkey: `Cmd+K` / `Ctrl+K`
+
+#### 4.4 The "Holy Grail" Person Detail Page
 - [ ] CSS Grid 3-column layout (Fixed Left, Scrollable Center, Collapsible Right)
-- [ ] **Timeline Feed** (center): Consume paginated `TimelineSlicer` output, render `EventCard` and `Gap` components. **Virtualized** via `@tanstack/react-virtual` — only visible items rendered. Infinite-scroll pagination via `timeline_limit`/`timeline_offset`.
-- [ ] **Identity Panel** (left): Bio, stats, relationship chips from `_computed`
-- [ ] **Context Panel** (right): Assets grid, Markdown Notebook (`scrapbook_md`), Raw YAML tab
+- [ ] **Timeline Feed** (center): Consume paginated `TimelineSlicer` output, render `EventCard` and `Gap` components. **Must use `@tanstack/react-virtual`** for the feed — only visible items rendered. Infinite-scroll pagination via `timeline_limit`/`timeline_offset` with TanStack Query `useInfiniteQuery`.
+- [ ] **Identity Panel** (left): Bio, stats, relationship chips from `_computed` (parents, siblings, spouses, children)
+- [ ] **Context Panel** (right): Assets grid, Markdown Notebook (`scrapbook_md` — lazy-loaded per spec 2.3B), Raw YAML tab
 - [ ] Inline editing for simple fields (Name, Birth Date) — **optimistic updates** via TanStack Query mutation
 - [ ] Embedded Markdown editor for `scrapbook_md`
 
-#### 4.3 Dashboard
+#### 4.5 E2E Tests (Playwright)
+
+Spec Section 9.3. Build the Playwright pipeline as soon as the Holy Grail page can mutate a person and save. Lock in the "Import → View → Edit → Persist" critical user journey.
+
+- [ ] Playwright setup with Vite dev server integration
+- [ ] **CUJ: Import → View → Edit → Persist**: Upload GEDCOM → Wait for hydration (via SSE stream) → Verify node count → Navigate to Person → Edit field → Save → Verify persistence (optimistic + server confirm) → Reload → Verify data survived round-trip
+- [ ] **CUJ: Search Navigation**: Open CmdK → Type query → Select result → Verify navigation to detail page → Verify correct person loaded
+- [ ] **CUJ: Time Tunnel** (Phase 5): Load view → Scroll → Verify camera Z position changes
+
+#### 4.6 Dashboard
 - [ ] Stats panel: Total People, Total Families, Last Edited File
 - [ ] Force graph visualization (`react-force-graph-2d`)
 - [ ] "Gravity Bands" (position nodes by birth year on Y-axis)
-
-#### 4.4 E2E Tests (Playwright)
-
-Spec Section 9.3. Critical user journeys validated end-to-end.
-
-- [ ] Playwright setup with Vite dev server integration
-- [ ] **CUJ: Import Flow**: Upload GEDCOM → Wait for hydration (via SSE stream) → Verify node count
-- [ ] **CUJ: Holy Grail**: Navigate to Person → Edit Note → Save → Verify persistence (optimistic + server confirm)
-- [ ] **CUJ: Time Tunnel** (Phase 5): Load view → Scroll → Verify camera Z position changes
 
 ---
 
@@ -388,4 +445,8 @@ Decisions made during implementation that deviate from or elaborate on the spec.
 | 16 | API pagination mandatory before frontend (Phase 3.6.3) | Unbounded search/timeline responses would lock up the browser DOM for large datasets. `limit`/`offset` with `totalCounts` prevents payload bloat |
 | 17 | Virtualization mandatory in frontend (Phase 4) | Timeline Feed and Search Results must use `@tanstack/react-virtual` or equivalent. No DOM nodes for off-screen items |
 | 18 | SSE hydration stream (`GET /system/hydration/stream`) | Replaces polling `GET /system/status` with a push-based progress stream. Frontend connects on boot, shows real progress bar |
+| 19 | Slim Node Strategy — strip `scrapbook_md` + `_gedcom` from in-memory graph (Phase 3.7.1) | PE scaling review: 50K nodes × 2KB markdown = ~100MB idle in V8 heap. Lazy-load heavy fields from disk on `GET /people/:id` only |
+| 20 | Search Index Persistence — serialize FlexSearch to disk (Phase 3.7.2) | PE scaling review: rebuilding FlexSearch index for 50K+ nodes on every boot is avoidable CPU work. Export/import compiled index, surgically update changed nodes |
+| 21 | Write-Event Deduplication — self-write ignore set (Phase 3.7.3) | PE scaling review: API writes trigger redundant watcher hot-patches. Write-origin set with TTL prevents double-processing |
+| 22 | Phase 4 execution order: Foundation → Shell → CmdK → Holy Grail → E2E → Dashboard | PE recommendation: TanStack Query + optimistic updates from day one; CmdK early to battle-test search; E2E locked as soon as edit→persist works |
 
