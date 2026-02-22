@@ -1,7 +1,10 @@
 import { createServer, closeServer } from './server';
-import * as path from 'path';
 
-const dataDir = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'TEST_DATA_DIR_REPLACE_ME');
+if (!process.env.DATA_DIR) {
+    console.error('[Boot] FATAL: DATA_DIR environment variable is not set. Please set DATA_DIR to the path of your data directory.');
+    process.exit(1);
+}
+const dataDir = process.env.DATA_DIR;
 const port = parseInt(process.env.PORT || '3000', 10);
 
 async function bootstrap() {
