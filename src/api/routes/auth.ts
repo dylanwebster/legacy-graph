@@ -2,6 +2,8 @@ import { FastifyInstance } from 'fastify';
 import { authenticateUser, issueToken } from '../middleware/auth';
 import type { AppInstance } from '../types';
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 export async function authRoutes(server: FastifyInstance) {
     const { authConfig } = (server as AppInstance).appServices;
 
@@ -38,7 +40,7 @@ export async function authRoutes(server: FastifyInstance) {
             httpOnly: true,
             path: '/',
             sameSite: 'strict',
-            secure: false
+            secure: isProduction
         });
 
         return { message: 'Login successful', username: authenticatedUser };
@@ -49,7 +51,7 @@ export async function authRoutes(server: FastifyInstance) {
             path: '/',
             httpOnly: true,
             sameSite: 'strict',
-            secure: false
+            secure: isProduction
         });
 
         return { message: 'Logout successful' };

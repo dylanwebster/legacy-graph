@@ -1,2 +1,4 @@
 # LegacyGraph
 assets/
+_meta/.graph-cache.json
+_meta/.search-index.json

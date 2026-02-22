@@ -167,19 +167,34 @@ export class TransactionManager {
 
     /**
      * Build a commit message from the batch of writes.
-     * Format: "Update N files: Label1, Label2, ..."
-     * Truncated at 72 chars for git convention.
+     * Format: "Update N files: Label1, Label2, ... and M more"
+     * Respects the 72-char git convention by breaking at word (label) boundaries
+     * and appending a count of omitted labels rather than cutting mid-word.
      */
     private buildCommitMessage(batch: PendingWrite[]): string {
         const fileWord = batch.length === 1 ? 'file' : 'files';
         const prefix = `Update ${batch.length} ${fileWord}: `;
-        const labels = batch.map(w => w.label).join(', ');
-        const full = prefix + labels;
 
-        if (full.length <= 72) return full;
+        const labels = batch.map(w => w.label);
+        const included: string[] = [];
 
-        // Truncate: leave room for "..."
-        return full.substring(0, 69) + '...';
+        for (let i = 0; i < labels.length; i++) {
+            const remaining = labels.length - i;
+            const suffix = remaining > 0 ? `, and ${remaining} more` : '';
+            const candidate = prefix + [...included, labels[i]].join(', ');
+
+            // Check whether adding this label (plus a potential suffix for the rest) fits
+            const wouldFit = (candidate + (remaining - 1 > 0 ? `, and ${remaining - 1} more` : '')).length <= 72;
+            if (wouldFit) {
+                included.push(labels[i]);
+            } else {
+                // No room — append "and N more" and stop
+                const omitted = labels.length - included.length;
+                return prefix + included.join(', ') + (included.length > 0 ? `, and ${omitted} more` : `and ${omitted} more`);
+            }
+        }
+
+        return prefix + included.join(', ');
     }
 
     // Legacy method for backward compatibility

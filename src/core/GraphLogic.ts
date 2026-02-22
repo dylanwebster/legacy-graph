@@ -5,7 +5,7 @@ import { Person } from '../schemas/PersonSchema';
 export function getSiblings(graph: Graph, personId: string): string[] {
     if (!graph.hasNode(personId)) return [];
     const siblings = new Set<string>();
-    
+
     // 1. Find Parents (Outgoing neighbors where edge type is 'child_of')
     const parents = graph.outNeighbors(personId).filter(n => {
         // Fix: Use findOutEdge to handle MultiGraph ambiguity
@@ -17,7 +17,7 @@ export function getSiblings(graph: Graph, personId: string): string[] {
         const children = graph.inNeighbors(p).filter(child => {
             return graph.findOutEdge(child, p, (key, attr) => attr.type === 'child_of');
         });
-        
+
         children.forEach(child => {
             if (child !== personId) siblings.add(child);
         });
@@ -30,16 +30,16 @@ export function getCurrentSpouse(graph: Graph, personId: string) {
     if (!graph.hasNode(personId)) return null;
     const node = graph.getNodeAttributes(personId);
     if (node.type !== 'person') return null;
-    
+
     const data = node.data as Person;
 
     // Filter relevant events & Sort
     const events = data.events
         .filter(e => e.type === 'marriage' || e.type === 'divorce')
-        .sort((a, b) => a.sort_date.localeCompare(b.sort_date));
+        .sort((a, b) => (a.sort_date ?? '9999-12-31').localeCompare(b.sort_date ?? '9999-12-31'));
 
     let spouse: string | null = null;
-    
+
     for (const e of events) {
         if (e.type === 'marriage') spouse = e.partner_id;
         else if (e.type === 'divorce' && spouse === e.partner_id) spouse = null;
@@ -75,7 +75,7 @@ export function getChildren(graph: Graph, personId: string): string[] {
  * Compute the full marriage history for a person.
  * Returns all spouses with their final status (married, divorced, widowed).
  */
-export function getAllSpouses(graph: Graph, personId: string): Array<{ id: string; status: string; sortDate: string }> {
+export function getAllSpouses(graph: Graph, personId: string): Array<{ id: string; status: string; sortDate: string | null }> {
     if (!graph.hasNode(personId)) return [];
     const node = graph.getNodeAttributes(personId);
     if (node.type !== 'person') return [];
@@ -83,23 +83,23 @@ export function getAllSpouses(graph: Graph, personId: string): Array<{ id: strin
     const data = node.data as Person;
     const events = data.events
         .filter(e => e.type === 'marriage' || e.type === 'divorce')
-        .sort((a, b) => a.sort_date.localeCompare(b.sort_date));
+        .sort((a, b) => (a.sort_date ?? '9999-12-31').localeCompare(b.sort_date ?? '9999-12-31'));
 
     // Track marriage states keyed by partner_id
-    const spouseMap = new Map<string, { id: string; status: string; sortDate: string }>();
+    const spouseMap = new Map<string, { id: string; status: string; sortDate: string | null }>();
 
     for (const e of events) {
         if (e.type === 'marriage') {
             spouseMap.set(e.partner_id, {
                 id: e.partner_id,
                 status: 'married',
-                sortDate: e.sort_date
+                sortDate: e.sort_date ?? null
             });
         } else if (e.type === 'divorce') {
             const existing = spouseMap.get(e.partner_id);
             if (existing) {
                 existing.status = 'divorced';
-                existing.sortDate = e.sort_date;
+                existing.sortDate = e.sort_date ?? existing.sortDate;
             }
         }
     }

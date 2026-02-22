@@ -5,3 +5,5 @@ coverage
 temp_data
 temp_repo
 tests/fixtures/auth-data
+.graph-cache.json
+.search-index.json

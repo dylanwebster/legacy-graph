@@ -63,6 +63,7 @@ export function sliceTimeline(graph: Graph, personId: string, options?: Timeline
 
     // 1. Collect Person Events
     for (const event of person.events) {
+        if (!event.sort_date) continue; // Skip events without a parseable date
         sortable.push({
             sort_date: event.sort_date,
             item: {
