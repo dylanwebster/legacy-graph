@@ -66,6 +66,10 @@ export class GraphEngine extends EventEmitter {
     private reverseFileMap: Map<string, string> = new Map(); // PersonID -> FilePath
     private selfWriteMap: Map<string, number> = new Map(); // AbsolutePath -> expiry timestamp
 
+    private watcherEventCount = 0;
+    private watcherWindowStart = 0;
+    private watcherSuspended = false;
+
     /**
      * Register a file path as written by the application itself.
      * The watcher will skip hot-patching for this file on the next event.
@@ -484,6 +488,22 @@ export class GraphEngine extends EventEmitter {
                     console.error('[GraphEngine] People watcher error:', err);
                     return;
                 }
+
+                if (this.watcherSuspended) return;
+
+                const now = Date.now();
+                if (now - this.watcherWindowStart > 500) {
+                    this.watcherWindowStart = now;
+                    this.watcherEventCount = 0;
+                }
+                this.watcherEventCount += events.length;
+
+                if (this.watcherEventCount > 50) {
+                    console.warn(`[GraphEngine] Circuit breaker triggered! ${this.watcherEventCount} events in <500ms.`);
+                    this.triggerCircuitBreaker();
+                    return;
+                }
+
                 for (const event of events) {
                     if (!event.path.endsWith('.yaml')) continue;
                     if (path.basename(event.path).startsWith('.')) continue;
@@ -511,6 +531,22 @@ export class GraphEngine extends EventEmitter {
                         console.error('[GraphEngine] Story watcher error:', err);
                         return;
                     }
+
+                    if (this.watcherSuspended) return;
+
+                    const now = Date.now();
+                    if (now - this.watcherWindowStart > 500) {
+                        this.watcherWindowStart = now;
+                        this.watcherEventCount = 0;
+                    }
+                    this.watcherEventCount += events.length;
+
+                    if (this.watcherEventCount > 50) {
+                        console.warn(`[GraphEngine] Circuit breaker triggered! ${this.watcherEventCount} events in <500ms.`);
+                        this.triggerCircuitBreaker();
+                        return;
+                    }
+
                     for (const event of events) {
                         if (!event.path.endsWith('.md')) continue;
                         if (path.basename(event.path).startsWith('.')) continue;
@@ -531,6 +567,24 @@ export class GraphEngine extends EventEmitter {
         } catch {
             // stories/ directory may not exist yet
         }
+    }
+
+    private triggerCircuitBreaker() {
+        this.watcherSuspended = true;
+        this._hydrationState = 'loading';
+        console.log('[GraphEngine] Suspending hot-patching and initiating background re-hydration...');
+        
+        this.hydrateInBackground({ forceFullRebuild: false })
+            .then(() => {
+                console.log('[GraphEngine] Circuit breaker resolved. Resuming hot-patching.');
+            })
+            .catch(err => {
+                console.error('[GraphEngine] Circuit breaker re-hydration failed:', err);
+            })
+            .finally(() => {
+                this.watcherSuspended = false;
+                this.watcherEventCount = 0;
+            });
     }
 
     /**

@@ -4,7 +4,7 @@
 > For the _how far_ and _what's next_, read this document.
 
 **Last Updated**: 2026-02-21
-**Test Suite**: 194 passing, 0 skipped (194 total)
+**Test Suite**: 198 passing, 0 skipped (198 total)
 **Overall Completion**: ~70% of full spec
 
 ---
@@ -22,6 +22,7 @@
 | **3.6** | Production Hardening (3 items) | ✅ Complete (all 3 items) |
 | **3.7** | Data Layer Hardening (3 items) | ✅ Complete |
 | **3.8** | Pre-Frontend Hardening (5 items) | ✅ Complete (all 5 items) |
+| **3.9** | More Backend Hardening (3 items) | ✅ Complete (all 3 items) |
 | **4** | Frontend (React UI) + E2E Tests | ❌ Not started — **NEXT** |
 | **5** | Immersion & Polish | ❌ Not started |
 | **6** | Distribution & Deployment | ❌ Not started |
@@ -373,6 +374,24 @@ Extended the file watcher to monitor `stories/` alongside `people/`. Story chang
 - [x] **`handleStoryRemove()`**: Drops story node + edges from graph, removes from search via `removeStory()`, invalidates `_computed` for previously-mentioned persons.
 - [x] **Self-write dedup**: Story handlers check `consumeSelfWrite()` to skip watcher-triggered events for API-initiated writes (future-proofed for Phase 5.1 story editor).
 - [x] **TDD**: 4 new tests in `tests/core/Watcher.test.ts` — story add creates node + edges, story update refreshes title, story remove drops node + edges, story indexed in search.
+
+---
+
+### Phase 3.9: More Backend Hardening — COMPLETE ✅
+
+#### 3.9.1 File Watcher Circuit Breaker — COMPLETE ✅
+- [x] Implement sliding window in `startWatcher()`.
+- [x] Trigger background re-hydration if >50 events/500ms limits are hit.
+- [x] Add tests for burst resistance.
+
+#### 3.9.2 Graceful Shutdown Flush — COMPLETE ✅
+- [x] Handle `process.on('SIGINT')` and `process.on('SIGTERM')` in application bootstrapper.
+- [x] Wait for `server.close()` and `TransactionManager.destroy()`.
+
+#### 3.9.3 Static Asset Delivery Performance — COMPLETE ✅
+- [x] Add `@fastify/static` dependency.
+- [x] Expose `GET /assets/*` with HTTP Range requests support.
+- [x] Apply `maxAge: 31536000` and `immutable: true` Cache-Control policies.
 
 ---
 

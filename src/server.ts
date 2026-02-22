@@ -2,6 +2,8 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import cookie from '@fastify/cookie';
+import fastifyStatic from '@fastify/static';
+import * as path from 'path';
 import { GraphEngine } from './core/GraphEngine';
 import { TransactionManager } from './core/TransactionManager';
 import { loadAuthConfig, registerAuthGuard } from './api/middleware/auth';
@@ -89,6 +91,20 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
     await server.register(searchRoutes);
     await server.register(peopleRoutes);
     await server.register(gedcomRoutes);
+
+    // Phase 3.9.3 Static Asset Delivery Performance
+    await server.register(fastifyStatic, {
+        root: path.resolve(config.dataDir, 'assets'),
+        prefix: '/assets/',
+        acceptRanges: true,
+        etag: true,
+        cacheControl: true,
+        maxAge: 31536000000, // 365 days in ms
+        immutable: true,
+        setHeaders: (res) => {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+    });
 
     return server;
 }

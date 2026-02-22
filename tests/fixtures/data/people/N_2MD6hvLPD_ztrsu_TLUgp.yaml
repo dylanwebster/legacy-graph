@@ -1,7 +1,7 @@
 version: '5.0'
-id: N_cjzmjHAA2qp__CxaDRFkk
-created: '2026-02-22T00:48:50.059Z'
-last_modified: '2026-02-22T00:48:50.059Z'
+id: N_2MD6hvLPD_ztrsu_TLUgp
+created: '2026-02-22T01:47:07.092Z'
+last_modified: '2026-02-22T01:47:07.092Z'
 names:
   - first: Child
     last: Edge
@@ -10,7 +10,7 @@ sex: M
 tags: []
 relationships:
   parents:
-    - id: N_rz-BM12kd0gIAy3wQ9IoL
+    - id: N_ACHe6AzKFjfsjZFSYbA9o
       type: biological
 events: []
 assets: []

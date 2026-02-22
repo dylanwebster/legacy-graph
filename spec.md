@@ -259,6 +259,7 @@ When the API writes a file to disk (via `TransactionManager.writeFile()`), the `
 - **Watcher Check**: When the file watcher fires an event, the hot-patch handler checks the write-origin set first. If the file path is present, the event is **consumed** (removed from the set) and the hot-patch is skipped — the graph is already up-to-date from the API handler that initiated the write.
 - **External Edits Pass Through**: Changes made by a user editing YAML/Markdown in VS Code, or by `git checkout`, are not registered in the write-origin set and are processed normally by the hot-patch pipeline.
 - **TTL Safety**: Entries in the write-origin set expire after 10 seconds to prevent memory leaks if a watcher event is lost or delayed. The TTL is conservative — `@parcel/watcher` typically fires within milliseconds.
+- **File Watcher Circuit Breaker**: If the watcher fires a massive localized burst of events (e.g., >50 events in 500ms from `git checkout` or bulk find-and-replace), this indicates a "Massive External Edit". In this state, granular hot-patching is **suspended**. The system transitions `hydrationState` to `"loading"`, ignores further burst events, and triggers a background re-hydration (`hydrateInBackground()`) to rebuild the graph and caches cleanly without starving the Node.js event loop.
 
 ### **4.2 Timeline Slicer**
 
@@ -311,6 +312,8 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 - `PUT /people/:id/media`: Upload asset.
   - _Multipart_: File data.
   - _Effect_: Saves to `/assets`, updates Person YAML `assets` array, invalidates `_computed` for the person.
+- `GET /assets/*`: Static Asset Delivery.
+  - _Effect_: Serves files from the `/assets` directory. Uses HTTP Range requests for optimal media streaming (MP4) and injects strong caching headers (`Cache-Control: max-age=31536000, immutable`) powered by ETag/mtime comparisons to prevent Node event loop blocking.
 
 ### **5.2 Search & Discovery**
 
@@ -391,6 +394,7 @@ The `TransactionManager` uses `isomorphic-git` (pure JavaScript, in-process) for
 - **Commit Window**: File writes are queued. After the last write in a burst, a **5-second debounce timer** starts. When the timer fires, all pending changes are committed in a single atomic Git commit via `isomorphic-git`.
 - **Commit Message**: Batched commits use a summary message: `"Update N files: Person X, Person Y, ..."` (truncated at 72 chars for Git convention).
 - **Flush on Demand**: The API exposes a mechanism to force an immediate flush (e.g., before a snapshot or on graceful shutdown), bypassing the debounce window.
+- **Graceful Shutdown Flush**: Node process `SIGTERM`/`SIGINT` signals are trapped. The application blocks shutdown until `TransactionManager.destroy()` finishes flushing any buffered `isomorphic-git` commits, preventing data loss.
 - **Mutex Retained**: The global Mutex still protects concurrent write access to the file system. The debounce only affects when `git commit` is invoked, not when files are written.
 
 **isomorphic-git (Complete — Phase 3.6)**:

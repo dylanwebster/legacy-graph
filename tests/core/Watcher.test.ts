@@ -121,6 +121,39 @@ assets: []`;
         // Calling again should be a no-op
         await engine.stopWatcher();
     });
+
+    it('should trigger circuit breaker on massive burst of events', async () => {
+        await engine.startWatcher();
+
+        // Write 55 files in a tight loop to simulate a burst (e.g. git checkout)
+        for (let i = 0; i < 55; i++) {
+            const yamlContent = `version: "5.0"
+id: "N_BURST_${i}"
+created: "2023-01-01T00:00:00Z"
+last_modified: "2023-01-01T00:00:00Z"
+names:
+  - first: "Burst"
+    last: "Test${i}"
+sex: "M"
+relationships:
+  parents: []
+events: []
+assets: []`;
+            fs.writeFileSync(path.join(TEST_DIR, 'people', `burst_${i}.yaml`), yamlContent);
+        }
+
+        // Wait to allow events to process
+        await new Promise(r => setTimeout(r, 600));
+
+        // Let background hydration finish so we don't leak async work into other tests
+        while (engine.hydrationState === 'loading') {
+            await new Promise(r => setTimeout(r, 100));
+        }
+
+        // Once background hydration is done, the graph should be fully populated and ready again
+        expect(engine.hydrationState).toBe('ready');
+        expect(engine.getGraph().hasNode('N_BURST_50')).toBe(true);
+    });
 });
 
 describe('Story Watcher (Phase 3.8.5)', () => {
