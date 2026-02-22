@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { createServer } from '../../src/server';
 import supertest from 'supertest';
@@ -15,12 +15,12 @@ describe('Fastify API Server', () => {
         // Ensure git repo exists for snapshot tests
         const testDataDir = './tests/fixtures/data';
         const gitDir = path.join(testDataDir, '.git');
-        
+
         if (!fs.existsSync(gitDir)) {
             await git.init({ fs: nodeFs, dir: testDataDir });
             await git.setConfig({ fs: nodeFs, dir: testDataDir, path: 'user.name', value: 'Test User' });
             await git.setConfig({ fs: nodeFs, dir: testDataDir, path: 'user.email', value: 'test@example.com' });
-            
+
             // Create initial commit so HEAD exists
             const gitignorePath = path.join(testDataDir, '.gitignore');
             fs.writeFileSync(gitignorePath, '# Test git repo\n');
@@ -44,7 +44,7 @@ describe('Fastify API Server', () => {
             logger: false, // Disable logging during tests
             dataDir: testDataDir
         });
-        
+
         await server.listen({ port: 0 }); // Random port
         const address = server.server.address();
         const port = typeof address === 'object' && address !== null ? address.port : 3000;
@@ -53,6 +53,14 @@ describe('Fastify API Server', () => {
 
     afterEach(async () => {
         await server.close();
+    });
+
+    afterAll(() => {
+        const testDataDir = './tests/fixtures/data';
+        const assetsDir = path.join(testDataDir, 'assets');
+        if (fs.existsSync(assetsDir)) {
+            fs.rmSync(assetsDir, { recursive: true, force: true });
+        }
     });
 
     it('should start server successfully', () => {
@@ -65,7 +73,7 @@ describe('Fastify API Server', () => {
             .options('/api/search')
             .set('Origin', 'http://localhost:3001')
             .set('Access-Control-Request-Method', 'GET');
-        
+
         expect(response.headers['access-control-allow-origin']).toBeDefined();
     });
 
@@ -77,7 +85,7 @@ describe('Fastify API Server', () => {
     describe('GET /api/system/status', () => {
         it('should return system status', async () => {
             const response = await request.get('/api/system/status');
-            
+
             expect(response.status).toBe(200);
             expect(response.body).toHaveProperty('nodeCount');
             expect(response.body).toHaveProperty('edgeCount');
@@ -91,7 +99,7 @@ describe('Fastify API Server', () => {
             const response = await request
                 .get('/api/search')
                 .query({ q: 'test' });
-            
+
             expect(response.status).toBe(200);
             expect(response.body).toHaveProperty('people');
             expect(response.body).toHaveProperty('stories');
@@ -114,7 +122,7 @@ describe('Fastify API Server', () => {
             // This test requires a fixture person to exist
             // For now, we'll just verify the endpoint structure
             const response = await request.get('/api/people/N_test123');
-            
+
             // Either 404 (no fixture) or 200 with proper structure
             if (response.status === 200) {
                 expect(response.body).toHaveProperty('id');
@@ -137,7 +145,7 @@ describe('Fastify API Server', () => {
             const response = await request
                 .post('/api/people')
                 .send(newPerson);
-            
+
             expect(response.status).toBe(201);
             expect(response.body).toHaveProperty('id');
             expect(response.body.id).toMatch(/^N_/);
@@ -152,7 +160,7 @@ describe('Fastify API Server', () => {
             const response = await request
                 .post('/api/people')
                 .send(invalid);
-            
+
             expect(response.status).toBe(400);
         });
     });
@@ -169,7 +177,7 @@ describe('Fastify API Server', () => {
             const createResponse = await request
                 .post('/api/people')
                 .send(newPerson);
-            
+
             const personId = createResponse.body.id;
 
             // Update the person
@@ -181,7 +189,7 @@ describe('Fastify API Server', () => {
             const updateResponse = await request
                 .put(`/api/people/${personId}`)
                 .send(updates);
-            
+
             expect(updateResponse.status).toBe(200);
             expect(updateResponse.body.names[0].first).toBe('Updated');
         });
@@ -190,7 +198,7 @@ describe('Fastify API Server', () => {
             const response = await request
                 .put('/api/people/N_nonexistent')
                 .send({ names: [{ first: 'Test', last: 'Test', primary: true }], sex: 'U' });
-            
+
             expect(response.status).toBe(404);
         });
     });
@@ -223,7 +231,7 @@ describe('Fastify API Server', () => {
             const uploadResponse = await request
                 .put(`/api/people/${personId}/media`)
                 .attach('file', pngBuffer, 'test.png');
-            
+
             expect(uploadResponse.status).toBe(200);
             expect(uploadResponse.body).toHaveProperty('filename');
             expect(uploadResponse.body.assets).toContain(uploadResponse.body.filename);
@@ -235,11 +243,11 @@ describe('Fastify API Server', () => {
 
         it('should return 404 for non-existent person', async () => {
             const pngBuffer = Buffer.from([0x89, 0x50, 0x4E, 0x47]); // Invalid but enough for test
-            
+
             const response = await request
                 .put('/api/people/N_nonexistent/media')
                 .attach('file', pngBuffer, 'test.png');
-            
+
             expect(response.status).toBe(404);
         });
 
@@ -251,11 +259,11 @@ describe('Fastify API Server', () => {
                     names: [{ first: 'Test', last: 'NoFile', primary: true }],
                     sex: 'M'
                 });
-            
+
             const response = await request
                 .put(`/api/people/${createResponse.body.id}/media`)
                 .send({});
-            
+
             expect(response.status).toBe(400);
         });
     });
@@ -277,7 +285,7 @@ describe('Fastify API Server', () => {
             const response = await request
                 .post('/api/import/gedcom')
                 .send({ gedcom: gedcomContent });
-            
+
             expect(response.status).toBe(200);
             expect(response.body).toHaveProperty('imported');
             expect(response.body.imported).toBeGreaterThan(0);
@@ -287,7 +295,7 @@ describe('Fastify API Server', () => {
             const response = await request
                 .post('/api/import/gedcom')
                 .send({ gedcom: 'invalid gedcom' });
-            
+
             expect(response.status).toBe(400);
         });
 
@@ -295,7 +303,7 @@ describe('Fastify API Server', () => {
             const response = await request
                 .post('/api/import/gedcom')
                 .send({});
-            
+
             expect(response.status).toBe(400);
         });
     });
@@ -404,7 +412,7 @@ describe('Fastify API Server', () => {
         it('should force re-hydration of the graph', async () => {
             const response = await request
                 .post('/api/system/rebuild');
-            
+
             expect(response.status).toBe(200);
             expect(response.body).toHaveProperty('nodeCount');
             expect(response.body).toHaveProperty('edgeCount');
@@ -417,7 +425,7 @@ describe('Fastify API Server', () => {
             const response = await request
                 .post('/api/system/snapshot')
                 .send({ name: tagName });
-            
+
             expect(response.status).toBe(200);
             expect(response.body).toHaveProperty('tag');
             expect(response.body.tag).toBe(tagName);
@@ -427,7 +435,7 @@ describe('Fastify API Server', () => {
             const response = await request
                 .post('/api/system/snapshot')
                 .send({});
-            
+
             expect(response.status).toBe(400);
         });
     });

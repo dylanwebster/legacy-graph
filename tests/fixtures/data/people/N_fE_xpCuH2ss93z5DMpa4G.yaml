@@ -1,0 +1,15 @@
+version: '5.0'
+id: N_fE_xpCuH2ss93z5DMpa4G
+created: '2026-02-22T01:57:07.874Z'
+last_modified: '2026-02-22T01:57:07.874Z'
+names:
+  - first: SpouseB
+    last: Computed
+    primary: true
+sex: F
+tags: []
+relationships:
+  parents: []
+events: []
+assets: []
+scrapbook_md: ''
