@@ -27,7 +27,7 @@ function SearchPage() {
     const places = results.filter((r: Record<string, unknown>) => r.type === 'place');
 
     return (
-        <div className="p-6 max-w-4xl mx-auto space-y-6">
+        <div className="h-full overflow-auto p-6 max-w-4xl mx-auto space-y-6">
             <h1 className="text-2xl font-bold tracking-tight">Search Results</h1>
 
             <div className="relative">

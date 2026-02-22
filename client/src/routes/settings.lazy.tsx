@@ -49,7 +49,7 @@ function SettingsPage() {
     }, [snapshotName]);
 
     return (
-        <div className="p-6 max-w-2xl mx-auto space-y-8">
+        <div className="h-full overflow-auto p-6 max-w-2xl mx-auto space-y-8">
             <div>
                 <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
                 <p className="text-sm text-muted-foreground mt-1">System status and configuration</p>
