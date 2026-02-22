@@ -3,9 +3,9 @@
 > Single source of truth for implementation status. For the _what_ and _why_, see `spec.md`.
 > For the _how far_ and _what's next_, read this document.
 
-**Last Updated**: 2026-02-17
-**Test Suite**: 179 passing, 0 skipped (179 total)
-**Overall Completion**: ~65% of full spec
+**Last Updated**: 2026-02-21
+**Test Suite**: 194 passing, 0 skipped (194 total)
+**Overall Completion**: ~70% of full spec
 
 ---
 
@@ -21,6 +21,7 @@
 | **3.5** | Backend Optimizations (7 items) | ✅ Complete (all 7 items) |
 | **3.6** | Production Hardening (3 items) | ✅ Complete (all 3 items) |
 | **3.7** | Data Layer Hardening (3 items) | ✅ Complete |
+| **3.8** | Pre-Frontend Hardening (5 items) | ✅ Complete (all 5 items) |
 | **4** | Frontend (React UI) + E2E Tests | ❌ Not started — **NEXT** |
 | **5** | Immersion & Polish | ❌ Not started |
 | **6** | Distribution & Deployment | ❌ Not started |
@@ -307,6 +308,74 @@ When the API writes a YAML file, the file watcher detects the change and trigger
 
 ---
 
+### Phase 3.8: Pre-Frontend Hardening — COMPLETE ✅
+
+> **Context**: Principal Engineer architecture review identified five structural fixes that must be completed before beginning frontend work. These address API write-path consistency, server decomposition, hydration observability, search performance, and story hot-patching.
+
+#### 3.8.1 API Write Path Gap Fix — COMPLETE ✅
+
+API write handlers (`POST /people`, `PUT /people/:id`, `PUT /people/:id/media`) were adding/updating graph nodes but skipping edge reconciliation, `_computed` invalidation, and search indexing. Combined with self-write dedup (which suppresses the watcher), persons created/updated via the API were invisible to search and had no computed relationships until restart.
+
+- [x] **`applyWriteSideEffects()` on `GraphEngine`**: Public method encapsulating edge reconciliation, search indexing, and `_computed` invalidation. Called by both API handlers and `handleFileUpdate()` to eliminate duplication.
+- [x] **Wire `POST /people`**: After `graph.addNode()`, calls `applyWriteSideEffects(id, null, slim, bio)` — adds parent edges, indexes in search, computes relationships.
+- [x] **Wire `PUT /people/:id`**: Captures old slim data before update for edge reconciliation, calls `applyWriteSideEffects(id, oldSlim, newSlim, bio)`.
+- [x] **Wire `PUT /people/:id/media`**: Calls `invalidateComputed()` after updating assets.
+- [x] **Start watcher**: `startWatcher()` called after hydration completes in `createServer()`.
+- [x] **Stop watcher**: `stopWatcher()` called in the `onClose` hook.
+- [x] **Fix `require('fs')`**: Replaced inline `require('fs').createWriteStream` with `nodeFs.createWriteStream` (already imported).
+- [x] **TDD**: 4 new tests in `tests/api/Server.test.ts` — POST indexes person in search, POST with parents wires edges, PUT updates search index, PUT recomputes `_computed` for neighbors.
+
+#### 3.8.2 Decompose server.ts Into Route Plugins — COMPLETE ✅
+
+Refactored the 650-line monolithic `server.ts` into Fastify route plugins. Eliminated module-level singleton state.
+
+- [x] **`src/api/types.ts`**: Shared `AppServices` interface and `AppInstance` type for decorated Fastify instance.
+- [x] **`src/api/routes/system.ts`**: System status, rebuild, snapshot endpoints.
+- [x] **`src/api/routes/auth.ts`**: Login, logout endpoints.
+- [x] **`src/api/routes/search.ts`**: Search endpoint with pagination.
+- [x] **`src/api/routes/people.ts`**: CRUD + media upload endpoints with full write-path side effects.
+- [x] **`src/api/routes/gedcom.ts`**: GEDCOM import endpoint.
+- [x] **`server.decorate('appServices', ...)`**: State bound to Fastify instance lifecycle, not module globals.
+- [x] **`server.ts` reduced to ~95 lines**: Plugin registration, Fastify decorations, hooks, no route handlers.
+- [x] **All 36 API tests pass**: 25 `Server.test.ts` + 11 `Auth.test.ts` — zero behavior change.
+
+#### 3.8.3 SSE Hydration Stream — COMPLETE ✅
+
+Implemented `GET /system/hydration/stream` (spec Section 5.3). Server-Sent Events stream of hydration progress.
+
+- [x] **Worker progress events**: `HydrationWorker.ts` emits `{ type: 'progress', phase, loaded, total, percent }` via `parentPort.postMessage()` during file processing (every 50 files). Both full and incremental paths emit progress.
+- [x] **`GraphEngine` extends `EventEmitter`**: Relays worker progress as `hydration:progress` events, emits `hydration:complete` with `{ nodeCount, edgeCount, elapsedMs }` at end of both inline and background hydration.
+- [x] **SSE endpoint**: `GET /api/system/hydration/stream` in `src/api/routes/system.ts`. Returns `Content-Type: text/event-stream`. If already hydrated, sends `event: complete` immediately and closes. During loading, streams `event: progress` events then `event: complete`.
+- [x] **503 exempt**: Added to loading gate exempt list.
+- [x] **Auth exempt**: Added to `PUBLIC_ROUTES` in `src/api/middleware/auth.ts`.
+- [x] **TDD**: `tests/api/HydrationStream.test.ts` (4 tests) — content-type, complete event when ready, 503 exempt, auth exempt.
+
+#### 3.8.4 Search Performance Fix — COMPLETE ✅
+
+Converted `trackedPersonIds` and `trackedStoryIds` from `Array<string>` to `Set<string>`, eliminating O(n^2) tracking during hydration. Documented FlexSearch pagination scaling tradeoffs.
+
+- [x] **`trackedPersonIds` → `Set<string>`**: `trackPerson()`, `untrackPerson()` now O(1). Was O(n) per call via `Array.includes()`, making hydration O(n^2).
+- [x] **`trackedStoryIds` → `Set<string>`**: Same fix for story tracking.
+- [x] **`exportIndex()`**: Serializes Sets to arrays via `Array.from()` for JSON compatibility.
+- [x] **`importIndex()`**: Restores tracked IDs as `new Set()` from deserialized arrays.
+- [x] **Search scaling documented**: Comments in `search()` explain that FlexSearch's per-field `limit` produces inaccurate `totalCounts` after cross-field deduplication. Collect-and-slice is correct for exact counts. Two-pass strategy (un-enriched count + enriched page) documented as future optimization for 50K+ datasets.
+- [x] **Place search scaling documented**: O(n) where n = unique locations (bounded by location count, not people). FlexSearch indexing for places noted as future optimization.
+- [x] **TDD**: 3 new tests in `tests/core/SearchService.test.ts` — `trackedPersonIds` is Set, `trackedStoryIds` is Set, FlexSearch limit bounds engine output.
+
+#### 3.8.5 Story Watching — COMPLETE ✅
+
+Extended the file watcher to monitor `stories/` alongside `people/`. Story changes (create, edit, delete) now hot-patch the graph, search index, and timeline in real-time.
+
+- [x] **`startWatcher()` dual subscription**: Watches both `people/` (YAML) and `stories/` (Markdown) via separate `@parcel/watcher` subscriptions. Story watcher gracefully handles missing `stories/` directory.
+- [x] **`stopWatcher()` cleanup**: Unsubscribes both watcher subscriptions.
+- [x] **`parseSingleStory()`**: Private method on `GraphEngine` to parse a single markdown file — extracts frontmatter via `gray-matter`, validates with `StorySchema`, extracts `@N_xxx` and `[[N_xxx]]` mentions via remark AST walk.
+- [x] **`handleStoryUpdate()`**: Parses story, adds/updates graph node (type: 'story'), reconciles mentions edges (drop old, add new), indexes in search via `indexStory()`, invalidates `_computed` for mentioned persons (timeline changes).
+- [x] **`handleStoryRemove()`**: Drops story node + edges from graph, removes from search via `removeStory()`, invalidates `_computed` for previously-mentioned persons.
+- [x] **Self-write dedup**: Story handlers check `consumeSelfWrite()` to skip watcher-triggered events for API-initiated writes (future-proofed for Phase 5.1 story editor).
+- [x] **TDD**: 4 new tests in `tests/core/Watcher.test.ts` — story add creates node + edges, story update refreshes title, story remove drops node + edges, story indexed in search.
+
+---
+
 ### Phase 4: Frontend — NOT STARTED ❌
 
 Build the "VS Code for Genealogy" interface. Execution order is deliberate — each step battle-tests the API layer under realistic conditions before the next builds on it.
@@ -390,7 +459,7 @@ Spec Section 9.3. Build the Playwright pipeline as soon as the Holy Grail page c
 
 ## 3. Test Suite
 
-**Total**: 179 tests | **Passing**: 179 | **Skipped**: 0 | **Failing**: 0
+**Total**: 194 tests | **Passing**: 194 | **Skipped**: 0 | **Failing**: 0
 
 | Module | File | Count | Status |
 |:-------|:-----|:------|:-------|
@@ -406,7 +475,7 @@ Spec Section 9.3. Build the Playwright pipeline as soon as the Holy Grail page c
 | GraphLogic | `tests/core/GraphLogic.test.ts` | 8 | ✅ |
 | HotPatch | `tests/core/GraphEngineHotPatch.test.ts` | 8 | ✅ |
 | HydrationWorker | `tests/core/HydrationWorker.test.ts` | 10 | ✅ |
-| SearchService | `tests/core/SearchService.test.ts` | 13 | ✅ |
+| SearchService | `tests/core/SearchService.test.ts` | 16 | ✅ |
 | StoryLoader | `tests/core/StoryLoader.test.ts` | 1 | ✅ |
 | Thumbnailer | `tests/core/Thumbnailer.test.ts` | 8 | ✅ |
 | TransactionManager | `tests/core/TransactionManager.test.ts` | 8 | ✅ |
@@ -415,13 +484,14 @@ Spec Section 9.3. Build the Playwright pipeline as soon as the Holy Grail page c
 | GEDCOM Export | `tests/core/gedcom/Export.test.ts` | 6 | ✅ |
 | GEDCOM RoundTrip | `tests/core/gedcom/RoundTrip.test.ts` | 2 | ✅ |
 | GEDCOM Robustness | `tests/core/gedcom/Robustness.test.ts` | 5 | ✅ |
-| API Server | `tests/api/Server.test.ts` | 21 | ✅ |
+| API Server | `tests/api/Server.test.ts` | 25 | ✅ |
 | TimelineSlicer | `tests/core/TimelineSlicer.test.ts` | 10 | ✅ |
 | Authentication | `tests/api/Auth.test.ts` | 11 | ✅ |
 | SlimNode | `tests/core/SlimNode.test.ts` | 10 | ✅ |
 | SearchPersistence | `tests/core/SearchPersistence.test.ts` | 8 | ✅ |
 | WriteDedup | `tests/core/WriteDedup.test.ts` | 7 | ✅ |
-| Watcher | `tests/core/Watcher.test.ts` | 5 | ✅ |
+| Watcher | `tests/core/Watcher.test.ts` | 9 | ✅ |
+| HydrationStream | `tests/api/HydrationStream.test.ts` | 4 | ✅ |
 
 **No skipped tests.** The previously skipped `Watcher.test.ts` (EMFILE with `chokidar`) is now fully passing after the `@parcel/watcher` migration in Phase 3.6.2.
 

@@ -276,4 +276,65 @@ describe('SearchService', () => {
         expect(results.totalCounts.stories).toBe(0);
         expect(results.totalCounts.places).toBe(0);
     });
+
+    // --- Performance Tests (Phase 3.8.4) ---
+
+    it('trackedPersonIds uses Set semantics (O(1) add/has)', () => {
+        // Verify internal tracking uses Set, not Array
+        searchService.indexPerson(alan);
+        searchService.indexPerson(grace);
+
+        // Indexing the same person twice should not create duplicates
+        searchService.indexPerson(alan);
+
+        // Export to verify — tracked IDs should be deduplicated
+        const service = searchService as any;
+        const tracked = service.trackedPersonIds;
+        expect(tracked instanceof Set).toBe(true);
+        expect(tracked.size).toBe(2);
+    });
+
+    it('trackedStoryIds uses Set semantics (O(1) add/has)', () => {
+        const story = {
+            id: 'story-1.md',
+            metadata: { title: 'Test', tags: [], assets: [] },
+            content: 'content',
+            mentions: []
+        };
+
+        searchService.indexStory(story as any);
+        searchService.indexStory(story as any);
+
+        const service = searchService as any;
+        const tracked = service.trackedStoryIds;
+        expect(tracked instanceof Set).toBe(true);
+        expect(tracked.size).toBe(1);
+    });
+
+    it('search with FlexSearch limit bounds engine output', async () => {
+        // Add 20 people with same first name
+        for (let i = 0; i < 20; i++) {
+            const person: Person = {
+                version: "5.0",
+                id: `N_PERF${i}`,
+                created: "2023-01-01T00:00:00Z",
+                last_modified: "2023-01-01T00:00:00Z",
+                names: [{ first: `Perf`, last: `TestUser${i}`, primary: true }],
+                sex: "U",
+                tags: [],
+                relationships: { parents: [] },
+                events: [],
+                assets: [],
+                scrapbook_md: ""
+            };
+            graph.addNode(person.id, { type: 'person', data: person });
+        }
+        await searchService.rebuild(graph);
+
+        // Request page 1 with limit=5
+        const page1 = await searchService.search("Perf", { limit: 5, offset: 0 });
+        expect(page1.people).toHaveLength(5);
+        // totalCounts should reflect total matches, not just the page
+        expect(page1.totalCounts.people).toBeGreaterThanOrEqual(5);
+    });
 });

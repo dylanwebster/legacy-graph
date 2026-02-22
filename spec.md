@@ -39,8 +39,8 @@ LegacyGraph is a professional-grade, self-hosted genealogy platform. It rejects 
 - **Engine**: Node.js (Fastify) + Graphology (In-Memory Graph).
 - **Behavior**:
   - **Nuclear Hydration**: On boot, the engine reads **all** files to build the graph in RAM (see 2.3 for scaling strategy).
-  - **Hot-Patching**: `@parcel/watcher` watches the disk via native OS APIs (FSEvents on macOS, ReadDirectoryChangesW on Windows, inotify on Linux). Granular handlers (`add`, `change`, `unlink`) update/patch specific nodes in <100ms without full reloads. Edge updates use a **Diff-Based Reconciliation** strategy (see 4.1).
-  - **Indexing**: FlexSearch (In-Memory) for full-text search. Loaded from a persistent serialized index on boot when available (see 2.3D), with surgical re-indexing of changed nodes. Incrementally updated during hot-patching.
+  - **Hot-Patching**: `@parcel/watcher` watches both `people/` (YAML) and `stories/` (Markdown) directories via native OS APIs (FSEvents on macOS, ReadDirectoryChangesW on Windows, inotify on Linux). Granular handlers (`create`, `update`, `delete`) update/patch specific nodes in <100ms without full reloads. Person edge updates use a **Diff-Based Reconciliation** strategy (see 4.1). Story updates reconcile `mentions` edges and surgically re-index search.
+  - **Indexing**: FlexSearch (In-Memory) for full-text search. Loaded from a persistent serialized index on boot when available (see 2.3D), with surgical re-indexing of changed nodes. Incrementally updated during hot-patching. Tracked document IDs use `Set<string>` for O(1) membership checks during hydration and export.
   - **Computed Cache**: Derived relationships (spouses, siblings) are pre-computed and stored as volatile `_computed` attributes on Graphology nodes, invalidated surgically on change events (see 4.1).
 
 ### **2.3 Performance Architecture: Tiered Hydration & Scaling**
@@ -73,6 +73,7 @@ Hydration is offloaded from the main event loop via `worker_threads`, allowing t
 - **503 During Loading**: While hydration is in progress, all API endpoints except `GET /system/status`, `GET /system/hydration/stream`, and auth endpoints (`POST /auth/login`, `POST /auth/logout`) return `503 Service Unavailable` with `{ error: "Graph is loading", code: "HYDRATION_IN_PROGRESS" }`.
 - **Cache-Aware**: The worker performs the tiered cache comparison (Section 2.3A) internally — only stale files are re-parsed from YAML. Both full nuclear and incremental paths run inside the worker.
 - **Handoff**: The worker serializes the validated node map, story list, and mtime entries back to the main thread via `postMessage` (structured clone). The main thread then performs the final Graphology graph construction, edge building, search indexing, and `_computed` relationship computation (which is fast, as it's just inserting pre-validated data).
+- **Progress Reporting**: The worker emits `{ type: 'progress', phase, loaded, total, percent }` events via `parentPort.postMessage()` during file processing (every 50 files). The `GraphEngine` (which extends `EventEmitter`) relays these as `hydration:progress` events, emitting `hydration:complete` with `{ nodeCount, edgeCount, elapsedMs }` when finished. This feeds the SSE endpoint (`GET /system/hydration/stream`) for frontend progress display.
 - **Fallback**: If the worker thread fails (e.g., crash, unhandled error), the engine automatically falls back to inline hydration on the main thread to guarantee startup.
 - **Scope**: Worker Thread hydration is the **default boot strategy** (`hydrateInBackground()`). The inline `hydrate()` method is retained as a synchronous alternative for testing and simple usage. The BootLoader logic remains identical; only its execution context changes.
 
@@ -232,13 +233,31 @@ The current hot-patching approach drops all outgoing edges and rebuilds them, wh
 - **Neighbor Cascade**: After reconciling edges for the changed node, trigger `_computed` invalidation (see above) for all affected neighbors.
 - **Fallback**: If the diff produces an inconsistent state (e.g., orphaned edges detected), fall back to a targeted "mini-hydration" that drops and rebuilds all edges for the affected node and its immediate neighborhood.
 
+**Unified Write Side-Effects (`applyWriteSideEffects`)**:
+
+All mutation paths — API write handlers and file watcher hot-patching — converge on a single `GraphEngine.applyWriteSideEffects(id, oldSlim, newSlim, bio)` method. This ensures consistency regardless of how a person is created or modified:
+
+1.  **Edge Reconciliation**: If `oldSlim` is non-null, runs diff-based edge reconciliation (see above). If null (new node), adds all parent edges.
+2.  **Search Indexing**: Calls `searchService.indexPerson(newSlim, bio)`.
+3.  **`_computed` Invalidation**: Calls `invalidateComputed(graph, id)` for the node and all its neighbors.
+
+The file watcher's `handleFileUpdate()` parses the YAML, updates the graph node, then calls `applyWriteSideEffects()`. API handlers (`POST /people`, `PUT /people/:id`) do the same after writing to disk. This eliminates the previous inconsistency where API-created persons were invisible to search and had no computed relationships.
+
+**Story Hot-Patching**:
+
+The file watcher monitors `stories/` for Markdown changes in addition to `people/` for YAML. Story handlers mirror the person hot-patch pipeline:
+
+- **`handleStoryUpdate(filePath)`**: Parses the Markdown file (frontmatter via `gray-matter`, mentions via remark AST walk for `@N_xxx` and `[[N_xxx]]` patterns), adds/updates the story node in the graph (type: `story`), reconciles `mentions` edges to referenced persons, indexes in search via `indexStory()`, and invalidates `_computed` for mentioned persons (timeline changes).
+- **`handleStoryRemove(filePath)`**: Drops the story node and all its edges from the graph, removes from the search index, and invalidates `_computed` for previously-mentioned persons.
+- **Self-Write Dedup**: Story handlers also check the write-origin set, future-proofing for API-initiated story writes (Phase 5.1).
+
 **Write-Event Deduplication (Self-Write Ignore)**:
 
-When the API writes a YAML file to disk (via `TransactionManager.writeFile()`), the `@parcel/watcher` file watcher detects the change and triggers `handleFileUpdate()`, causing the engine to diff and reconcile edges for an update *it just made*. This is wasted CPU and can cause subtle race conditions during rapid edits.
+When the API writes a file to disk (via `TransactionManager.writeFile()`), the `@parcel/watcher` file watcher detects the change and triggers the hot-patch handler, causing the engine to diff and reconcile edges for an update *it just made*. This is wasted CPU and can cause subtle race conditions during rapid edits.
 
 - **Mechanism**: The `GraphEngine` maintains a transient **write-origin set** (`Set<string>`) of file paths that were written by the application itself (not by an external editor). When `TransactionManager.writeFile()` completes a disk write, it registers the absolute file path with the `GraphEngine`'s write-origin set.
-- **Watcher Check**: When the file watcher fires an event, `handleFileUpdate()` checks the write-origin set first. If the file path is present, the event is **consumed** (removed from the set) and the hot-patch is skipped — the graph is already up-to-date from the API handler that initiated the write.
-- **External Edits Pass Through**: Changes made by a user editing YAML in VS Code, or by `git checkout`, are not registered in the write-origin set and are processed normally by the hot-patch pipeline.
+- **Watcher Check**: When the file watcher fires an event, the hot-patch handler checks the write-origin set first. If the file path is present, the event is **consumed** (removed from the set) and the hot-patch is skipped — the graph is already up-to-date from the API handler that initiated the write.
+- **External Edits Pass Through**: Changes made by a user editing YAML/Markdown in VS Code, or by `git checkout`, are not registered in the write-origin set and are processed normally by the hot-patch pipeline.
 - **TTL Safety**: Entries in the write-origin set expire after 10 seconds to prevent memory leaks if a watcher event is lost or delayed. The TTL is conservative — `@parcel/watcher` typically fires within milliseconds.
 
 ### **4.2 Timeline Slicer**
@@ -271,9 +290,11 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 
 ## **5. API Specification (Head 2 Server)**
 
-**Framework**: Fastify.
+**Framework**: Fastify (plugin-based route architecture).
 **Base URL**: `/api`.
 **Errors**: Standard JSON: `{ error: string, code: string, details?: any }`.
+
+**Route Plugin Architecture**: The server is decomposed into Fastify route plugins (`src/api/routes/`): `people.ts`, `system.ts`, `search.ts`, `auth.ts`, `gedcom.ts`. Shared services (`GraphEngine`, `TransactionManager`, `AuthConfig`) are bound to the Fastify instance via `server.decorate('appServices', ...)` — eliminating module-level singletons and ensuring clean lifecycle management across test runs. The server orchestrator (`server.ts`) handles only plugin registration, Fastify decoration, and lifecycle hooks (~95 lines).
 
 ### **5.1 Entity Endpoints**
 
@@ -283,13 +304,13 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
   - _404_: Person not found.
 - `POST /people`: Create new Person.
   - _Body_: Partial Person Schema.
-  - _Effect_: Writes new YAML, returns ID.
+  - _Effect_: Writes new YAML, adds node to graph, applies full write-path side effects (parent edges, search indexing, `_computed` invalidation via `applyWriteSideEffects()`), returns ID. Enqueues change to debounced commit queue (see Section 7.1).
 - `PUT /people/:id`: Update Person.
   - _Body_: Replacement Person Schema.
-  - _Effect_: Overwrites YAML. Enqueues change to debounced commit queue (see Section 7.1).
+  - _Effect_: Captures old slim data for edge diff, overwrites YAML, applies full write-path side effects (edge reconciliation, search re-indexing, `_computed` invalidation for node + neighbors). Enqueues change to debounced commit queue (see Section 7.1).
 - `PUT /people/:id/media`: Upload asset.
   - _Multipart_: File data.
-  - _Effect_: Saves to `/assets`, updates Person YAML `assets` array.
+  - _Effect_: Saves to `/assets`, updates Person YAML `assets` array, invalidates `_computed` for the person.
 
 ### **5.2 Search & Discovery**
 
@@ -326,7 +347,7 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
   - _401_: Invalid credentials.
 - `POST /auth/logout`: End session.
   - _Effect_: Clears HttpOnly Cookie.
-- **Auth Guard**: All endpoints except `POST /auth/login` and `GET /system/status` require a valid JWT.
+- **Auth Guard**: All endpoints except `POST /auth/login`, `GET /system/status`, and `GET /system/hydration/stream` require a valid JWT.
 
 ---
 
@@ -365,18 +386,18 @@ A dense, 3-column layout:
 
 **Debounced Commit Queue**:
 
-Spawning a child process via `simple-git` for every discrete save creates massive I/O latency during rapid edits or bulk updates. The `TransactionManager` implements a batching strategy:
+The `TransactionManager` uses `isomorphic-git` (pure JavaScript, in-process) for all programmatic Git operations, avoiding child-process overhead:
 
-- **Commit Window**: File writes are queued. After the last write in a burst, a **5-second debounce timer** starts. When the timer fires, all pending changes are committed in a single atomic Git commit.
+- **Commit Window**: File writes are queued. After the last write in a burst, a **5-second debounce timer** starts. When the timer fires, all pending changes are committed in a single atomic Git commit via `isomorphic-git`.
 - **Commit Message**: Batched commits use a summary message: `"Update N files: Person X, Person Y, ..."` (truncated at 72 chars for Git convention).
 - **Flush on Demand**: The API exposes a mechanism to force an immediate flush (e.g., before a snapshot or on graceful shutdown), bypassing the debounce window.
 - **Mutex Retained**: The global Mutex still protects concurrent write access to the file system. The debounce only affects when `git commit` is invoked, not when files are written.
 
-**isomorphic-git Migration (Immediate — Phase 3.6)**:
+**isomorphic-git (Complete — Phase 3.6)**:
 
-- **Priority**: **Immediate**. This migration must be completed before beginning frontend work (Phase 4). Shelling out to `simple-git` for every commit spawns child processes, which is expensive in Node.js and creates measurable latency during rapid edits. Eliminating this overhead before the UI consumes the API ensures the write path is production-grade.
-- **Rationale**: `simple-git` shells out to the OS Git binary for every operation, incurring process-spawn overhead. `isomorphic-git` is a pure JavaScript Git implementation that runs entirely in the Node.js process — dramatically faster for high-frequency programmatic commits.
-- **Scope**: Replace `simple-git` with `isomorphic-git` for all programmatic operations (`add`, `commit`, `tag`, `log`). The user's system Git remains available for manual CLI use and is unaffected.
+- **Status**: ✅ Complete. All programmatic Git operations (`add`, `commit`, `tag`, `log`) use `isomorphic-git`, a pure JavaScript Git implementation running entirely in the Node.js process. No child processes are spawned for Git operations.
+- **Rationale**: The previous `simple-git` approach shelled out to the OS Git binary for every operation, incurring process-spawn overhead. `isomorphic-git` eliminates this entirely.
+- **Scope**: The user's system Git remains available for manual CLI use and is unaffected.
 - **Tradeoff**: `isomorphic-git` does not support every Git feature (e.g., advanced merge strategies). For operations like `push`/`pull` (future network sync), fall back to spawning system Git.
 
 ### **7.2 Authentication**
@@ -409,9 +430,10 @@ This spec defines _what_ to build. `progress.md` tracks _how far_ and _what's ne
 *   **TransactionManager**: Verify debounced batching collapses rapid writes into a single commit. Verify flush-on-demand bypasses the debounce window. Verify `isomorphic-git` operations run in-process (no child-process spawning).
 *   **SearchService Hot-Patch**: Verify incremental index update on node change. Verify index removal on node unlink.
 *   **Worker Thread Hydration**: Verify worker function produces identical people/story output as inline BootLoader. Verify `hydrateInBackground()` completes and populates graph to same state as `hydrate()`. Verify `hydrationState` transitions correctly. Verify API returns 503 during loading for non-exempt endpoints.
-*   **File Watcher (`@parcel/watcher`)**: Verify watcher detects add, change, unlink events. Verify subscription cleanup on shutdown.
+*   **File Watcher (`@parcel/watcher`)**: Verify watcher detects add, change, unlink events for both `people/` and `stories/` directories. Verify subscription cleanup on shutdown. Verify story creation adds graph node with mentions edges. Verify story update refreshes metadata and edges. Verify story deletion removes node and edges from graph + search index.
 *   **Slim Node Strategy**: Verify `scrapbook_md` and `_gedcom` are stripped from in-memory Graphology node `data` attribute after hydration. Verify graph cache serializes only slim data. Verify `GET /people/:id` returns full data (including `scrapbook_md` and `_gedcom`) by lazy-loading from disk. Verify search indexing still works without `scrapbook_md` in memory (bio field sourced during indexing, not from node attribute).
 *   **Search Index Persistence**: Verify `SearchService.export()` serializes index to `/_meta/.search-index.json`. Verify `SearchService.import()` loads pre-compiled index and produces identical search results. Verify incremental boot only re-indexes nodes with changed `mtime`. Verify corrupt/missing index triggers full rebuild. Verify `spec_version` mismatch triggers full rebuild.
+*   **Search Performance**: Verify `trackedPersonIds` and `trackedStoryIds` use `Set<string>` semantics (O(1) add/has). Verify FlexSearch limit bounds engine output correctly for paginated queries.
 *   **Write-Event Deduplication**: Verify API-initiated writes register file path in the write-origin set. Verify file watcher skips hot-patch for self-written files (consumes entry from set). Verify external edits (not in write-origin set) are processed normally. Verify write-origin entries expire after TTL.
 
 ### **9.2 Integration Tests (Supertest)**
@@ -424,6 +446,7 @@ This spec defines _what_ to build. `progress.md` tracks _how far_ and _what's ne
 *   **System Rebuild**: Verify `POST /system/rebuild` invalidates cache and triggers full re-hydration.
 *   **Hydration SSE Stream**: Verify `GET /system/hydration/stream` sends `progress` events during loading and a `complete` event when finished. Verify immediate `complete` if already hydrated.
 *   **Search Pagination**: Verify `GET /search?q=...&limit=10&offset=5` returns correct paginated slices with `totalCounts`.
+*   **API Write Side Effects**: Verify `POST /people` indexes new person in search immediately. Verify `POST /people` with parents wires parent edges in graph and populates `_computed.children` on parent. Verify `PUT /people/:id` updates search index with new name. Verify `PUT /people/:id` with marriage event recomputes `_computed.currentSpouse` for neighbors.
 *   **Authentication**: Verify login returns HttpOnly JWT cookie. Verify protected endpoints reject unauthenticated requests. Verify logout clears session.
 
 ### **9.3 E2E Tests (Playwright)**

@@ -11,6 +11,7 @@ import { AuthConfig, AuthConfigSchema } from '../../schemas/AuthSchema';
 const PUBLIC_ROUTES: Array<{ method: string; url: string }> = [
     { method: 'POST', url: '/api/auth/login' },
     { method: 'GET', url: '/api/system/status' },
+    { method: 'GET', url: '/api/system/hydration/stream' },
 ];
 
 function isPublicRoute(method: string, url: string): boolean {

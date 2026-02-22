@@ -9,11 +9,16 @@ import { BootLoader } from './BootLoader';
 import { StoryLoader, Story } from './StoryLoader';
 import { SearchService } from './SearchService';
 import { GraphCache, GraphCacheFile } from './GraphCache';
-import { HydrationWorkerResult, HydrationWorkerError, PersonEntry } from './HydrationWorker';
+import { HydrationWorkerResult, HydrationWorkerError, HydrationWorkerProgress, PersonEntry } from './HydrationWorker';
+import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import yaml from 'js-yaml';
 import { PersonSchema, Person, SlimPerson, toSlimPerson } from '../schemas/PersonSchema';
+import { StorySchema } from '../schemas/StorySchema';
 import { computeAllRelationships, invalidateComputed } from './GraphLogic';
+import matter from 'gray-matter';
+import { remark } from 'remark';
+import { visit } from 'unist-util-visit';
 
 export interface HydrationResult {
     fromCache: number;
@@ -21,16 +26,17 @@ export interface HydrationResult {
     total: number;
 }
 
-export class GraphEngine {
+export class GraphEngine extends EventEmitter {
     private graph: Graph;
     private rootDir: string;
     public searchService: SearchService;
     private _hydrationState: 'loading' | 'ready' = 'loading';
     private _cacheWrittenAt: string | null = null;
+    private _hydrationStartTime: number = 0;
 
     constructor(rootDir: string) {
+        super();
         this.rootDir = rootDir;
-        // Multi-graph allows parallel edges (e.g., biological + adopted relations between same two people)
         this.graph = new Graph({ type: 'directed', multi: true });
         this.searchService = new SearchService();
     }
@@ -150,6 +156,7 @@ export class GraphEngine {
      */
     public async hydrate(options?: { forceFullRebuild?: boolean }): Promise<HydrationResult> {
         this._hydrationState = 'loading';
+        this._hydrationStartTime = Date.now();
         console.log(`[GraphEngine] Hydrating graph (inline) from: ${this.rootDir}`);
 
         // 1. Load People — via cache (incremental) or full nuclear
@@ -191,6 +198,13 @@ export class GraphEngine {
             console.warn(`[GraphEngine] Failed to export search index: ${err.message}`);
         });
 
+        const elapsedMs = Date.now() - this._hydrationStartTime;
+        this.emit('hydration:complete', {
+            nodeCount: this.graph.order,
+            edgeCount: this.graph.size,
+            elapsedMs
+        });
+
         return result;
     }
 
@@ -204,19 +218,26 @@ export class GraphEngine {
      */
     public async hydrateInBackground(options?: { forceFullRebuild?: boolean }): Promise<HydrationResult> {
         this._hydrationState = 'loading';
+        this._hydrationStartTime = Date.now();
         console.log(`[GraphEngine] Hydrating graph (worker thread) from: ${this.rootDir}`);
 
         try {
             const workerResult = await this.runWorker(options?.forceFullRebuild ?? false);
+            this.emit('hydration:progress', { phase: 'building', loaded: 0, total: 0, percent: 100 });
             const result = await this.buildGraphFromData(
                 workerResult.people,
                 workerResult.stories,
                 workerResult.fromCache,
                 workerResult.parsed
             );
-            // Persist search index (worker saved graph cache, but search index is main-thread only)
             await this.searchService.exportIndex(this.searchIndexPath).catch(err => {
                 console.warn(`[GraphEngine] Failed to export search index: ${err.message}`);
+            });
+            const elapsedMs = Date.now() - this._hydrationStartTime;
+            this.emit('hydration:complete', {
+                nodeCount: this.graph.order,
+                edgeCount: this.graph.size,
+                elapsedMs
             });
             return result;
         } catch (err: any) {
@@ -249,7 +270,11 @@ export class GraphEngine {
                 execArgv
             });
 
-            worker.on('message', (msg: HydrationWorkerResult | HydrationWorkerError) => {
+            worker.on('message', (msg: HydrationWorkerResult | HydrationWorkerError | HydrationWorkerProgress) => {
+                if (msg.type === 'progress') {
+                    this.emit('hydration:progress', msg as HydrationWorkerProgress);
+                    return;
+                }
                 worker.terminate();
                 if (msg.type === 'error') {
                     reject(new Error((msg as HydrationWorkerError).message));
@@ -440,26 +465,26 @@ export class GraphEngine {
         return { results, fromCache, parsed };
     }
 
-    private watcherSubscription: AsyncSubscription | null = null;
+    private peopleWatcherSubscription: AsyncSubscription | null = null;
+    private storyWatcherSubscription: AsyncSubscription | null = null;
 
     /**
-     * Starts the File System Watcher using @parcel/watcher (native OS APIs).
-     * Uses FSEvents on macOS, ReadDirectoryChangesW on Windows, inotify on Linux.
-     * Watches the `people/` directory for hot-patching.
+     * Starts File System Watchers using @parcel/watcher (native OS APIs).
+     * Watches both `people/` (YAML) and `stories/` (Markdown) directories.
      */
     public async startWatcher(): Promise<void> {
-        const watchPath = path.join(this.rootDir, 'people');
-        console.log(`[GraphEngine] Starting FS Watcher on ${watchPath}...`);
+        const peoplePath = path.join(this.rootDir, 'people');
+        const storiesPath = path.join(this.rootDir, 'stories');
+        console.log(`[GraphEngine] Starting FS Watcher on ${peoplePath}...`);
 
-        this.watcherSubscription = await watcher.subscribe(
-            watchPath,
+        this.peopleWatcherSubscription = await watcher.subscribe(
+            peoplePath,
             (err, events) => {
                 if (err) {
-                    console.error('[GraphEngine] Watcher error:', err);
+                    console.error('[GraphEngine] People watcher error:', err);
                     return;
                 }
                 for (const event of events) {
-                    // Only handle YAML files, ignore dotfiles
                     if (!event.path.endsWith('.yaml')) continue;
                     if (path.basename(event.path).startsWith('.')) continue;
 
@@ -474,21 +499,74 @@ export class GraphEngine {
                     }
                 }
             },
-            {
-                ignore: ['.*', '**/.git/**']
-            }
+            { ignore: ['.*', '**/.git/**'] }
         );
+
+        try {
+            await fs.access(storiesPath);
+            this.storyWatcherSubscription = await watcher.subscribe(
+                storiesPath,
+                (err, events) => {
+                    if (err) {
+                        console.error('[GraphEngine] Story watcher error:', err);
+                        return;
+                    }
+                    for (const event of events) {
+                        if (!event.path.endsWith('.md')) continue;
+                        if (path.basename(event.path).startsWith('.')) continue;
+
+                        switch (event.type) {
+                            case 'create':
+                            case 'update':
+                                this.handleStoryUpdate(event.path);
+                                break;
+                            case 'delete':
+                                this.handleStoryRemove(event.path);
+                                break;
+                        }
+                    }
+                },
+                { ignore: ['.*', '**/.git/**'] }
+            );
+        } catch {
+            // stories/ directory may not exist yet
+        }
     }
 
     /**
-     * Stops the file system watcher and cleans up the subscription.
+     * Stops all file system watchers and cleans up subscriptions.
      * Safe to call multiple times (no-op if no active subscription).
      */
     public async stopWatcher(): Promise<void> {
-        if (this.watcherSubscription) {
-            await this.watcherSubscription.unsubscribe();
-            this.watcherSubscription = null;
+        if (this.peopleWatcherSubscription) {
+            await this.peopleWatcherSubscription.unsubscribe();
+            this.peopleWatcherSubscription = null;
         }
+        if (this.storyWatcherSubscription) {
+            await this.storyWatcherSubscription.unsubscribe();
+            this.storyWatcherSubscription = null;
+        }
+    }
+
+    /**
+     * Apply all write-path side effects for a person node: edge reconciliation,
+     * search indexing, and _computed invalidation. Called by both the API write
+     * handlers and the file watcher hot-patch path to ensure consistency.
+     *
+     * @param id - Person ID
+     * @param oldSlim - Previous slim data (null for new nodes)
+     * @param newSlim - New slim data already set on the graph node
+     * @param bio - Scrapbook markdown for search indexing
+     */
+    public applyWriteSideEffects(id: string, oldSlim: SlimPerson | null, newSlim: SlimPerson, bio: string): void {
+        if (oldSlim) {
+            this.reconcileEdges(id, oldSlim, newSlim);
+        } else {
+            this.addParentEdges(newSlim);
+        }
+
+        this.searchService.indexPerson(newSlim, bio);
+        invalidateComputed(this.graph, id);
     }
 
     private async handleFileUpdate(filePath: string) {
@@ -524,19 +602,7 @@ export class GraphEngine {
             this.fileMap.set(filePath, newPerson.id);
             this.reverseFileMap.set(newPerson.id, filePath);
 
-            // Diff-based edge reconciliation
-            if (oldData) {
-                this.reconcileEdges(newPerson.id, oldData, slim);
-            } else {
-                // New node — add all parent edges
-                this.addParentEdges(slim);
-            }
-
-            // Update search index (pass bio from full Person before it was stripped)
-            this.searchService.indexPerson(slim, newPerson.scrapbook_md || '');
-
-            // Recompute _computed for this node and all neighbors
-            invalidateComputed(this.graph, newPerson.id);
+            this.applyWriteSideEffects(newPerson.id, oldData, slim, newPerson.scrapbook_md || '');
 
         } catch (err: any) {
             console.error(`[GraphEngine] Failed to hot-patch ${filePath}: ${err.message}`);
@@ -652,4 +718,94 @@ export class GraphEngine {
         }
     }
 
+    /**
+     * Parse a single story markdown file into a Story object.
+     * Extracts frontmatter, content, and @N_xxx / [[N_xxx]] mentions.
+     */
+    private async parseSingleStory(filePath: string): Promise<Story> {
+        const raw = await fs.readFile(filePath, 'utf8');
+        const { data, content } = matter(raw);
+        const metadata = StorySchema.parse(data);
+
+        const mentions = new Set<string>();
+        remark().use(() => (tree: any) => {
+            visit(tree, 'text', (node: any) => {
+                const regex = /(@N_[a-zA-Z0-9_-]+)|(\[\[(N_[a-zA-Z0-9_-]+)\]\])/g;
+                let match;
+                while ((match = regex.exec(node.value)) !== null) {
+                    const id = match[1] || match[3];
+                    if (id) mentions.add(id.replace('@', ''));
+                }
+            });
+        }).processSync(content);
+
+        return {
+            id: path.basename(filePath),
+            metadata,
+            content,
+            mentions: Array.from(mentions)
+        };
+    }
+
+    /**
+     * Handle story file create/update from the watcher or direct invocation.
+     * Parses story, updates graph node + edges, updates search index.
+     */
+    private async handleStoryUpdate(filePath: string): Promise<void> {
+        if (this.consumeSelfWrite(filePath)) return;
+
+        try {
+            const story = await this.parseSingleStory(filePath);
+            const storyId = story.id;
+
+            // Remove old mentions edges if story already exists
+            if (this.graph.hasNode(storyId)) {
+                const oldEdges = this.graph.outEdges(storyId);
+                oldEdges.forEach(edge => this.graph.dropEdge(edge));
+                this.graph.mergeNodeAttributes(storyId, { data: story });
+            } else {
+                this.graph.addNode(storyId, { type: 'story', data: story });
+            }
+
+            // Add mentions edges to referenced persons
+            for (const personId of story.mentions) {
+                if (this.graph.hasNode(personId)) {
+                    this.graph.addEdge(storyId, personId, { type: 'mentions' });
+                }
+            }
+
+            this.searchService.indexStory(story);
+
+            // Invalidate _computed for mentioned persons (timeline changes)
+            for (const personId of story.mentions) {
+                if (this.graph.hasNode(personId)) {
+                    invalidateComputed(this.graph, personId);
+                }
+            }
+        } catch (err: any) {
+            console.error(`[GraphEngine] Failed to hot-patch story ${filePath}: ${err.message}`);
+        }
+    }
+
+    /**
+     * Handle story file deletion from the watcher or direct invocation.
+     * Removes story node, edges, and search index entry.
+     */
+    private handleStoryRemove(filePath: string): void {
+        if (this.consumeSelfWrite(filePath)) return;
+
+        const storyId = path.basename(filePath);
+        if (this.graph.hasNode(storyId)) {
+            // Capture mentioned persons before removing for _computed invalidation
+            const mentionedPersons = this.graph.outNeighbors(storyId);
+            this.graph.dropNode(storyId);
+            this.searchService.removeStory(storyId);
+
+            for (const personId of mentionedPersons) {
+                if (this.graph.hasNode(personId)) {
+                    invalidateComputed(this.graph, personId);
+                }
+            }
+        }
+    }
 }

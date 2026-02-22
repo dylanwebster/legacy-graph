@@ -169,6 +169,10 @@ export class SearchService {
         const offset = options?.offset ?? 0;
 
         // 1. Search People
+        // Note: FlexSearch's limit is per-field, not per-result. Passing limit here would
+        // produce inaccurate totalCounts after cross-field deduplication. For exact totalCounts,
+        // we collect all matches and slice. At 50K+ nodes, consider a two-pass strategy:
+        // un-enriched count query + enriched paginated query.
         const personResults = await this.personIndex.searchAsync(query, {
             enrich: true,
         });
@@ -211,6 +215,8 @@ export class SearchService {
         const allStories = Array.from(storyMap.values());
 
         // 3. Search Places (case-insensitive substring match)
+        // Scaling note: O(n) where n = unique locations. Bounded by location count, not people.
+        // At 50K+ nodes with many unique locations, consider indexing places in FlexSearch.
         const allPlaces: PlaceResult[] = [];
         const lowerQuery = query.toLowerCase();
         for (const [location, personIds] of this.placeMap) {
@@ -289,8 +295,8 @@ export class SearchService {
         const data = {
             spec_version: CACHE_SPEC_VERSION,
             exportedAt: new Date().toISOString(),
-            personIds: this.trackedPersonIds,
-            storyIds: this.trackedStoryIds,
+            personIds: Array.from(this.trackedPersonIds),
+            storyIds: Array.from(this.trackedStoryIds),
             personIndex: personExport,
             storyIndex: storyExport,
             placeMap: placeMapSerialized
@@ -333,8 +339,8 @@ export class SearchService {
             }
 
             // Restore tracked IDs
-            this.trackedPersonIds = data.personIds || [];
-            this.trackedStoryIds = data.storyIds || [];
+            this.trackedPersonIds = new Set(data.personIds || []);
+            this.trackedStoryIds = new Set(data.storyIds || []);
 
             return {
                 personIds: data.personIds || [],
@@ -345,31 +351,18 @@ export class SearchService {
         }
     }
 
-    private trackedPersonIds: string[] = [];
-    private trackedStoryIds: string[] = [];
+    private trackedPersonIds: Set<string> = new Set();
+    private trackedStoryIds: Set<string> = new Set();
 
-    /**
-     * Track a person ID for export persistence.
-     */
     public trackPerson(id: string): void {
-        if (!this.trackedPersonIds.includes(id)) {
-            this.trackedPersonIds.push(id);
-        }
+        this.trackedPersonIds.add(id);
     }
 
-    /**
-     * Untrack a removed person ID.
-     */
     public untrackPerson(id: string): void {
-        this.trackedPersonIds = this.trackedPersonIds.filter(pid => pid !== id);
+        this.trackedPersonIds.delete(id);
     }
 
-    /**
-     * Track a story ID for export persistence.
-     */
     public trackStory(id: string): void {
-        if (!this.trackedStoryIds.includes(id)) {
-            this.trackedStoryIds.push(id);
-        }
+        this.trackedStoryIds.add(id);
     }
 }

@@ -36,6 +36,14 @@ export interface HydrationWorkerResult {
     parsed: number;
 }
 
+export interface HydrationWorkerProgress {
+    type: 'progress';
+    phase: string;
+    loaded: number;
+    total: number;
+    percent: number;
+}
+
 export interface HydrationWorkerError {
     type: 'error';
     message: string;
@@ -93,6 +101,19 @@ export async function runHydrationWorker(input: HydrationWorkerInput): Promise<H
 /**
  * Full Nuclear Hydration: parse all YAML files via BootLoader, collect mtimes.
  */
+function emitProgress(phase: string, loaded: number, total: number): void {
+    if (!isMainThread && parentPort) {
+        const percent = total > 0 ? Math.round((loaded / total) * 100) : 0;
+        parentPort.postMessage({
+            type: 'progress',
+            phase,
+            loaded,
+            total,
+            percent
+        } as HydrationWorkerProgress);
+    }
+}
+
 async function loadPeopleFull(rootDir: string): Promise<{
     results: PersonEntry[];
     parsed: number;
@@ -101,7 +122,9 @@ async function loadPeopleFull(rootDir: string): Promise<{
     const peopleResults = await peopleLoader.loadAll().catch(() => []);
 
     const results: PersonEntry[] = [];
-    for (const res of peopleResults) {
+    const total = peopleResults.length;
+    for (let i = 0; i < peopleResults.length; i++) {
+        const res = peopleResults[i];
         try {
             const stats = await fs.stat(res.filePath);
             results.push({
@@ -112,6 +135,9 @@ async function loadPeopleFull(rootDir: string): Promise<{
             });
         } catch {
             // File deleted between load and stat — skip
+        }
+        if ((i + 1) % 50 === 0 || i === total - 1) {
+            emitProgress('parsing', i + 1, total);
         }
     }
 
@@ -135,6 +161,8 @@ async function loadPeopleIncremental(rootDir: string, cache: GraphCacheFile): Pr
     let parsed = 0;
 
     const limit = pLimit(50);
+    const total = files.length;
+    let processed = 0;
 
     await Promise.all(files.map(file => limit(async () => {
         try {
@@ -154,6 +182,10 @@ async function loadPeopleIncremental(rootDir: string, cache: GraphCacheFile): Pr
             }
         } catch (err: any) {
             console.warn(`[HydrationWorker] Failed to process ${file}: ${err.message}`);
+        }
+        processed++;
+        if (processed % 50 === 0 || processed === total) {
+            emitProgress('loading', processed, total);
         }
     })));
 

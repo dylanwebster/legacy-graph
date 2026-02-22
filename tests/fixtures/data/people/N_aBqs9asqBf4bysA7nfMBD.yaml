@@ -1,0 +1,22 @@
+version: '5.0'
+id: N_aBqs9asqBf4bysA7nfMBD
+created: '2026-02-22T00:48:50.617Z'
+last_modified: '2026-02-22T00:48:50.620Z'
+names:
+  - first: SpouseA
+    last: Computed
+    primary: true
+sex: M
+tags: []
+relationships:
+  parents: []
+events:
+  - id: evt_1
+    type: marriage
+    date: 1 JAN 2020
+    sort_date: '2020-01-01'
+    partner_id: N_NFpCDrrJ_VyV6G2qXQLEK
+    status: married
+    assets: []
+assets: []
+scrapbook_md: ''

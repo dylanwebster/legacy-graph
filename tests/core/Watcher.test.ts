@@ -122,3 +122,135 @@ assets: []`;
         await engine.stopWatcher();
     });
 });
+
+describe('Story Watcher (Phase 3.8.5)', () => {
+    let engine: GraphEngine;
+
+    beforeEach(async () => {
+        if (fs.existsSync(TEST_DIR)) fs.rmSync(TEST_DIR, { recursive: true, force: true });
+        fs.mkdirSync(path.join(TEST_DIR, 'people'), { recursive: true });
+        fs.mkdirSync(path.join(TEST_DIR, 'stories'), { recursive: true });
+
+        // Create a person for story mentions
+        const personYaml = `version: "5.0"
+id: "N_STORYREF"
+created: "2023-01-01T00:00:00Z"
+last_modified: "2023-01-01T00:00:00Z"
+names:
+  - first: "Story"
+    last: "Subject"
+sex: "M"
+relationships:
+  parents: []
+events: []
+assets: []
+scrapbook_md: ""`;
+        fs.writeFileSync(path.join(TEST_DIR, 'people', 'N_STORYREF.yaml'), personYaml);
+
+        engine = new GraphEngine(TEST_DIR);
+        await engine.hydrate();
+    });
+
+    afterEach(async () => {
+        await engine.stopWatcher();
+        fs.rmSync(TEST_DIR, { recursive: true, force: true });
+    });
+
+    it('should add story node and edges on handleStoryUpdate', async () => {
+        const storyMd = `---
+title: "Test Story"
+date: "2023-01-01"
+tags: []
+assets: []
+---
+
+This story mentions @N_STORYREF in the text.`;
+
+        const storyPath = path.join(TEST_DIR, 'stories', 'test-story.md');
+        fs.writeFileSync(storyPath, storyMd);
+
+        await (engine as any).handleStoryUpdate(storyPath);
+
+        const graph = engine.getGraph();
+        expect(graph.hasNode('test-story.md')).toBe(true);
+        expect(graph.getNodeAttributes('test-story.md').type).toBe('story');
+
+        // Should have a mentions edge to the person
+        const edges = graph.outEdges('test-story.md');
+        expect(edges.length).toBeGreaterThanOrEqual(1);
+        const mentionEdge = edges.find(e => graph.getEdgeAttributes(e).type === 'mentions');
+        expect(mentionEdge).toBeDefined();
+        expect(graph.target(mentionEdge!)).toBe('N_STORYREF');
+    });
+
+    it('should update story node on re-processing', async () => {
+        const storyMd1 = `---
+title: "Original Title"
+date: "2023-01-01"
+tags: []
+assets: []
+---
+
+Content version one.`;
+
+        const storyPath = path.join(TEST_DIR, 'stories', 'update-story.md');
+        fs.writeFileSync(storyPath, storyMd1);
+        await (engine as any).handleStoryUpdate(storyPath);
+
+        expect(engine.getGraph().getNodeAttributes('update-story.md').data.metadata.title).toBe('Original Title');
+
+        const storyMd2 = `---
+title: "Updated Title"
+date: "2023-01-01"
+tags: []
+assets: []
+---
+
+Content version two.`;
+
+        fs.writeFileSync(storyPath, storyMd2);
+        await (engine as any).handleStoryUpdate(storyPath);
+
+        expect(engine.getGraph().getNodeAttributes('update-story.md').data.metadata.title).toBe('Updated Title');
+    });
+
+    it('should remove story node and edges on handleStoryRemove', async () => {
+        const storyMd = `---
+title: "Removable Story"
+date: "2023-01-01"
+tags: []
+assets: []
+---
+
+This mentions @N_STORYREF.`;
+
+        const storyPath = path.join(TEST_DIR, 'stories', 'remove-story.md');
+        fs.writeFileSync(storyPath, storyMd);
+        await (engine as any).handleStoryUpdate(storyPath);
+
+        expect(engine.getGraph().hasNode('remove-story.md')).toBe(true);
+
+        (engine as any).handleStoryRemove(storyPath);
+
+        expect(engine.getGraph().hasNode('remove-story.md')).toBe(false);
+    });
+
+    it('should index story in search on handleStoryUpdate', async () => {
+        const storyMd = `---
+title: "Searchable Adventure"
+date: "2023-01-01"
+tags: []
+assets: []
+---
+
+A unique adventure story.`;
+
+        const storyPath = path.join(TEST_DIR, 'stories', 'search-story.md');
+        fs.writeFileSync(storyPath, storyMd);
+        await (engine as any).handleStoryUpdate(storyPath);
+
+        const results = await engine.searchService.search("Searchable");
+        expect(results.stories.length).toBeGreaterThanOrEqual(1);
+        expect(results.stories[0].id).toBe('search-story.md');
+    });
+});

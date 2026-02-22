@@ -300,6 +300,106 @@ describe('Fastify API Server', () => {
         });
     });
 
+    describe('API Write Path Side Effects (Phase 3.8.1)', () => {
+        it('POST /people indexes new person in search', async () => {
+            const newPerson = {
+                names: [{ first: 'Searchable', last: 'Newman', primary: true }],
+                sex: 'M',
+                events: []
+            };
+
+            const createRes = await request.post('/api/people').send(newPerson);
+            expect(createRes.status).toBe(201);
+
+            const searchRes = await request.get('/api/search').query({ q: 'Searchable' });
+            expect(searchRes.status).toBe(200);
+            expect(searchRes.body.people.length).toBeGreaterThanOrEqual(1);
+            expect(searchRes.body.people.some((p: any) => p.id === createRes.body.id)).toBe(true);
+        });
+
+        it('POST /people with parents wires parent edges in graph', async () => {
+            // Create parent first
+            const parentRes = await request.post('/api/people').send({
+                names: [{ first: 'Parent', last: 'Edge', primary: true }],
+                sex: 'F',
+                events: []
+            });
+            expect(parentRes.status).toBe(201);
+            const parentId = parentRes.body.id;
+
+            // Create child referencing parent
+            const childRes = await request.post('/api/people').send({
+                names: [{ first: 'Child', last: 'Edge', primary: true }],
+                sex: 'M',
+                relationships: { parents: [{ id: parentId, type: 'biological' }] },
+                events: []
+            });
+            expect(childRes.status).toBe(201);
+            const childId = childRes.body.id;
+
+            // Verify _computed.children on parent includes child
+            const parentGet = await request.get(`/api/people/${parentId}`);
+            expect(parentGet.status).toBe(200);
+            expect(parentGet.body._computed.children).toContain(childId);
+        });
+
+        it('PUT /people/:id updates search index', async () => {
+            const createRes = await request.post('/api/people').send({
+                names: [{ first: 'OldSearchName', last: 'Unique', primary: true }],
+                sex: 'F',
+                events: []
+            });
+            const personId = createRes.body.id;
+
+            // Update name
+            const updates = {
+                ...createRes.body,
+                names: [{ first: 'NewSearchName', last: 'Unique', primary: true }]
+            };
+            await request.put(`/api/people/${personId}`).send(updates);
+
+            // Search for new name should find it
+            const searchNew = await request.get('/api/search').query({ q: 'NewSearchName' });
+            expect(searchNew.body.people.some((p: any) => p.id === personId)).toBe(true);
+        });
+
+        it('PUT /people/:id recomputes _computed for neighbors', async () => {
+            // Create two people
+            const personARes = await request.post('/api/people').send({
+                names: [{ first: 'SpouseA', last: 'Computed', primary: true }],
+                sex: 'M',
+                events: []
+            });
+            const personBRes = await request.post('/api/people').send({
+                names: [{ first: 'SpouseB', last: 'Computed', primary: true }],
+                sex: 'F',
+                events: []
+            });
+            const idA = personARes.body.id;
+            const idB = personBRes.body.id;
+
+            // Update person A with a marriage event referencing B
+            const updatedA = {
+                ...personARes.body,
+                events: [{
+                    id: 'evt_1',
+                    type: 'marriage',
+                    date: '1 JAN 2020',
+                    sort_date: '2020-01-01',
+                    partner_id: idB,
+                    status: 'married',
+                    assets: []
+                }]
+            };
+            await request.put(`/api/people/${idA}`).send(updatedA);
+
+            // Person A should have currentSpouse
+            const getA = await request.get(`/api/people/${idA}`);
+            expect(getA.body._computed.currentSpouse).not.toBeNull();
+            expect(getA.body._computed.currentSpouse.id).toBe(idB);
+        });
+    });
+
     describe('POST /api/system/rebuild', () => {
         it('should force re-hydration of the graph', async () => {
             const response = await request

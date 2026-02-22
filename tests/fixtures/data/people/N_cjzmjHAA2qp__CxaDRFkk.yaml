@@ -1,0 +1,17 @@
+version: '5.0'
+id: N_cjzmjHAA2qp__CxaDRFkk
+created: '2026-02-22T00:48:50.059Z'
+last_modified: '2026-02-22T00:48:50.059Z'
+names:
+  - first: Child
+    last: Edge
+    primary: true
+sex: M
+tags: []
+relationships:
+  parents:
+    - id: N_rz-BM12kd0gIAy3wQ9IoL
+      type: biological
+events: []
+assets: []
+scrapbook_md: ''
