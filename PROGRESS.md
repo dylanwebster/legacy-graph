@@ -447,17 +447,17 @@ Bootstrap the `client/` directory with all tooling.
 - [x] Custom `Avatar` component (photo from assets or generated initials)
 - [x] Vite dev proxy to backend (`/api` → `http://localhost:3000/api`)
 
-#### 4.2 App Shell & Hydration Awareness
+#### 4.2 App Shell & Hydration Awareness — COMPLETE ✅
 
 The structural frame — must work before any data views are built.
 
-- [ ] **Persistent Left Sidebar**: VS Code activity bar pattern — Dashboard, People, Import, Settings. Icons + labels. Collapsible to icon-only.
-- [ ] **Top Bar**: Breadcrumbs, Cmd+K search trigger, auth status.
-- [ ] **Responsive behavior**: Full sidebar ≥1280px, icon-only 768–1279px, hamburger menu <768px.
-- [ ] **Status indicator**: `StatusDot` in sidebar footer — green/amber/red based on `GET /system/status`.
-- [ ] **`HydrationProgress` overlay**: Full-screen on boot. Connects to `GET /system/hydration/stream` SSE. Shows progress bar (phase, percent, node count). Fades out on `hydrationState === "ready"`. Handles 503 gracefully.
-- [ ] **Error boundaries**: Global + per-route. Graceful API failure handling.
-- [ ] **Route structure**: `/` (Dashboard), `/people` (Browse), `/people/:id` (Detail), `/import`, `/settings`, `/search?q=`.
+- [x] **Persistent Left Sidebar**: VS Code activity bar pattern — Dashboard, People, Import, Settings. Icons + labels. Collapsible to icon-only.
+- [x] **Top Bar**: Breadcrumbs, Cmd+K search trigger, auth status.
+- [x] **Responsive behavior**: Full sidebar ≥1280px, icon-only 768–1279px, hamburger menu <768px.
+- [x] **Status indicator**: `StatusDot` in sidebar footer — green/amber/red based on `GET /system/status`.
+- [x] **`HydrationProgress` overlay**: Full-screen on boot. Connects to `GET /system/hydration/stream` SSE. Shows progress bar (phase, percent, node count). Fades out on `hydrationState === "ready"`. Handles 503 gracefully.
+- [x] **Error boundaries**: Global + per-route. Graceful API failure handling.
+- [x] **Route structure**: `/` (Dashboard), `/people` (Browse), `/people/:id` (Detail), `/import`, `/settings`, `/search?q=`.
 
 #### 4.3 Command Palette (CmdK)
 
