@@ -486,7 +486,8 @@ Searchable, sortable table of all people. Simpler than the Holy Grail — good w
 
 The most critical view. 3-column resizable layout (spec Section 6.5).
 
-- [x] **Panel framework**: `react-resizable-panels` — 3 collapsible, resizable columns (20%/50%/30% default). Responsive: stacked below 768px.
+- [x] **Panel framework**: Integrate `react-resizable-panels` for the 3-column layout (20%/50%/30% default). Responsive: stacked below 768px.
+  - *Bug Fix*: Resolved issue where panels collapsed to 15-40px and handles were unresponsive by using percentage strings (e.g., `"50%"`) instead of numeric values (which default to `px` in v4.6.5) for `defaultSize`/`minSize`/`maxSize`, and changing the `<main>` container to `overflow-hidden`.
 - [x] **Identity Panel** (left):
   - Avatar (photo or initials)
   - Click-to-edit name (inline, optimistic `PUT /people/:id`)
