@@ -1,13 +1,41 @@
 import { apiFetch } from './client';
 
+export interface PersonName {
+    primary?: boolean;
+    first?: string;
+    last?: string;
+    given?: string;
+    surname?: string;
+}
+
 export interface SlimPersonSummary {
     id: string;
-    names: any[];
+    names: PersonName[];
     sex: string;
     birthDate?: string;
     deathDate?: string;
     tags: string[];
     assetCount: number;
+    last_modified: string;
+}
+
+export interface PersonDetail {
+    id: string;
+    names: PersonName[];
+    sex?: string;
+    birthDate?: string;
+    deathDate?: string;
+    tags: string[];
+    assets: string[];
+    timeline: Array<Record<string, string>>;
+    scrapbook_md?: string;
+    _raw_yaml?: string;
+    _computed: {
+        parents?: Array<Record<string, string>>;
+        spouses?: Array<Record<string, string>>;
+        children?: Array<Record<string, string>>;
+        siblings?: Array<Record<string, string>>;
+    };
     last_modified: string;
 }
 
@@ -34,6 +62,6 @@ export const peopleApi = {
         if (timelineParams?.offset !== undefined) searchParams.append('timeline_offset', String(timelineParams.offset));
 
         const query = searchParams.toString();
-        return apiFetch<any>(`/people/${id}${query ? `?${query}` : ''}`);
+        return apiFetch<PersonDetail>(`/people/${id}${query ? `?${query}` : ''}`);
     }
 };

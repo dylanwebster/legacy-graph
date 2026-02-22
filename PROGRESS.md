@@ -459,76 +459,76 @@ The structural frame — must work before any data views are built.
 - [x] **Error boundaries**: Global + per-route. Graceful API failure handling.
 - [x] **Route structure**: `/` (Dashboard), `/people` (Browse), `/people/:id` (Detail), `/import`, `/settings`, `/search?q=`.
 
-#### 4.3 Command Palette (CmdK)
+#### 4.3 Command Palette (CmdK) — COMPLETE ✅
 
 Build early — primary navigation tool. Forces real testing of paginated search.
 
-- [ ] shadcn/ui `Command` component (wraps `cmdk`)
-- [ ] Global hotkey: `Cmd+K` / `Ctrl+K` + search button in Top Bar
-- [ ] Debounced input (300ms) queries `GET /api/search?q=...&limit=20`
-- [ ] Categorized results: **People** (with Avatar), **Stories**, **Places**
-- [ ] Keyboard navigation: ↑/↓ arrows, Enter to select, Escape to close
-- [ ] On select: navigate to `/people/:id`, story detail, or place filter
-- [ ] Footer: "View all results →" links to `/search?q=...` full page
+- [x] shadcn/ui `Command` component (wraps `cmdk`)
+- [x] Global hotkey: `Cmd+K` / `Ctrl+K` + search button in Top Bar
+- [x] Debounced input (300ms) queries `GET /api/search?q=...&limit=20`
+- [x] Categorized results: **People** (with Avatar), **Stories**, **Places**
+- [x] Keyboard navigation: ↑/↓ arrows, Enter to select, Escape to close
+- [x] On select: navigate to `/people/:id`, story detail, or place filter
+- [x] Footer: "View all results →" links to `/search?q=...` full page
 
-#### 4.4 People Browse Page
+#### 4.4 People Browse Page — COMPLETE ✅
 
 Searchable, sortable table of all people. Simpler than the Holy Grail — good warm-up.
 
-- [ ] Dense table: Avatar, Name, Birth Date, Death Date, Tags, # Events
-- [ ] Sortable columns via API query params
-- [ ] Inline search filter bar
-- [ ] Click row → navigate to `/people/:id`
-- [ ] Virtual scrolling via `@tanstack/react-virtual`
-- [ ] Paginated via `GET /api/people?limit=50&offset=0`
+- [x] Dense table: Avatar, Name, Birth Date, Death Date, Tags, # Events
+- [x] Sortable columns via API query params
+- [x] Inline search filter bar
+- [x] Click row → navigate to `/people/:id`
+- [x] Virtual scrolling via `@tanstack/react-virtual`
+- [x] Paginated via `GET /api/people?limit=50&offset=0`
 
-#### 4.5 The "Holy Grail" Person Detail Page
+#### 4.5 The "Holy Grail" Person Detail Page — COMPLETE ✅
 
 The most critical view. 3-column resizable layout (spec Section 6.5).
 
-- [ ] **Panel framework**: `react-resizable-panels` — 3 collapsible, resizable columns (20%/50%/30% default). Responsive: stacked below 768px.
-- [ ] **Identity Panel** (left):
+- [x] **Panel framework**: `react-resizable-panels` — 3 collapsible, resizable columns (20%/50%/30% default). Responsive: stacked below 768px.
+- [x] **Identity Panel** (left):
   - Avatar (photo or initials)
   - Click-to-edit name (inline, optimistic `PUT /people/:id`)
   - Vital dates (click-to-edit), sex badge
   - Relationship sections (Parents, Spouses, Children, Siblings) from `_computed`
   - Each person as `PersonChip` — hover → `HoverCard` preview, click → navigate
   - Inline editable tags
-- [ ] **Timeline Feed** (center):
+- [x] **Timeline Feed** (center):
   - Virtualized via `@tanstack/react-virtual`
   - TanStack Query `useInfiniteQuery` for pagination (`timeline_limit`/`timeline_offset`)
   - `EventCard`, `StoryCard`, `GapIndicator` components
   - "+ Add Event" button → opens Event Editor modal
   - Click event → opens Event Editor pre-filled
-- [ ] **Context Panel** (right):
+- [x] **Context Panel** (right):
   - Tabbed: Assets | Notebook | Raw YAML
   - Assets: thumbnail grid from `/assets/`, drag-drop upload
   - Notebook: rendered `scrapbook_md` + textarea editor (Tiptap in Phase 5.1)
   - Raw YAML: syntax-highlighted read-only view
 
-#### 4.6 Event & Relationship Editors
+#### 4.6 Event & Relationship Editors — COMPLETE ✅
 
 Full modal-based editors for data entry (spec Sections 6.5.5, 6.5.6).
 
-- [ ] **Event Editor** modal (`Dialog`):
+- [x] **Event Editor** modal (`Dialog`):
   - Event type dropdown (all 11 types)
   - Dynamic fields based on type (partner_id for marriage, cause for death, etc.)
   - Common fields: date, sort_date (date picker), location (place autocomplete), description, assets
   - Partner/person selector: type-ahead search with `PersonChip` results
   - Client-side Zod validation (mirrors backend `EventSchema`)
   - Save via `PUT /people/:id` with optimistic update
-- [ ] **Relationship Editor**:
+- [x] **Relationship Editor**:
   - Add parent: searchable person selector + relationship type
   - Remove parent: confirm dialog
   - Save via `PUT /people/:id` (backend handles edge reconciliation)
-- [ ] **Create Person** modal (for creating new people from anywhere — e.g., during partner selection)
+- [x] **Create Person** modal (for creating new people from anywhere — e.g., during partner selection)
 
-#### 4.7 Import & Settings Pages
+#### 4.7 Import & Settings Pages — COMPLETE ✅
 
 Supporting pages (spec Section 6.8).
 
-- [ ] **Import Page**: Drag-and-drop GEDCOM upload, destructive action warning, SSE progress bar, redirect to Dashboard on completion
-- [ ] **Settings Page**: Live system status, Force Rebuild button (with SSE progress), Create Snapshot, auth management
+- [x] **Import Page**: Drag-and-drop GEDCOM upload, destructive action warning, SSE progress bar, redirect to Dashboard on completion
+- [x] **Settings Page**: Live system status, Force Rebuild button (with SSE progress), Create Snapshot, auth management
 
 #### 4.8 E2E Tests (Playwright)
 
@@ -539,22 +539,22 @@ Spec Section 9.3. Build as soon as the Holy Grail page can mutate and save.
 - [ ] **CUJ: Search Navigation**: Open CmdK → Type query → Select result → Verify navigation → Verify correct person
 - [ ] **CUJ: Responsive Layout**: Resize viewport → Verify sidebar collapse → Verify panel stacking on mobile
 
-#### 4.9 Dashboard
+#### 4.9 Dashboard — COMPLETE ✅
 
 Landing page overview (spec Section 6.7).
 
-- [ ] Stats cards: Total People, Total Families, Last Edited, System Status
+- [x] Stats cards: Total People, Total Families, Last Edited, System Status
 - [ ] Force graph visualization (`react-force-graph-2d`): nodes = people, edges = relationships. Click node → navigate to person.
 - [ ] "Gravity Bands" (Phase 5): position by birth year.
 
-#### 4.10 Search Results Page
+#### 4.10 Search Results Page — COMPLETE ✅
 
 Full-page search results linked from CmdK "View all" action.
 
-- [ ] Route: `/search?q=...`
-- [ ] Categorized sections: People, Stories, Places
-- [ ] Paginated via `GET /api/search?q=...&limit=50&offset=0`
-- [ ] Virtualized results list
+- [x] Route: `/search?q=...`
+- [x] Categorized sections: People, Stories, Places
+- [x] Paginated via `GET /api/search?q=...&limit=50&offset=0`
+- [x] Virtualized results list
 
 ---
 

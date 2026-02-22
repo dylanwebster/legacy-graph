@@ -4,11 +4,13 @@ import { ErrorFallback } from '@/components/ErrorFallback';
 import { GlobalNotFound } from '@/components/GlobalNotFound';
 import { Sidebar } from '@/components/Sidebar';
 import { TopBar } from '@/components/TopBar';
+import { CommandPalette } from '@/components/CommandPalette';
 
 export const Route = createRootRoute({
     component: () => (
         <>
             <HydrationProgress />
+            <CommandPalette />
             <div className="flex h-screen w-full bg-background text-foreground overflow-hidden">
                 <Sidebar />
 
