@@ -1,0 +1,12 @@
+# Generate test data/caches
+data/
+auth-data/
+temp_watch_test/
+temp_media_test/
+thumbnails-test/
+
+# Graph caches
+.graph-cache.json
+
+# Logs
+*.log

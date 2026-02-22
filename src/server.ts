@@ -1,0 +1,114 @@
+import Fastify, { FastifyInstance } from 'fastify';
+import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
+import cookie from '@fastify/cookie';
+import fastifyStatic from '@fastify/static';
+import * as path from 'path';
+import { GraphEngine } from './core/GraphEngine';
+import { TransactionManager } from './core/TransactionManager';
+import { loadAuthConfig, registerAuthGuard } from './api/middleware/auth';
+import { systemRoutes } from './api/routes/system';
+import { authRoutes } from './api/routes/auth';
+import { searchRoutes } from './api/routes/search';
+import { peopleRoutes } from './api/routes/people';
+import { gedcomRoutes } from './api/routes/gedcom';
+import type { AppServices } from './api/types';
+
+export interface ServerConfig {
+    logger?: boolean;
+    dataDir: string;
+    port?: number;
+    /** If false, createServer returns immediately while hydration runs in background (503 until ready).
+     *  Defaults to true for backward compatibility (server blocks until graph is hydrated). */
+    awaitHydration?: boolean;
+}
+
+export async function createServer(config: ServerConfig): Promise<FastifyInstance> {
+    const server = Fastify({
+        logger: config.logger ?? true
+    });
+
+    await server.register(cors, { origin: true });
+    await server.register(multipart, { limits: { fileSize: 50 * 1024 * 1024 } });
+    await server.register(cookie);
+
+    const authConfig = await loadAuthConfig(config.dataDir);
+    if (authConfig) {
+        registerAuthGuard(server, authConfig);
+        console.log('[Server] Authentication enabled');
+    } else {
+        console.log('[Server] No auth config found — authentication disabled');
+    }
+
+    const graphEngine = new GraphEngine(config.dataDir);
+
+    const hydrationPromise = graphEngine.hydrateInBackground().then(async () => {
+        console.log('[Server] GraphEngine hydrated successfully');
+        await graphEngine.startWatcher();
+    }).catch(error => {
+        console.error('[Server] Failed to hydrate GraphEngine:', error);
+    });
+
+    if (config.awaitHydration !== false) {
+        await hydrationPromise;
+    }
+
+    const txManager = new TransactionManager(config.dataDir, {
+        onFileWritten: (absolutePath: string) => {
+            graphEngine.registerSelfWrite(absolutePath);
+        }
+    });
+
+    // Decorate server with services so route plugins can access them
+    const appServices: AppServices = { graphEngine, txManager, authConfig, dataDir: config.dataDir };
+    server.decorate('appServices', appServices);
+
+    // 503 Loading Gate (spec 2.3C)
+    server.addHook('onRequest', async (request, reply) => {
+        if (graphEngine.hydrationState !== 'ready') {
+            const url = request.url;
+            if (url === '/api/system/status' ||
+                url === '/api/system/hydration/stream' ||
+                url === '/api/auth/login' ||
+                url === '/api/auth/logout') {
+                return;
+            }
+            return reply.status(503).send({
+                error: 'Graph is loading',
+                code: 'HYDRATION_IN_PROGRESS'
+            });
+        }
+    });
+
+    server.addHook('onClose', async () => {
+        await graphEngine.stopWatcher();
+        await txManager.destroy();
+    });
+
+    // Register route plugins
+    await server.register(systemRoutes);
+    await server.register(authRoutes);
+    await server.register(searchRoutes);
+    await server.register(peopleRoutes);
+    await server.register(gedcomRoutes);
+
+    // Phase 3.9.3 Static Asset Delivery Performance
+    await server.register(fastifyStatic, {
+        root: path.resolve(config.dataDir, 'assets'),
+        prefix: '/assets/',
+        acceptRanges: true,
+        etag: true,
+        cacheControl: true,
+        maxAge: 31536000000, // 365 days in ms
+        immutable: true,
+        setHeaders: (res) => {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+    });
+
+    return server;
+}
+
+export async function closeServer(server: FastifyInstance): Promise<void> {
+    await server.close();
+}
