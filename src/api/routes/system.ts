@@ -59,6 +59,42 @@ export async function systemRoutes(server: FastifyInstance) {
         request.raw.on('close', cleanup);
     });
 
+    server.get('/api/stats', async () => {
+        const graph = graphEngine.getGraph();
+
+        let totalPeople = 0;
+        let lastModified = '1970-01-01T00:00:00.000Z';
+        const familyPairs = new Set<string>();
+
+        graph.forEachNode((nodeId, attributes) => {
+            if (attributes.type === 'person') {
+                totalPeople++;
+                const person = attributes.data;
+                if (person.last_modified && person.last_modified > lastModified) {
+                    lastModified = person.last_modified;
+                }
+
+                const events = person.events || [];
+                events.forEach((e: any) => {
+                    if (e.type === 'marriage' && e.partner_id) {
+                        const pair = [nodeId, e.partner_id].sort().join(':');
+                        familyPairs.add(pair);
+                    }
+                });
+            }
+        });
+
+        if (totalPeople === 0) {
+            lastModified = new Date().toISOString();
+        }
+
+        return {
+            totalPeople: totalPeople,
+            totalFamilies: familyPairs.size,
+            lastModified: lastModified
+        };
+    });
+
     server.get('/api/system/status', async () => {
         const graph = graphEngine.getGraph();
         return {

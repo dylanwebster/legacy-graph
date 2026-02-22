@@ -297,6 +297,8 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 
 ### **5.1 Entity Endpoints**
 
+- `GET /people`: Returns a paginated list of all people (`SlimPersonSummary[]`).
+  - **Query**: `?limit=50&offset=0&sort=last_modified&order=desc`.
 - `GET /people/:id`: Returns hydrated Person object (Schema Data + Computed Relations + Timeline).
   - **Query**: `?timeline_limit=50&timeline_offset=0` (optional, paginates the embedded timeline).
   - **Lazy Loading**: The `scrapbook_md` and `_gedcom` fields are **not** held in the in-memory graph (see Section 2.3B Slim Node Strategy). When this endpoint is called, the server reads the source YAML file from disk asynchronously, extracts these fields, and merges them into the response alongside the in-memory graph data and `_computed` relationships. This adds negligible latency (~1-5ms for a single file read) while keeping the V8 heap lean.
@@ -330,6 +332,7 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
   - _Body_: `{ name: string }`.
 - `POST /import/gedcom`: Bulk Import.
   - _Warning_: Destructive. Wipes current data directory (except `.git`).
+- `GET /stats`: Returns dashboard statistics (`totalPeople`, `totalFamilies`, `lastModified`).
 - `GET /system/status`: Returns runtime health info. **Always available**, even during hydration (see 2.3C).
   - _Returns_: `{ nodeCount: number, edgeCount: number, hydrationState: "ready" | "loading", cacheAge: string | null }`.
   - _Note_: When `hydrationState` is `"loading"`, `nodeCount` and `edgeCount` are `0` until hydration completes.

@@ -424,13 +424,13 @@ Build the "VS Code for Genealogy" interface. See spec Section 6 for full UI spec
 >
 > **Architecture Decisions**: React + Vite + TypeScript in a `client/` directory. shadcn/ui (Radix + Tailwind v4) for components. Zustand for UI state. TanStack Router + TanStack Query for routing and data. Lucide React for icons. See spec Section 6.1.
 
-#### 4.0 Backend API Additions (Frontend Prerequisites)
+#### 4.0 Backend API Additions (Frontend Prerequisites) — COMPLETE ✅
 
 The frontend requires two small backend additions before data views can be built (spec Section 6.10):
 
-- [ ] `GET /api/people` — paginated list of all people (slim summaries). Query: `?limit=50&offset=0&sort=last_modified&order=desc`. Returns `{ people: SlimPersonSummary[], totalCount: number }`.
-- [ ] `GET /api/stats` — dashboard stats (total people, total families, last modified). Could extend `GET /system/status`.
-- [ ] TDD: Tests for both new endpoints in `tests/api/Server.test.ts`.
+- [x] `GET /api/people` — paginated list of all people (slim summaries). Query: `?limit=50&offset=0&sort=last_modified&order=desc`. Returns `{ people: SlimPersonSummary[], totalCount: number }`.
+- [x] `GET /api/stats` — dashboard stats (total people, total families, last modified). Could extend `GET /system/status`.
+- [x] TDD: Tests for both new endpoints in `tests/api/Server.test.ts`.
 
 #### 4.1 UI Foundation & Scaffolding
 
@@ -438,14 +438,14 @@ Bootstrap the `client/` directory with all tooling.
 
 - [ ] `npx create-vite client --template react-ts` + TanStack Router + TanStack Query
 - [ ] Tailwind CSS v4 setup with dark mode palette (Slate/Zinc/Neutral)
-- [ ] shadcn/ui initialization (`npx shadcn@latest init`)
-- [ ] Typography: Google Fonts — `Inter` (UI), `Fira Code` (data), `Merriweather` (stories)
-- [ ] Zustand store skeleton (`useUIStore`): sidebar state, active panel, modals
-- [ ] Typed API client layer: `client/src/api/` with fetch wrappers for all backend endpoints
-- [ ] TanStack Query hooks: `usePerson`, `usePeople`, `useSearch`, `useSystemStatus`, `useUpdatePerson` (with optimistic update boilerplate)
-- [ ] Base shadcn/ui components imported: `Button`, `Input`, `Dialog`, `Command`, `Badge`, `Tabs`, `HoverCard`, `Resizable`, `Skeleton`, `Sonner`
-- [ ] Custom `Avatar` component (photo from assets or generated initials)
-- [ ] Vite dev proxy to backend (`/api` → `http://localhost:3000/api`)
+- [x] shadcn/ui initialization (`npx shadcn@latest init`)
+- [x] Typography: Google Fonts — `Inter` (UI), `Fira Code` (data), `Merriweather` (stories)
+- [x] Zustand store skeleton (`useUIStore`): sidebar state, active panel, modals
+- [x] Typed API client layer: `client/src/api/` with fetch wrappers for all backend endpoints
+- [x] TanStack Query hooks: `usePerson`, `usePeople`, `useSearch`, `useSystemStatus`, `useUpdatePerson` (with optimistic update boilerplate)
+- [x] Base shadcn/ui components imported: `Button`, `Input`, `Dialog`, `Command`, `Badge`, `Tabs`, `HoverCard`, `Resizable`, `Skeleton`, `Sonner`
+- [x] Custom `Avatar` component (photo from assets or generated initials)
+- [x] Vite dev proxy to backend (`/api` → `http://localhost:3000/api`)
 
 #### 4.2 App Shell & Hydration Awareness
 

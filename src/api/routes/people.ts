@@ -14,6 +14,66 @@ export async function peopleRoutes(server: FastifyInstance) {
     const { graphEngine, txManager, dataDir } = (server as AppInstance).appServices;
 
     server.get<{
+        Querystring: { limit?: string; offset?: string; sort?: string; order?: string }
+    }>('/api/people', async (request, reply) => {
+        const { limit: limitStr, offset: offsetStr, sort, order } = request.query;
+
+        const limit = limitStr ? parseInt(limitStr, 10) : 50;
+        const offset = offsetStr ? parseInt(offsetStr, 10) : 0;
+
+        if (isNaN(limit) || limit < 0 || limit > 200) {
+            return reply.status(400).send({
+                error: 'limit must be between 0 and 200',
+                code: 'VALIDATION_ERROR'
+            });
+        }
+        if (isNaN(offset) || offset < 0) {
+            return reply.status(400).send({
+                error: 'offset must be >= 0',
+                code: 'VALIDATION_ERROR'
+            });
+        }
+
+        const graph = graphEngine.getGraph();
+        const people: any[] = [];
+
+        graph.forEachNode((nodeId, attributes) => {
+            if (attributes.type === 'person') {
+                const p = attributes.data;
+                people.push({
+                    id: p.id,
+                    names: p.names,
+                    sex: p.sex,
+                    birthDate: p.events?.find((e: any) => e.type === 'birth')?.date,
+                    deathDate: p.events?.find((e: any) => e.type === 'death')?.date,
+                    tags: p.tags,
+                    assetCount: p.assets?.length || 0,
+                    last_modified: p.last_modified
+                });
+            }
+        });
+
+        const sortBy = sort || 'last_modified';
+        const sortOrder = order === 'asc' ? 1 : -1;
+
+        people.sort((a, b) => {
+            const valA = a[sortBy] || '';
+            const valB = b[sortBy] || '';
+            if (valA < valB) return -1 * sortOrder;
+            if (valA > valB) return 1 * sortOrder;
+            return 0;
+        });
+
+        const totalCount = people.length;
+        const paginatedPeople = people.slice(offset, offset + limit);
+
+        return {
+            people: paginatedPeople,
+            totalCount
+        };
+    });
+
+    server.get<{
         Params: { id: string },
         Querystring: { timeline_limit?: string; timeline_offset?: string }
     }>('/api/people/:id', async (request, reply) => {
