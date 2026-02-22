@@ -1,12 +1,13 @@
 // src/core/GraphCache.ts
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { Person } from '../schemas/PersonSchema';
+import { SlimPerson, PersonEntry } from '../schemas/PersonSchema';
 
 export const CACHE_SPEC_VERSION = '5.0';
 
 export interface CacheEntry {
-    data: Person;
+    data: SlimPerson;
+    bio: string;
     mtime: number; // epoch ms (integer)
 }
 
@@ -42,7 +43,7 @@ export class GraphCache {
      */
     static async save(
         cachePath: string,
-        entries: Array<{ data: Person; filePath: string; mtime: number }>
+        entries: PersonEntry[]
     ): Promise<void> {
         const cacheData: GraphCacheFile = {
             spec_version: CACHE_SPEC_VERSION,
@@ -53,6 +54,7 @@ export class GraphCache {
         for (const entry of entries) {
             cacheData.entries[entry.filePath] = {
                 data: entry.data,
+                bio: entry.bio,
                 mtime: entry.mtime
             };
         }

@@ -23,7 +23,8 @@
 | **3.7** | Data Layer Hardening (3 items) | ✅ Complete |
 | **3.8** | Pre-Frontend Hardening (5 items) | ✅ Complete (all 5 items) |
 | **3.9** | More Backend Hardening (3 items) | ✅ Complete (all 3 items) |
-| **4** | Frontend (React UI) + E2E Tests | ❌ Not started — **NEXT** |
+| **3.10** | Final Data Layer Hardening (2 items) | ❌ Not started — **NEXT** |
+| **4** | Frontend (React UI) + E2E Tests | ❌ Not started |
 | **5** | Immersion & Polish | ❌ Not started |
 | **6** | Distribution & Deployment | ❌ Not started |
 
@@ -280,7 +281,7 @@ Strip `scrapbook_md` and `_gedcom` from the in-memory Graphology runtime. At 50K
 - [x] **Search indexing**: `SearchService.indexPerson()` accepts optional `bio` parameter. Falls back to `p.scrapbook_md` for backward compat with full Person objects (tests). Slim callers pass bio explicitly.
 - [x] **Server write handlers**: `POST /people`, `PUT /people/:id`, `PUT /people/:id/media` all store `toSlimPerson()` in graph.
 - [x] **TDD**: `tests/core/SlimNode.test.ts` (10 tests) — toSlimPerson utility, scrapbook_md absent after hydration, _gedcom absent after hydration, slim after hot-patch, file path lookup, unknown ID returns undefined, lazy-load round-trip, null for unknown ID, bio search after hydration, bio search after hot-patch.
-- [x] **Deferred**: Cache stripping (`GraphCache`) and worker handoff stripping (`HydrationWorker`) deferred to after 3.7.2 — cache/worker provide full Person data needed for bio search indexing; stripping them before search index persistence exists would break bio search on incremental boots.
+- [x] **Deferred**: Cache stripping (`GraphCache`) and worker handoff stripping (`HydrationWorker`) deferred to **Phase 3.10.1**.
 
 #### 3.7.2 Search Index Persistence — COMPLETE ✅
 
@@ -294,7 +295,7 @@ FlexSearch indices are fully rebuilt on every boot. For 50K+ nodes, tokenizing a
 - [x] **Wire to `POST /system/rebuild`**: `forceFullRebuild` path ignores both graph cache and search index cache — full nuclear rebuild.
 - [x] **ID tracking**: `trackPerson()` / `untrackPerson()` / `trackStory()` maintain lists of indexed IDs for deletion detection on incremental boots.
 - [x] **TDD**: `tests/core/SearchPersistence.test.ts` (8 tests) — Index file written after hydration, identical search results from cache, incremental re-index of changed nodes, deleted people removed from search, missing index → full rebuild, corrupt index → full rebuild, version mismatch → full rebuild, forceFullRebuild writes fresh index.
-- [x] **Deferred**: Debounced hot-patch persistence (re-exporting index during live edits) deferred to Phase 5 — the index is correctly rebuilt on every boot, and the overhead is minimal for typical edit sessions.
+- [x] **Deferred**: Debounced hot-patch persistence (re-exporting index during live edits) deferred to **Phase 3.10.2**.
 
 #### 3.7.3 Write-Event Deduplication — COMPLETE ✅
 
@@ -395,6 +396,22 @@ Extended the file watcher to monitor `stories/` alongside `people/`. Story chang
 
 ---
 
+### Phase 3.10: Final Data Layer Hardening — NOT STARTED ❌
+
+> **Context**: Although the backend is highly functional, two critical scaling optimizations were deferred during Phase 3.7. To officially complete the backend implementation according to the `spec.md` (specifically Sections 2.3B and 2.3D), these must be resolved before moving to the frontend.
+
+#### 3.10.1 Cache & Worker Handoff Stripping
+Strip `scrapbook_md` and `_gedcom` from the `GraphCache` serialization and the `HydrationWorker` IPC payload.
+- [ ] Update `HydrationWorker` to pass `bio` explicitly and strip `Person` to `SlimPerson` before `postMessage`.
+- [ ] Update `GraphCache` to only serialize and load `SlimPerson` + `bio` instead of full `Person` objects.
+- [ ] Ensure search indexing in `buildGraphFromData` uses the explicitly passed `bio` without needing to lazy-load it during boot.
+
+#### 3.10.2 Search Index Hot-Patch Persistence
+Serialize the FlexSearch index to disk symmetrically during live file watcher edits, not just during hydration.
+- [ ] Implemented debounced serialization for `SearchService.exportIndex()` on hot-patch updates (`indexPerson`, `removePerson`, etc.), matching the cadence of the Git commit debounce queue.
+
+---
+
 ### Phase 4: Frontend — NOT STARTED ❌
 
 Build the "VS Code for Genealogy" interface. Execution order is deliberate — each step battle-tests the API layer under realistic conditions before the next builds on it.
@@ -478,7 +495,7 @@ Spec Section 9.3. Build the Playwright pipeline as soon as the Holy Grail page c
 
 ## 3. Test Suite
 
-**Total**: 194 tests | **Passing**: 194 | **Skipped**: 0 | **Failing**: 0
+**Total**: 198 tests | **Passing**: 198 | **Skipped**: 0 | **Failing**: 0
 
 | Module | File | Count | Status |
 |:-------|:-----|:------|:-------|
@@ -509,8 +526,9 @@ Spec Section 9.3. Build the Playwright pipeline as soon as the Holy Grail page c
 | SlimNode | `tests/core/SlimNode.test.ts` | 10 | ✅ |
 | SearchPersistence | `tests/core/SearchPersistence.test.ts` | 8 | ✅ |
 | WriteDedup | `tests/core/WriteDedup.test.ts` | 7 | ✅ |
-| Watcher | `tests/core/Watcher.test.ts` | 9 | ✅ |
+| Watcher | `tests/core/Watcher.test.ts` | 10 | ✅ |
 | HydrationStream | `tests/api/HydrationStream.test.ts` | 4 | ✅ |
+| MediaDelivery | `tests/api/MediaDelivery.test.ts` | 3 | ✅ |
 
 **No skipped tests.** The previously skipped `Watcher.test.ts` (EMFILE with `chokidar`) is now fully passing after the `@parcel/watcher` migration in Phase 3.6.2.
 

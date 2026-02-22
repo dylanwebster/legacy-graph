@@ -9,11 +9,11 @@ import { BootLoader } from './BootLoader';
 import { StoryLoader, Story } from './StoryLoader';
 import { SearchService } from './SearchService';
 import { GraphCache, GraphCacheFile } from './GraphCache';
-import { HydrationWorkerResult, HydrationWorkerError, HydrationWorkerProgress, PersonEntry } from './HydrationWorker';
+import { HydrationWorkerResult, HydrationWorkerError, HydrationWorkerProgress } from './HydrationWorker';
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import yaml from 'js-yaml';
-import { PersonSchema, Person, SlimPerson, toSlimPerson } from '../schemas/PersonSchema';
+import { PersonSchema, Person, SlimPerson, toSlimPerson, PersonEntry } from '../schemas/PersonSchema';
 import { StorySchema } from '../schemas/StorySchema';
 import { computeAllRelationships, invalidateComputed } from './GraphLogic';
 import matter from 'gray-matter';
@@ -39,6 +39,7 @@ export class GraphEngine extends EventEmitter {
         this.rootDir = rootDir;
         this.graph = new Graph({ type: 'directed', multi: true });
         this.searchService = new SearchService();
+        this.searchService.setPersistencePath(this.searchIndexPath);
     }
 
     /**
@@ -327,20 +328,19 @@ export class GraphEngine extends EventEmitter {
             }
         }
 
-        // 2. Add people nodes (Slim Node Strategy: strip scrapbook_md and _gedcom)
+        // 2. Add people nodes (Slim Node Strategy: cache/worker already stripped them)
         const slimPeople: SlimPerson[] = [];
-        peopleWithMtime.forEach(({ data: p, filePath, wasParsed }) => {
-            const slim = toSlimPerson(p);
-            this.graph.addNode(p.id, { type: 'person', data: slim });
-            this.fileMap.set(filePath, p.id);
-            this.reverseFileMap.set(p.id, filePath);
+        peopleWithMtime.forEach(({ data: slim, bio, filePath, wasParsed }) => {
+            this.graph.addNode(slim.id, { type: 'person', data: slim });
+            this.fileMap.set(filePath, slim.id);
+            this.reverseFileMap.set(slim.id, filePath);
             slimPeople.push(slim);
 
             // Index: if search cache loaded, only re-index changed entries; otherwise index all
             if (!searchImport || wasParsed !== false) {
-                this.searchService.indexPerson(slim, p.scrapbook_md || '');
+                this.searchService.indexPerson(slim, bio);
             } else {
-                this.searchService.trackPerson(p.id);
+                this.searchService.trackPerson(slim.id);
             }
         });
 
@@ -398,7 +398,7 @@ export class GraphEngine extends EventEmitter {
      * Full Nuclear Hydration: parse all YAML files via BootLoader, collect mtimes for cache.
      */
     private async loadPeopleFull(): Promise<{
-        results: Array<{ data: Person; filePath: string; mtime: number }>;
+        results: PersonEntry[];
         parsed: number;
     }> {
         const peopleLoader = new BootLoader(path.join(this.rootDir, 'people'));
@@ -407,12 +407,13 @@ export class GraphEngine extends EventEmitter {
             return [];
         });
 
-        const results: Array<{ data: Person; filePath: string; mtime: number; wasParsed?: boolean }> = [];
+        const results: PersonEntry[] = [];
         for (const res of peopleResults) {
             try {
                 const stats = await fs.stat(res.filePath);
                 results.push({
-                    data: res.data,
+                    data: toSlimPerson(res.data),
+                    bio: res.data.scrapbook_md || '',
                     filePath: res.filePath,
                     mtime: Math.floor(stats.mtimeMs),
                     wasParsed: true
@@ -429,7 +430,7 @@ export class GraphEngine extends EventEmitter {
      * Incremental Hydration: compare file mtimes against cache, only re-parse stale files.
      */
     private async loadPeopleIncremental(cache: GraphCacheFile): Promise<{
-        results: Array<{ data: Person; filePath: string; mtime: number }>;
+        results: PersonEntry[];
         fromCache: number;
         parsed: number;
     }> {
@@ -437,7 +438,7 @@ export class GraphEngine extends EventEmitter {
         const pattern = path.join(peopleDir, '*.yaml').replace(/\\/g, '/');
         const files = await fg(pattern).catch(() => [] as string[]);
 
-        const results: Array<{ data: Person; filePath: string; mtime: number; wasParsed?: boolean }> = [];
+        const results: PersonEntry[] = [];
         let fromCache = 0;
         let parsed = 0;
 
@@ -451,14 +452,26 @@ export class GraphEngine extends EventEmitter {
 
                 if (cacheEntry && cacheEntry.mtime === mtime) {
                     // Cache hit — use pre-validated data
-                    results.push({ data: cacheEntry.data as Person, filePath: file, mtime, wasParsed: false });
+                    results.push({
+                        data: cacheEntry.data,
+                        bio: cacheEntry.bio,
+                        filePath: file,
+                        mtime,
+                        wasParsed: false
+                    });
                     fromCache++;
                 } else {
                     // Cache miss — parse from YAML + Zod validate
                     const content = await fs.readFile(file, 'utf8');
                     const raw = yaml.load(content);
                     const data = PersonSchema.parse(raw);
-                    results.push({ data, filePath: file, mtime, wasParsed: true });
+                    results.push({
+                        data: toSlimPerson(data),
+                        bio: data.scrapbook_md || '',
+                        filePath: file,
+                        mtime,
+                        wasParsed: true
+                    });
                     parsed++;
                 }
             } catch (err: any) {
@@ -573,7 +586,7 @@ export class GraphEngine extends EventEmitter {
         this.watcherSuspended = true;
         this._hydrationState = 'loading';
         console.log('[GraphEngine] Suspending hot-patching and initiating background re-hydration...');
-        
+
         this.hydrateInBackground({ forceFullRebuild: false })
             .then(() => {
                 console.log('[GraphEngine] Circuit breaker resolved. Resuming hot-patching.');

@@ -228,8 +228,6 @@ The current hot-patching approach drops all outgoing edges and rebuilds them, wh
 - **Strategy**: When a YAML file changes, the engine compares the **old** parsed state (retained in memory from the previous hydration) against the **new** parsed state.
 - **Reconciliation Steps**:
   1.  **Diff `relationships.parents`**: Compute the set difference between old and new parent IDs. Remove edges for dropped parents; add edges for new parents.
-  2.  **Diff `events` (marriage/divorce)**: Compute the set difference of `partner_id` references. Remove/add `spouse_of` implicit links accordingly.
-  3.  **Diff `assets`**: Update asset-reference edges only for changed entries.
 - **Neighbor Cascade**: After reconciling edges for the changed node, trigger `_computed` invalidation (see above) for all affected neighbors.
 - **Fallback**: If the diff produces an inconsistent state (e.g., orphaned edges detected), fall back to a targeted "mini-hydration" that drops and rebuilds all edges for the affected node and its immediate neighborhood.
 

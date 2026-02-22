@@ -11,7 +11,7 @@ import * as fs from 'fs/promises';
 import fg from 'fast-glob';
 import pLimit from 'p-limit';
 import yaml from 'js-yaml';
-import { PersonSchema, Person } from '../schemas/PersonSchema';
+import { PersonSchema, Person, SlimPerson, PersonEntry, toSlimPerson } from '../schemas/PersonSchema';
 import { StoryLoader, Story } from './StoryLoader';
 import { GraphCache, GraphCacheFile } from './GraphCache';
 import { BootLoader } from './BootLoader';
@@ -21,12 +21,6 @@ export interface HydrationWorkerInput {
     forceFullRebuild: boolean;
 }
 
-export interface PersonEntry {
-    data: Person;
-    filePath: string;
-    mtime: number;
-    wasParsed?: boolean;
-}
 
 export interface HydrationWorkerResult {
     type: 'success';
@@ -128,7 +122,8 @@ async function loadPeopleFull(rootDir: string): Promise<{
         try {
             const stats = await fs.stat(res.filePath);
             results.push({
-                data: res.data,
+                data: toSlimPerson(res.data),
+                bio: res.data.scrapbook_md || '',
                 filePath: res.filePath,
                 mtime: Math.floor(stats.mtimeMs),
                 wasParsed: true
@@ -171,13 +166,25 @@ async function loadPeopleIncremental(rootDir: string, cache: GraphCacheFile): Pr
             const cacheEntry = cache.entries[file];
 
             if (cacheEntry && cacheEntry.mtime === mtime) {
-                results.push({ data: cacheEntry.data as Person, filePath: file, mtime, wasParsed: false });
+                results.push({
+                    data: cacheEntry.data as SlimPerson,
+                    bio: cacheEntry.bio,
+                    filePath: file,
+                    mtime,
+                    wasParsed: false
+                });
                 fromCache++;
             } else {
                 const content = await fs.readFile(file, 'utf8');
                 const raw = yaml.load(content);
                 const data = PersonSchema.parse(raw);
-                results.push({ data, filePath: file, mtime, wasParsed: true });
+                results.push({
+                    data: toSlimPerson(data),
+                    bio: data.scrapbook_md || '',
+                    filePath: file,
+                    mtime,
+                    wasParsed: true
+                });
                 parsed++;
             }
         } catch (err: any) {

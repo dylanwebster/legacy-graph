@@ -53,18 +53,22 @@ export class SearchService {
     private storyIndex: Document<StoryIndexDoc, true>;
     private placeMap: Map<string, Set<string>> = new Map(); // location -> set of personIds
 
+    private persistencePath: string | null = null;
+    private persistTimeout: NodeJS.Timeout | null = null;
+    private readonly debounceMs = 500;
+
     constructor() {
         this.personIndex = new Document({
             document: {
                 id: "id",
                 index: [
-                    "names:first", 
-                    "names:last", 
+                    "names:first",
+                    "names:last",
                     "names:nickname",
-                    "bio", 
+                    "bio",
                     "locations"
                 ],
-                store: true 
+                store: true
             },
             tokenize: "forward"
         });
@@ -88,11 +92,39 @@ export class SearchService {
 
         graph.forEachNode((node, attributes) => {
             if (attributes.type === 'person') {
-                this.indexPerson(attributes.data as Person);
+                this.indexPerson(attributes.data as Person, undefined, true);
             } else if (attributes.type === 'story') {
-                this.indexStory(attributes.data as Story);
+                this.indexStory(attributes.data as Story, true);
             }
         });
+
+        this.debouncePersist();
+    }
+
+    /**
+     * Sets the path where the search index should be persisted.
+     */
+    public setPersistencePath(filePath: string) {
+        this.persistencePath = filePath;
+    }
+
+    /**
+     * Debounces internal index persistence to avoid heavy I/O during hot-patches.
+     */
+    private debouncePersist() {
+        if (!this.persistencePath) return;
+
+        if (this.persistTimeout) clearTimeout(this.persistTimeout);
+
+        this.persistTimeout = setTimeout(async () => {
+            try {
+                if (this.persistencePath) {
+                    await this.exportIndex(this.persistencePath);
+                }
+            } catch (err) {
+                console.error('[SearchService] Failed to persist index: ', err);
+            }
+        }, this.debounceMs);
     }
 
     /**
@@ -103,7 +135,7 @@ export class SearchService {
      * @param bio - Scrapbook markdown for bio indexing. If omitted, falls back to
      *              p.scrapbook_md (when p is a full Person) or empty string (when p is SlimPerson).
      */
-    public indexPerson(p: Person | SlimPerson, bio?: string) {
+    public indexPerson(p: Person | SlimPerson, bio?: string, skipPersist = false) {
         // Remove old place entries for this person
         this.removePersonPlaces(p.id);
 
@@ -128,21 +160,25 @@ export class SearchService {
         // Update place map
         this.extractPlaces(p as Person);
         this.trackPerson(p.id);
+
+        if (!arguments[2]) this.debouncePersist();
     }
 
     /**
      * Remove a person from the search index and place map.
      */
-    public removePerson(id: string) {
+    public removePerson(id: string, skipPersist = false) {
         try { this.personIndex.remove(id); } catch { /* might not exist */ }
         this.removePersonPlaces(id);
         this.untrackPerson(id);
+
+        if (!skipPersist) this.debouncePersist();
     }
 
     /**
      * Index a story in the search index.
      */
-    public indexStory(story: Story) {
+    public indexStory(story: Story, skipPersist = false) {
         try { this.storyIndex.remove(story.id); } catch { /* might not exist */ }
 
         this.storyIndex.add({
@@ -151,13 +187,17 @@ export class SearchService {
             content: story.content
         });
         this.trackStory(story.id);
+
+        if (!skipPersist) this.debouncePersist();
     }
 
     /**
      * Remove a story from the search index.
      */
-    public removeStory(id: string) {
+    public removeStory(id: string, skipPersist = false) {
         try { this.storyIndex.remove(id); } catch { /* might not exist */ }
+
+        if (!skipPersist) this.debouncePersist();
     }
 
     /**
@@ -275,12 +315,12 @@ export class SearchService {
      */
     public async exportIndex(filePath: string): Promise<void> {
         const personExport: Record<string, any> = {};
-        this.personIndex.export(function(key: string, data: any) {
+        this.personIndex.export(function (key: string, data: any) {
             personExport[key] = data;
         });
 
         const storyExport: Record<string, any> = {};
-        this.storyIndex.export(function(key: string, data: any) {
+        this.storyIndex.export(function (key: string, data: any) {
             storyExport[key] = data;
         });
 
@@ -303,7 +343,7 @@ export class SearchService {
         };
 
         const dir = filePath.substring(0, filePath.lastIndexOf('/'));
-        if (dir) await fs.mkdir(dir, { recursive: true }).catch(() => {});
+        if (dir) await fs.mkdir(dir, { recursive: true }).catch(() => { });
         await fs.writeFile(filePath, JSON.stringify(data), 'utf8');
     }
 

@@ -208,4 +208,32 @@ describe('Search Index Persistence (Phase 3.7.2)', () => {
         const results = await engine.searchService.search('Alice');
         expect(results.people.length).toBe(1);
     });
+
+    it('should debounce serialize search index on hot-patch updates', async () => {
+        writePersonYaml('N_A', 'Alice', 'Smith');
+        const engine = new GraphEngine(DATA_DIR);
+        await engine.hydrate();
+
+        // Ensure index exists
+        expect(fs.existsSync(SEARCH_INDEX_PATH)).toBe(true);
+        const mtime1 = fs.statSync(SEARCH_INDEX_PATH).mtimeMs;
+
+        // Simulate hot-patch API index call directly
+        engine.searchService.indexPerson({
+            version: "5.0", id: "N_A", created: "2023", last_modified: "2023",
+            names: [{ first: "Alicia", last: "Smith" }], sex: "U",
+            relationships: { parents: [] }, events: [], assets: [], tags: []
+        }, "");
+
+        // Should not have written immediately (debounced)
+        const mtime2 = fs.statSync(SEARCH_INDEX_PATH).mtimeMs;
+        expect(mtime2).toBe(mtime1);
+
+        // Wait for debounce timer (e.g. 500ms)
+        await new Promise(r => setTimeout(r, 600));
+
+        // Should have written
+        const mtime3 = fs.statSync(SEARCH_INDEX_PATH).mtimeMs;
+        expect(mtime3).toBeGreaterThan(mtime1);
+    });
 });

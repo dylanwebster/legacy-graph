@@ -40,3 +40,11 @@ export function toSlimPerson(p: Person): SlimPerson {
     const { scrapbook_md, _gedcom, ...slim } = p;
     return slim;
 }
+
+export interface PersonEntry {
+    data: SlimPerson;
+    bio: string;
+    filePath: string;
+    mtime: number;
+    wasParsed?: boolean;
+}
