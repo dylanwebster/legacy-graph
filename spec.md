@@ -352,30 +352,247 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 
 ---
 
-## **6. User Experience (UI) Roadmap**
+## **6. User Experience (UI) Specification**
 
-_Note: UI implementation is Phase 4. This section is a design reference._
+### **6.1 Architecture & Tooling**
 
-### **6.1 Layout Strategy**
+- **Location**: `client/` directory within the monorepo. Separate Vite config, built independently. Production build output served by Fastify via `@fastify/static`.
+- **Framework**: Vite + React 18 + TypeScript.
+- **Routing**: TanStack Router (file-based routes).
+- **Data Fetching**: TanStack Query — **all** API calls go through Query hooks with optimistic update wrappers from day one. Mutations use `onMutate` → optimistic cache update, `onError` → rollback, `onSettled` → invalidate.
+- **UI State**: Zustand for UI-local state (sidebar collapsed, active panel, modal visibility, active tab). Keeps component tree clean; avoids prop-drilling and excessive Context providers.
+- **Component Library**: shadcn/ui (Radix primitives + Tailwind CSS). Provides accessible, unstyled-by-default components with full style control. Import components as needed — no monolithic bundle.
+- **CSS**: Tailwind CSS v4 with Dark Mode palette (Slate/Zinc/Neutral base). Custom design tokens for spacing, color, and typography via `tailwind.config.ts`.
+- **Typography**: `Inter` (UI chrome), `Fira Code` (data fields, IDs, dates), `Merriweather` (story narrative content). Loaded via Google Fonts or self-hosted WOFF2.
+- **Icons**: Lucide React (consistent, tree-shakeable icon set used by shadcn/ui).
 
-- **Theme**: Dark Mode default (High Contrast).
-- **Global Command Palette (Cmd+K)**: The primary navigation tool. Build early — it should directly query `/api/search` with debounced input (300ms).
+### **6.2 Layout Strategy**
 
-### **6.2 Technical Constraints (Mandatory)**
+#### **6.2.1 Theme**
+
+- **Dark Mode default** (high contrast). Light mode toggle deferred to Phase 5.
+- **Design Language**: Clean, professional, data-dense. Think VS Code meets Grafana — no decoration for its own sake, no heritage textures. Every pixel serves information.
+
+#### **6.2.2 App Shell**
+
+```
+┌─────────────────────────────────────────────────────┐
+│  [Sidebar]  │              [Top Bar]                │
+│             │  ┌──────────────────────────────────┐  │
+│  Dashboard  │  │                                  │  │
+│  People     │  │         [Page Content]           │  │
+│  Import     │  │                                  │  │
+│  Settings   │  │                                  │  │
+│             │  └──────────────────────────────────┘  │
+│  [Status]   │                                       │
+└─────────────────────────────────────────────────────┘
+```
+
+- **Persistent Left Sidebar** (VS Code Activity Bar pattern):
+  - Icons + labels for: **Dashboard**, **People**, **Import**, **Settings**.
+  - System status indicator at bottom (node count, hydration state dot — green/amber/red).
+  - Collapsible to icon-only mode via toggle button or responsive breakpoint.
+- **Top Bar**:
+  - Breadcrumb trail (e.g., `People / John Smith`).
+  - **Cmd+K** search trigger button (magnifying glass icon + hotkey hint).
+  - User avatar / logout button (when auth is active).
+- **Responsive Behavior**:
+  - `≥1280px`: Full sidebar with labels + page content.
+  - `768px–1279px`: Icon-only sidebar (labels hidden), full page content.
+  - `<768px`: Sidebar collapses to hamburger menu overlay. Single-column page layout.
+
+#### **6.2.3 Route Structure**
+
+| Route | Page | Description |
+|:------|:-----|:------------|
+| `/` | Dashboard | Stats panel, force graph visualization |
+| `/people` | People Browse | Searchable/filterable list of all people |
+| `/people/:id` | Person Detail | "Holy Grail" 3-column layout |
+| `/import` | GEDCOM Import | Upload form, hydration progress |
+| `/settings` | Settings | System status, auth config, cache management |
+| `/search?q=` | Search Results | Full-page search results (linked from CmdK "View all") |
+
+### **6.3 Component System**
+
+#### **6.3.1 Base Components (shadcn/ui)**
+
+Import and customize these shadcn/ui primitives:
+
+- `Button`, `Input`, `Label`, `Textarea` — form controls
+- `Dialog`, `Sheet` — modals and slide-over panels
+- `DropdownMenu`, `ContextMenu` — action menus
+- `Command` (cmdk) — Command Palette foundation
+- `Tabs` — panel switchers (Context Panel, Settings page)
+- `Badge` — relationship type indicators, tags
+- `Tooltip`, `HoverCard` — info on hover / person preview
+- `Separator`, `ScrollArea` — layout utilities
+- `Skeleton` — loading states
+- `Sonner` (toast) — optimistic update confirmations and error notifications
+- `Resizable` — panel resizing (Holy Grail columns)
+
+#### **6.3.2 Custom Components**
+
+| Component | Description |
+|:----------|:------------|
+| `Avatar` | Person photo (from first `assets` entry via `/assets/`) or generated initials. Circular, multiple sizes (sm/md/lg). |
+| `PersonChip` | Compact inline reference to a person: Avatar + Name + relationship type badge. Click → navigate to `/people/:id`. Hover → `HoverCard` with mini bio preview (name, dates, photo). |
+| `EventCard` | Timeline item for a life event. Shows event type icon, date, location, description. Expand for details. Click to edit (inline or modal). |
+| `StoryCard` | Timeline item for a story mention. Shows title, excerpt, mentioned persons. Click → expand/navigate. |
+| `GapIndicator` | Visual break in timeline showing the year gap (e.g., "—— 15 years ——"). |
+| `StatusDot` | Colored indicator: green (ready), amber (loading), red (error). Used in sidebar and top bar. |
+| `HydrationProgress` | Full-screen overlay on boot. Connects to SSE stream, shows progress bar with phase/percent/node count. Fades out when `hydrationState === "ready"`. |
+
+### **6.4 Command Palette (Cmd+K)**
+
+The primary navigation and search tool. Built early — it drives all navigation and forces real search latency testing against the paginated `/api/search` endpoint.
+
+- **Trigger**: Global hotkey `Cmd+K` / `Ctrl+K`, or click the search button in the Top Bar.
+- **Foundation**: shadcn/ui `Command` component (wraps `cmdk` library).
+- **Behavior**:
+  1. On open: Focus input, show recent/suggested items.
+  2. On keystroke: Debounced input (300ms) queries `GET /api/search?q=...&limit=20`.
+  3. Results rendered in categorized sections: **People** (with Avatar), **Stories**, **Places**.
+  4. Keyboard navigation: `↑`/`↓` arrows, `Enter` to select, `Escape` to close.
+  5. On select: Navigate to `/people/:id` (person), story detail (story), or filtered search (place).
+  6. Footer action: "View all results →" links to `/search?q=...` full-page results.
+
+### **6.5 The "Holy Grail" Person Detail Page**
+
+A dense, 3-column layout. The most critical view in the application.
+
+```
+┌──────────────┬──────────────────────┬──────────────┐
+│   Identity   │      Timeline        │   Context    │
+│   (Left)     │      (Center)        │   (Right)    │
+│              │                      │              │
+│  [Avatar]    │  ┌────────────────┐  │ [Tabs]       │
+│  Name ✏️     │  │ Birth 1842     │  │ Assets|Notes │
+│  Birth-Death │  │ Marriage 1867  │  │              │
+│  ──────────  │  │ ── 12 years── │  │ [Asset Grid] │
+│  Parents     │  │ Census 1880   │  │              │
+│    [Chip]    │  │ Story: "The.."│  │ [Scrapbook]  │
+│  Spouses     │  │ Death 1910    │  │              │
+│    [Chip]    │  └────────────────┘  │ [Raw YAML]   │
+│  Children    │                      │              │
+│    [Chip]    │  [+ Add Event]       │              │
+│  Siblings    │                      │              │
+│    [Chip]    │                      │              │
+│  ──────────  │                      │              │
+│  Tags        │                      │              │
+└──────────────┴──────────────────────┴──────────────┘
+```
+
+#### **6.5.1 Panel Behavior**
+
+- **All three columns are collapsible and resizable** via drag handles (shadcn/ui `Resizable` / `react-resizable-panels`).
+- Default proportions: ~20% / 50% / 30%.
+- Collapsed state saved to Zustand store (persists across navigation within session).
+- Responsive: On `<1024px`, right panel collapses to a bottom sheet. On `<768px`, single-column stacked layout with tab navigation between panels.
+
+#### **6.5.2 Identity Panel (Left)**
+
+- **Avatar**: Large circular photo (first `assets` entry) or generated initials.
+- **Name**: Primary name displayed prominently. **Click-to-edit** — inline text field, saves via `PUT /people/:id` with optimistic update. Other names shown below in muted text.
+- **Vital Dates**: Birth–Death date range. Click-to-edit.
+- **Sex**: Badge indicator (M/F/I/U).
+- **Relationship Sections** (from `_computed`): Collapsible groups for Parents, Spouses, Children, Siblings. Each person rendered as a `PersonChip`:
+  - **Hover**: `HoverCard` shows mini bio preview — avatar, name, birth–death dates, relationship type.
+  - **Click**: Navigate to `/people/:id` for that person.
+- **Tags**: Inline editable tag list with add/remove.
+
+#### **6.5.3 Timeline Feed (Center)**
+
+The integrated feed of life events, stories, and gaps. **Virtualized** — only visible items rendered via `@tanstack/react-virtual`.
+
+- **Data Source**: `GET /people/:id?timeline_limit=50&timeline_offset=0`. Uses TanStack Query `useInfiniteQuery` for infinite-scroll pagination.
+- **Item Types**:
+  - `EventCard`: Displays event type icon, date (fuzzy `date` + sort-date), location, description excerpt. Expandable for full detail.
+  - `StoryCard`: Title, excerpt, mentioned persons chips.
+  - `GapIndicator`: Visual break showing year gap.
+- **Add Event**: Floating action button or "+" button at bottom of timeline. Opens the Event Editor modal.
+- **Edit Event**: Click an `EventCard` to open the Event Editor modal pre-filled with that event's data.
+
+#### **6.5.4 Context Panel (Right)**
+
+Tabbed panel with three tabs:
+
+1. **Assets**: Grid of thumbnails (from `/assets/` static delivery). Click to expand/lightbox. Drag-and-drop upload via `PUT /people/:id/media`.
+2. **Notebook**: Rendered Markdown view of `scrapbook_md` (lazy-loaded per spec 2.3B). Click to switch to edit mode — embedded Markdown editor (Phase 4: basic `<textarea>` with preview; Phase 5.1: Tiptap rich editor). Saves via `PUT /people/:id` with optimistic update.
+3. **Raw YAML**: Read-only syntax-highlighted view of the source YAML file. Useful for power users and debugging.
+
+#### **6.5.5 Event Editor**
+
+Full modal-based event editor for creating and editing all 11 event types. This is the primary data entry surface.
+
+- **Trigger**: "Add Event" button or clicking an existing event card.
+- **Layout**: Modal (`Dialog`) with:
+  - **Event Type Selector**: Dropdown with all 11 types. Selecting a type dynamically shows/hides type-specific fields (e.g., `partner_id` for marriage, `cause` for death, `institution`/`degree` for education).
+  - **Common Fields**: `date` (free text, fuzzy), `sort_date` (date picker enforcing `YYYY-MM-DD`), `location` (text input with place autocomplete from place map), `description` (Markdown textarea), `assets` (file selector).
+  - **Type-Specific Fields**: Rendered conditionally based on selected event type (see spec Section 3.2).
+  - **Partner Selection** (marriage/divorce): Searchable person selector that queries the graph — type-ahead with `PersonChip` results.
+- **Validation**: Client-side Zod validation mirroring the backend `EventSchema`. Show field-level errors immediately.
+- **Save**: `PUT /people/:id` with the updated events array. Optimistic update via TanStack Query mutation.
+
+#### **6.5.6 Relationship Editor**
+
+For editing parent relationships (the only stored relationships per spec Section 3.1).
+
+- **Location**: Section within the Identity Panel, or accessible via "Edit Relationships" button.
+- **Add Parent**: Searchable person selector (same component as partner selection). Select relationship type (biological/adopted/step/foster).
+- **Remove Parent**: Confirm dialog before removing.
+- **Save**: `PUT /people/:id` with updated `relationships.parents` array. Backend handles edge reconciliation and `_computed` invalidation.
+
+### **6.6 People Browse Page**
+
+Searchable, sortable table/list of all people in the graph. Entry point from the sidebar.
+
+- **Data Source**: Requires a new `GET /api/people` list endpoint (see Section 6.10 below). Returns paginated slim person summaries.
+- **Layout**: Dense table with columns: Avatar, Name, Birth Date, Death Date, Tags, # Events. Sortable by any column.
+- **Search**: Inline filter bar at top (uses same search endpoint, but rendered as a table rather than CmdK dropdown).
+- **Click Row**: Navigate to `/people/:id`.
+- **Bulk Actions** (Phase 5+): Multi-select for tagging, exporting.
+- **Virtualization**: Table body uses `@tanstack/react-virtual` for large datasets.
+
+### **6.7 Dashboard**
+
+The landing page. Overview of the family graph.
+
+- **Stats Panel**: Cards showing Total People, Total Families (derived from marriage events), Last Edited File (from git log or `last_modified`), System Status.
+- **Force Graph Visualization**: Interactive 2D graph visualization using `react-force-graph-2d`. Nodes = people, edges = parent-child + spouse relationships. Click a node → navigate to `/people/:id`.
+- **"Gravity Bands"** (Phase 5): Position nodes vertically by birth year, creating generational layers.
+
+### **6.8 Import & Settings Pages**
+
+#### **6.8.1 Import Page**
+
+- **GEDCOM Upload**: Drag-and-drop file zone. Accepts `.ged` files.
+- **Warning**: Clear destructive action warning ("This will replace all existing data. Git history is preserved.").
+- **Progress**: After upload, connect to `GET /system/hydration/stream` SSE and show real-time progress bar (phase, percent, node count).
+- **Completion**: On `complete` event, redirect to Dashboard with success toast showing node count.
+
+#### **6.8.2 Settings Page**
+
+- **System Status**: Live display of `GET /system/status` data — node count, edge count, hydration state, cache age.
+- **Cache Management**: "Force Rebuild" button → `POST /system/rebuild`. Shows progress via SSE.
+- **Snapshot**: "Create Snapshot" → `POST /system/snapshot`. Input for snapshot name.
+- **Authentication** (when active): Current user display, logout button.
+
+### **6.9 Technical Constraints (Mandatory)**
 
 These constraints are non-negotiable for any data-dense genealogy UI:
 
-1.  **Virtualization is Mandatory**: The Timeline Feed and Search Results must use virtual scrolling (`@tanstack/react-virtual` or `react-virtuoso`). DOM nodes are only rendered for visible items. This is critical for datasets with thousands of events or search results.
-2.  **Optimistic UI with TanStack Query**: Because the backend uses a debounced Git queue (Section 7.1), writes have slight latency. The React UI must use optimistic updates: update local React Query cache immediately on user action, send the `PUT`/`POST`, and only roll back if the API returns an error.
-3.  **Hydration-Aware Shell**: The app shell must handle the 503 loading gate gracefully. On first load, poll `GET /system/status` (or connect to `GET /system/hydration/stream` via SSE) and display a progress indicator. Do not render data-dependent views until `hydrationState === "ready"`.
+1.  **Virtualization is Mandatory**: The Timeline Feed, Search Results, and People Browse table must use virtual scrolling (`@tanstack/react-virtual`). DOM nodes are only rendered for visible items. This is critical for datasets with thousands of events or search results.
+2.  **Optimistic UI with TanStack Query**: Because the backend uses a debounced Git queue (Section 7.1), writes have slight latency. The React UI must use optimistic updates: update local React Query cache immediately on user action, send the `PUT`/`POST`, and only roll back if the API returns an error. Toast notifications (Sonner) confirm success or show rollback errors.
+3.  **Hydration-Aware Shell**: The app shell must handle the 503 loading gate gracefully. On boot, connect to `GET /system/hydration/stream` (SSE) and display `HydrationProgress` overlay. Do not render data-dependent views until `hydrationState === "ready"`.
+4.  **Typed API Client**: A shared `client/src/api/` layer with typed fetch wrappers for every backend endpoint. Types shared or mirrored from the backend Zod schemas to ensure compile-time safety.
+5.  **Responsive Design**: All pages must function on desktop (≥1280px), tablet (768px–1279px), and mobile (<768px) viewports. The sidebar, Holy Grail panels, and tables adapt as specified in 6.2.2 and 6.5.1.
 
-### **6.3 "The Holy Grail" Detail Page**
+### **6.10 API Additions Required for Frontend**
 
-A dense, 3-column layout:
+The following backend additions are needed to support the frontend views:
 
-1.  **Identity (Left)**: Static bio, stats, relationship chips (Parents/Spouses/Children).
-2.  **Timeline (Center)**: The "Feed" of life events, stories, and gaps. **Virtualized** — only visible events are rendered. Paginated via `?timeline_limit=50&timeline_offset=0` with infinite-scroll loading.
-3.  **Context (Right)**: Assets grid, Markdown Notebook (`scrapbook_md`), Raw YAML tab.
+- **`GET /api/people`**: Paginated list of all people (slim summaries). Query params: `?limit=50&offset=0&sort=last_modified&order=desc`. Returns `{ people: SlimPersonSummary[], totalCount: number }`. Each summary: `{ id, names, sex, birthDate?, deathDate?, tags, assetCount }`.
+- **`GET /api/stats`** (or extend `GET /system/status`): Dashboard stats — total people, total families (marriage event count), last modified timestamp.
 
 ---
 

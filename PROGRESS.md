@@ -3,9 +3,9 @@
 > Single source of truth for implementation status. For the _what_ and _why_, see `spec.md`.
 > For the _how far_ and _what's next_, read this document.
 
-**Last Updated**: 2026-02-21
-**Test Suite**: 198 passing, 0 skipped (198 total)
-**Overall Completion**: ~70% of full spec
+**Last Updated**: 2026-02-22
+**Test Suite**: 199 passing, 0 skipped (199 total)
+**Overall Completion**: ~72% of full spec (backend complete, frontend next)
 
 ---
 
@@ -23,8 +23,8 @@
 | **3.7** | Data Layer Hardening (3 items) | ✅ Complete |
 | **3.8** | Pre-Frontend Hardening (5 items) | ✅ Complete (all 5 items) |
 | **3.9** | More Backend Hardening (3 items) | ✅ Complete (all 3 items) |
-| **3.10** | Final Data Layer Hardening (2 items) | ❌ Not started — **NEXT** |
-| **4** | Frontend (React UI) + E2E Tests | ❌ Not started |
+| **3.10** | Final Data Layer Hardening (2 items) | ✅ Complete |
+| **4** | Frontend (React UI) + E2E Tests | ❌ Not started — **NEXT** |
 | **5** | Immersion & Polish | ❌ Not started |
 | **6** | Distribution & Deployment | ❌ Not started |
 
@@ -396,73 +396,165 @@ Extended the file watcher to monitor `stories/` alongside `people/`. Story chang
 
 ---
 
-### Phase 3.10: Final Data Layer Hardening — NOT STARTED ❌
+### Phase 3.10: Final Data Layer Hardening — COMPLETE ✅
 
-> **Context**: Although the backend is highly functional, two critical scaling optimizations were deferred during Phase 3.7. To officially complete the backend implementation according to the `spec.md` (specifically Sections 2.3B and 2.3D), these must be resolved before moving to the frontend.
+> **Context**: Two critical scaling optimizations deferred during Phase 3.7, now resolved.
 
-#### 3.10.1 Cache & Worker Handoff Stripping
-Strip `scrapbook_md` and `_gedcom` from the `GraphCache` serialization and the `HydrationWorker` IPC payload.
-- [ ] Update `HydrationWorker` to pass `bio` explicitly and strip `Person` to `SlimPerson` before `postMessage`.
-- [ ] Update `GraphCache` to only serialize and load `SlimPerson` + `bio` instead of full `Person` objects.
-- [ ] Ensure search indexing in `buildGraphFromData` uses the explicitly passed `bio` without needing to lazy-load it during boot.
+#### 3.10.1 Cache & Worker Handoff Stripping — COMPLETE ✅
 
-#### 3.10.2 Search Index Hot-Patch Persistence
-Serialize the FlexSearch index to disk symmetrically during live file watcher edits, not just during hydration.
-- [ ] Implemented debounced serialization for `SearchService.exportIndex()` on hot-patch updates (`indexPerson`, `removePerson`, etc.), matching the cadence of the Git commit debounce queue.
+- [x] **HydrationWorker stripping**: `toSlimPerson()` called before `postMessage` in both full and incremental paths. Bio extracted explicitly from `data.scrapbook_md` before stripping.
+- [x] **GraphCache uses SlimPerson**: `CacheEntry.data` typed as `SlimPerson`. Cache only serializes slim data + bio.
+- [x] **Search indexing**: `buildGraphFromData()` uses `entry.bio` (passed explicitly from worker/cache) without lazy-loading.
+
+#### 3.10.2 Search Index Hot-Patch Persistence — COMPLETE ✅
+
+- [x] **Debounced persistence**: `SearchService.debouncePersist()` calls `exportIndex()` with 500ms debounce after `indexPerson()`, `removePerson()`, `indexStory()`, `removeStory()` mutations.
+- [x] **Persistence path**: `setPersistencePath()` configured during hydration in `GraphEngine`.
+- [x] **TDD**: `tests/core/SearchPersistence.test.ts` verifies index written after hot-patch mutations.
 
 ---
 
 ### Phase 4: Frontend — NOT STARTED ❌
 
-Build the "VS Code for Genealogy" interface. Execution order is deliberate — each step battle-tests the API layer under realistic conditions before the next builds on it.
+Build the "VS Code for Genealogy" interface. See spec Section 6 for full UI specification.
 
-> **Technical Constraints (Mandatory)**: See spec Section 6.2. Virtualization, optimistic UI, and hydration-aware shell are non-negotiable.
+> **Technical Constraints (Mandatory)**: See spec Section 6.9. Virtualization, optimistic UI, hydration-aware shell, typed API client, and responsive design are non-negotiable.
 >
 > **Execution Order Rationale** (per Principal Engineer review): TanStack Query must be wired immediately — its optimistic updates are mandatory to mask the slight latency of the debounced Git queue. The app shell must consume the SSE hydration stream before any data views are built. CmdK is built early because it drives all navigation and forces real search latency testing. E2E tests lock in the critical user journey as soon as the detail page can mutate and persist.
+>
+> **Architecture Decisions**: React + Vite + TypeScript in a `client/` directory. shadcn/ui (Radix + Tailwind v4) for components. Zustand for UI state. TanStack Router + TanStack Query for routing and data. Lucide React for icons. See spec Section 6.1.
+
+#### 4.0 Backend API Additions (Frontend Prerequisites)
+
+The frontend requires two small backend additions before data views can be built (spec Section 6.10):
+
+- [ ] `GET /api/people` — paginated list of all people (slim summaries). Query: `?limit=50&offset=0&sort=last_modified&order=desc`. Returns `{ people: SlimPersonSummary[], totalCount: number }`.
+- [ ] `GET /api/stats` — dashboard stats (total people, total families, last modified). Could extend `GET /system/status`.
+- [ ] TDD: Tests for both new endpoints in `tests/api/Server.test.ts`.
 
 #### 4.1 UI Foundation & Scaffolding
-- [ ] Vite + React + TypeScript + TanStack Router
-- [ ] **TanStack Query** wired immediately — all API calls go through Query hooks with **optimistic update** wrappers from day one (spec 6.2 constraint). Mutations use `onMutate` → optimistic cache update, `onError` → rollback, `onSettled` → invalidate.
-- [ ] Tailwind CSS with Dark Mode palette (Slate/Zinc/Neutral)
-- [ ] Typography: `Inter` (UI), `Fira Code` (Data), `Merriweather` (Stories)
-- [ ] Base components: `Button`, `Input`, `Modal` (radix-ui primitives)
-- [ ] `Avatar` component (image or initials)
-- [ ] API client layer: typed fetch wrappers for all backend endpoints, integrated with TanStack Query
+
+Bootstrap the `client/` directory with all tooling.
+
+- [ ] `npx create-vite client --template react-ts` + TanStack Router + TanStack Query
+- [ ] Tailwind CSS v4 setup with dark mode palette (Slate/Zinc/Neutral)
+- [ ] shadcn/ui initialization (`npx shadcn@latest init`)
+- [ ] Typography: Google Fonts — `Inter` (UI), `Fira Code` (data), `Merriweather` (stories)
+- [ ] Zustand store skeleton (`useUIStore`): sidebar state, active panel, modals
+- [ ] Typed API client layer: `client/src/api/` with fetch wrappers for all backend endpoints
+- [ ] TanStack Query hooks: `usePerson`, `usePeople`, `useSearch`, `useSystemStatus`, `useUpdatePerson` (with optimistic update boilerplate)
+- [ ] Base shadcn/ui components imported: `Button`, `Input`, `Dialog`, `Command`, `Badge`, `Tabs`, `HoverCard`, `Resizable`, `Skeleton`, `Sonner`
+- [ ] Custom `Avatar` component (photo from assets or generated initials)
+- [ ] Vite dev proxy to backend (`/api` → `http://localhost:3000/api`)
 
 #### 4.2 App Shell & Hydration Awareness
-- [ ] **Hydration-aware app shell**: Connect to `GET /system/hydration/stream` (SSE) on boot. Display real-time startup progress (phase, percent, node count). Gracefully handle 503 errors — show loading state, block data-dependent views until `hydrationState === "ready"`.
-- [ ] Global layout shell: sidebar navigation, top bar with system status indicator
-- [ ] Route structure: `/` (dashboard), `/people/:id` (detail), `/search` (results), `/import` (GEDCOM)
-- [ ] Error boundary: global + per-route error boundaries for graceful API failure handling
+
+The structural frame — must work before any data views are built.
+
+- [ ] **Persistent Left Sidebar**: VS Code activity bar pattern — Dashboard, People, Import, Settings. Icons + labels. Collapsible to icon-only.
+- [ ] **Top Bar**: Breadcrumbs, Cmd+K search trigger, auth status.
+- [ ] **Responsive behavior**: Full sidebar ≥1280px, icon-only 768–1279px, hamburger menu <768px.
+- [ ] **Status indicator**: `StatusDot` in sidebar footer — green/amber/red based on `GET /system/status`.
+- [ ] **`HydrationProgress` overlay**: Full-screen on boot. Connects to `GET /system/hydration/stream` SSE. Shows progress bar (phase, percent, node count). Fades out on `hydrationState === "ready"`. Handles 503 gracefully.
+- [ ] **Error boundaries**: Global + per-route. Graceful API failure handling.
+- [ ] **Route structure**: `/` (Dashboard), `/people` (Browse), `/people/:id` (Detail), `/import`, `/settings`, `/search?q=`.
 
 #### 4.3 Command Palette (CmdK)
-- [ ] **Build early** — this is the primary navigation tool and forces real testing of the paginated `/api/search` endpoint under user input latency.
+
+Build early — primary navigation tool. Forces real testing of paginated search.
+
+- [ ] shadcn/ui `Command` component (wraps `cmdk`)
+- [ ] Global hotkey: `Cmd+K` / `Ctrl+K` + search button in Top Bar
 - [ ] Debounced input (300ms) queries `GET /api/search?q=...&limit=20`
-- [ ] Renders People, Stories, and Places results in categorized sections
-- [ ] Keyboard navigation (arrow keys, enter to select, escape to close)
-- [ ] Global hotkey: `Cmd+K` / `Ctrl+K`
+- [ ] Categorized results: **People** (with Avatar), **Stories**, **Places**
+- [ ] Keyboard navigation: ↑/↓ arrows, Enter to select, Escape to close
+- [ ] On select: navigate to `/people/:id`, story detail, or place filter
+- [ ] Footer: "View all results →" links to `/search?q=...` full page
 
-#### 4.4 The "Holy Grail" Person Detail Page
-- [ ] CSS Grid 3-column layout (Fixed Left, Scrollable Center, Collapsible Right)
-- [ ] **Timeline Feed** (center): Consume paginated `TimelineSlicer` output, render `EventCard` and `Gap` components. **Must use `@tanstack/react-virtual`** for the feed — only visible items rendered. Infinite-scroll pagination via `timeline_limit`/`timeline_offset` with TanStack Query `useInfiniteQuery`.
-- [ ] **Identity Panel** (left): Bio, stats, relationship chips from `_computed` (parents, siblings, spouses, children)
-- [ ] **Context Panel** (right): Assets grid, Markdown Notebook (`scrapbook_md` — lazy-loaded per spec 2.3B), Raw YAML tab
-- [ ] Inline editing for simple fields (Name, Birth Date) — **optimistic updates** via TanStack Query mutation
-- [ ] Embedded Markdown editor for `scrapbook_md`
+#### 4.4 People Browse Page
 
-#### 4.5 E2E Tests (Playwright)
+Searchable, sortable table of all people. Simpler than the Holy Grail — good warm-up.
 
-Spec Section 9.3. Build the Playwright pipeline as soon as the Holy Grail page can mutate a person and save. Lock in the "Import → View → Edit → Persist" critical user journey.
+- [ ] Dense table: Avatar, Name, Birth Date, Death Date, Tags, # Events
+- [ ] Sortable columns via API query params
+- [ ] Inline search filter bar
+- [ ] Click row → navigate to `/people/:id`
+- [ ] Virtual scrolling via `@tanstack/react-virtual`
+- [ ] Paginated via `GET /api/people?limit=50&offset=0`
+
+#### 4.5 The "Holy Grail" Person Detail Page
+
+The most critical view. 3-column resizable layout (spec Section 6.5).
+
+- [ ] **Panel framework**: `react-resizable-panels` — 3 collapsible, resizable columns (20%/50%/30% default). Responsive: stacked below 768px.
+- [ ] **Identity Panel** (left):
+  - Avatar (photo or initials)
+  - Click-to-edit name (inline, optimistic `PUT /people/:id`)
+  - Vital dates (click-to-edit), sex badge
+  - Relationship sections (Parents, Spouses, Children, Siblings) from `_computed`
+  - Each person as `PersonChip` — hover → `HoverCard` preview, click → navigate
+  - Inline editable tags
+- [ ] **Timeline Feed** (center):
+  - Virtualized via `@tanstack/react-virtual`
+  - TanStack Query `useInfiniteQuery` for pagination (`timeline_limit`/`timeline_offset`)
+  - `EventCard`, `StoryCard`, `GapIndicator` components
+  - "+ Add Event" button → opens Event Editor modal
+  - Click event → opens Event Editor pre-filled
+- [ ] **Context Panel** (right):
+  - Tabbed: Assets | Notebook | Raw YAML
+  - Assets: thumbnail grid from `/assets/`, drag-drop upload
+  - Notebook: rendered `scrapbook_md` + textarea editor (Tiptap in Phase 5.1)
+  - Raw YAML: syntax-highlighted read-only view
+
+#### 4.6 Event & Relationship Editors
+
+Full modal-based editors for data entry (spec Sections 6.5.5, 6.5.6).
+
+- [ ] **Event Editor** modal (`Dialog`):
+  - Event type dropdown (all 11 types)
+  - Dynamic fields based on type (partner_id for marriage, cause for death, etc.)
+  - Common fields: date, sort_date (date picker), location (place autocomplete), description, assets
+  - Partner/person selector: type-ahead search with `PersonChip` results
+  - Client-side Zod validation (mirrors backend `EventSchema`)
+  - Save via `PUT /people/:id` with optimistic update
+- [ ] **Relationship Editor**:
+  - Add parent: searchable person selector + relationship type
+  - Remove parent: confirm dialog
+  - Save via `PUT /people/:id` (backend handles edge reconciliation)
+- [ ] **Create Person** modal (for creating new people from anywhere — e.g., during partner selection)
+
+#### 4.7 Import & Settings Pages
+
+Supporting pages (spec Section 6.8).
+
+- [ ] **Import Page**: Drag-and-drop GEDCOM upload, destructive action warning, SSE progress bar, redirect to Dashboard on completion
+- [ ] **Settings Page**: Live system status, Force Rebuild button (with SSE progress), Create Snapshot, auth management
+
+#### 4.8 Dashboard
+
+Landing page overview (spec Section 6.7).
+
+- [ ] Stats cards: Total People, Total Families, Last Edited, System Status
+- [ ] Force graph visualization (`react-force-graph-2d`): nodes = people, edges = relationships. Click node → navigate to person.
+- [ ] "Gravity Bands" (Phase 5): position by birth year.
+
+#### 4.9 Search Results Page
+
+Full-page search results linked from CmdK "View all" action.
+
+- [ ] Route: `/search?q=...`
+- [ ] Categorized sections: People, Stories, Places
+- [ ] Paginated via `GET /api/search?q=...&limit=50&offset=0`
+- [ ] Virtualized results list
+
+#### 4.10 E2E Tests (Playwright)
+
+Spec Section 9.3. Build as soon as the Holy Grail page can mutate and save.
 
 - [ ] Playwright setup with Vite dev server integration
-- [ ] **CUJ: Import → View → Edit → Persist**: Upload GEDCOM → Wait for hydration (via SSE stream) → Verify node count → Navigate to Person → Edit field → Save → Verify persistence (optimistic + server confirm) → Reload → Verify data survived round-trip
-- [ ] **CUJ: Search Navigation**: Open CmdK → Type query → Select result → Verify navigation to detail page → Verify correct person loaded
-- [ ] **CUJ: Time Tunnel** (Phase 5): Load view → Scroll → Verify camera Z position changes
-
-#### 4.6 Dashboard
-- [ ] Stats panel: Total People, Total Families, Last Edited File
-- [ ] Force graph visualization (`react-force-graph-2d`)
-- [ ] "Gravity Bands" (position nodes by birth year on Y-axis)
+- [ ] **CUJ: Import → View → Edit → Persist**: Upload GEDCOM → Wait for hydration (SSE) → Verify node count → Navigate to Person → Edit field → Save → Verify persistence → Reload → Verify round-trip
+- [ ] **CUJ: Search Navigation**: Open CmdK → Type query → Select result → Verify navigation → Verify correct person
+- [ ] **CUJ: Responsive Layout**: Resize viewport → Verify sidebar collapse → Verify panel stacking on mobile
 
 ---
 
@@ -495,7 +587,7 @@ Spec Section 9.3. Build the Playwright pipeline as soon as the Holy Grail page c
 
 ## 3. Test Suite
 
-**Total**: 198 tests | **Passing**: 198 | **Skipped**: 0 | **Failing**: 0
+**Total**: 199 tests | **Passing**: 199 | **Skipped**: 0 | **Failing**: 0
 
 | Module | File | Count | Status |
 |:-------|:-----|:------|:-------|
@@ -561,5 +653,9 @@ Decisions made during implementation that deviate from or elaborate on the spec.
 | 19 | Slim Node Strategy — strip `scrapbook_md` + `_gedcom` from in-memory graph (Phase 3.7.1) | PE scaling review: 50K nodes × 2KB markdown = ~100MB idle in V8 heap. Lazy-load heavy fields from disk on `GET /people/:id` only |
 | 20 | Search Index Persistence — serialize FlexSearch to disk (Phase 3.7.2) | PE scaling review: rebuilding FlexSearch index for 50K+ nodes on every boot is avoidable CPU work. Export/import compiled index, surgically update changed nodes |
 | 21 | Write-Event Deduplication — self-write ignore set (Phase 3.7.3) | PE scaling review: API writes trigger redundant watcher hot-patches. Write-origin set with TTL prevents double-processing |
-| 22 | Phase 4 execution order: Foundation → Shell → CmdK → Holy Grail → E2E → Dashboard | PE recommendation: TanStack Query + optimistic updates from day one; CmdK early to battle-test search; E2E locked as soon as edit→persist works |
+| 22 | Phase 4 execution order: Foundation → Shell → CmdK → Browse → Holy Grail → Editors → Import/Settings → Dashboard → Search → E2E | PE recommendation: TanStack Query + optimistic updates from day one; CmdK early to battle-test search; Browse before Holy Grail as warm-up; E2E locked as soon as edit→persist works |
+| 23 | Frontend architecture: `client/` directory, shadcn/ui, Zustand, Tailwind v4 | User decision: prioritize stability, testability, and elegance. shadcn/ui for accessible styled components without bundle bloat. Zustand for minimal, testable UI state |
+| 24 | Responsive design mandatory | User decision: persistent sidebar collapses to icon-only on tablet, hamburger on mobile. Holy Grail panels stack on small screens |
+| 25 | Full event/relationship editors from Phase 4 | User decision: not just inline text editing — modal-based event editor for all 11 types with dynamic fields, searchable person selectors |
+| 26 | Hover preview cards (`HoverCard`) on person references | User decision: `PersonChip` components show avatar + vital dates on hover, click to navigate |
 
