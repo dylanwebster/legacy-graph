@@ -230,7 +230,7 @@ Spec Section 4.2. Pre-computes the "Integrated Feed" for the Person Detail page.
 
 ### Phase 3.6: Production Hardening — COMPLETE ✅
 
-> **Context**: Principal Engineer architecture review identified three backend refinements that must be completed before beginning frontend work. These address scaling fragility (file watchers), write-path overhead (git subprocess spawning), and API payload bloat (missing pagination). All three items completed.
+> **Context**: Architecture review identified three backend refinements that must be completed before beginning frontend work. These address scaling fragility (file watchers), write-path overhead (git subprocess spawning), and API payload bloat (missing pagination). All three items completed.
 
 #### 3.6.1 isomorphic-git Migration — COMPLETE ✅
 
@@ -267,7 +267,7 @@ Added `limit`/`offset` pagination to search and timeline endpoints. Prevents pay
 
 ### Phase 3.7: Data Layer Hardening — NOT STARTED ❌
 
-> **Context**: Principal Engineer scaling review identified three structural limits that will degrade performance at 50,000+ nodes. These must be resolved before the frontend consumes the API, ensuring the data layer is rock-solid under load.
+> **Context**: Architecture review identified three structural limits that will degrade performance at 50,000+ nodes. These must be resolved before the frontend consumes the API, ensuring the data layer is rock-solid under load.
 
 #### 3.7.1 Slim Node Strategy (Memory Budgeting) — COMPLETE ✅
 
@@ -312,7 +312,7 @@ When the API writes a YAML file, the file watcher detects the change and trigger
 
 ### Phase 3.8: Pre-Frontend Hardening — COMPLETE ✅
 
-> **Context**: Principal Engineer architecture review identified five structural fixes that must be completed before beginning frontend work. These address API write-path consistency, server decomposition, hydration observability, search performance, and story hot-patching.
+> **Context**: Architecture review identified five structural fixes that must be completed before beginning frontend work. These address API write-path consistency, server decomposition, hydration observability, search performance, and story hot-patching.
 
 #### 3.8.1 API Write Path Gap Fix — COMPLETE ✅
 
@@ -420,7 +420,7 @@ Build the "VS Code for Genealogy" interface. See spec Section 6 for full UI spec
 
 > **Technical Constraints (Mandatory)**: See spec Section 6.9. Virtualization, optimistic UI, hydration-aware shell, typed API client, and responsive design are non-negotiable.
 >
-> **Execution Order Rationale** (per Principal Engineer review): TanStack Query must be wired immediately — its optimistic updates are mandatory to mask the slight latency of the debounced Git queue. The app shell must consume the SSE hydration stream before any data views are built. CmdK is built early because it drives all navigation and forces real search latency testing. E2E tests lock in the critical user journey as soon as the detail page can mutate and persist.
+> **Execution Order Rationale**: TanStack Query must be wired immediately — its optimistic updates are mandatory to mask the slight latency of the debounced Git queue. The app shell must consume the SSE hydration stream before any data views are built. CmdK is built early because it drives all navigation and forces real search latency testing. E2E tests lock in the critical user journey as soon as the detail page can mutate and persist.
 >
 > **Architecture Decisions**: React + Vite + TypeScript in a `client/` directory. shadcn/ui (Radix + Tailwind v4) for components. Zustand for UI state. TanStack Router + TanStack Query for routing and data. Lucide React for icons. See spec Section 6.1.
 
@@ -530,24 +530,7 @@ Supporting pages (spec Section 6.8).
 - [ ] **Import Page**: Drag-and-drop GEDCOM upload, destructive action warning, SSE progress bar, redirect to Dashboard on completion
 - [ ] **Settings Page**: Live system status, Force Rebuild button (with SSE progress), Create Snapshot, auth management
 
-#### 4.8 Dashboard
-
-Landing page overview (spec Section 6.7).
-
-- [ ] Stats cards: Total People, Total Families, Last Edited, System Status
-- [ ] Force graph visualization (`react-force-graph-2d`): nodes = people, edges = relationships. Click node → navigate to person.
-- [ ] "Gravity Bands" (Phase 5): position by birth year.
-
-#### 4.9 Search Results Page
-
-Full-page search results linked from CmdK "View all" action.
-
-- [ ] Route: `/search?q=...`
-- [ ] Categorized sections: People, Stories, Places
-- [ ] Paginated via `GET /api/search?q=...&limit=50&offset=0`
-- [ ] Virtualized results list
-
-#### 4.10 E2E Tests (Playwright)
+#### 4.8 E2E Tests (Playwright)
 
 Spec Section 9.3. Build as soon as the Holy Grail page can mutate and save.
 
@@ -555,6 +538,23 @@ Spec Section 9.3. Build as soon as the Holy Grail page can mutate and save.
 - [ ] **CUJ: Import → View → Edit → Persist**: Upload GEDCOM → Wait for hydration (SSE) → Verify node count → Navigate to Person → Edit field → Save → Verify persistence → Reload → Verify round-trip
 - [ ] **CUJ: Search Navigation**: Open CmdK → Type query → Select result → Verify navigation → Verify correct person
 - [ ] **CUJ: Responsive Layout**: Resize viewport → Verify sidebar collapse → Verify panel stacking on mobile
+
+#### 4.9 Dashboard
+
+Landing page overview (spec Section 6.7).
+
+- [ ] Stats cards: Total People, Total Families, Last Edited, System Status
+- [ ] Force graph visualization (`react-force-graph-2d`): nodes = people, edges = relationships. Click node → navigate to person.
+- [ ] "Gravity Bands" (Phase 5): position by birth year.
+
+#### 4.10 Search Results Page
+
+Full-page search results linked from CmdK "View all" action.
+
+- [ ] Route: `/search?q=...`
+- [ ] Categorized sections: People, Stories, Places
+- [ ] Paginated via `GET /api/search?q=...&limit=50&offset=0`
+- [ ] Virtualized results list
 
 ---
 
@@ -645,15 +645,15 @@ Decisions made during implementation that deviate from or elaborate on the spec.
 | 11 | `cacheAge` is an ISO-8601 timestamp (not duration string) | Unambiguous, machine-parseable. Frontend can compute "X minutes ago" from the timestamp |
 | 12 | Worker thread uses `tsx/cjs` for ESM interop | `p-limit` v7 and `remark` v15 are ESM-only; the project uses CommonJS. `tsx` resolves `require()` of ESM modules in the worker thread. Added as devDependency |
 | 13 | `awaitHydration` defaults to `true` in `ServerConfig` | Preserves backward compatibility for tests (which expect hydration complete before assertions). Set `false` for production immediate-availability |
-| 14 | `isomorphic-git` migration elevated to immediate (Phase 3.6.1) | Principal Engineer review: child-process overhead from `simple-git` is an architectural flaw, not an optimization deferral. Must resolve before frontend consumes write APIs |
+| 14 | `isomorphic-git` migration elevated to immediate (Phase 3.6.1) | Architecture review: child-process overhead from `simple-git` is an architectural flaw, not an optimization deferral. Must resolve before frontend consumes write APIs |
 | 15 | Replace `chokidar` with `@parcel/watcher` (Phase 3.6.2) | Native OS watcher APIs via Rust/C++ bindings eliminate EMFILE limits. Resolves skipped `Watcher.test.ts` |
 | 16 | API pagination mandatory before frontend (Phase 3.6.3) | Unbounded search/timeline responses would lock up the browser DOM for large datasets. `limit`/`offset` with `totalCounts` prevents payload bloat |
 | 17 | Virtualization mandatory in frontend (Phase 4) | Timeline Feed and Search Results must use `@tanstack/react-virtual` or equivalent. No DOM nodes for off-screen items |
 | 18 | SSE hydration stream (`GET /system/hydration/stream`) | Replaces polling `GET /system/status` with a push-based progress stream. Frontend connects on boot, shows real progress bar |
-| 19 | Slim Node Strategy — strip `scrapbook_md` + `_gedcom` from in-memory graph (Phase 3.7.1) | PE scaling review: 50K nodes × 2KB markdown = ~100MB idle in V8 heap. Lazy-load heavy fields from disk on `GET /people/:id` only |
+| 19 | Slim Node Strategy — strip `scrapbook_md` + `_gedcom` from in-memory graph (Phase 3.7.1) | Architecture review: 50K nodes × 2KB markdown = ~100MB idle in V8 heap. Lazy-load heavy fields from disk on `GET /people/:id` only |
 | 20 | Search Index Persistence — serialize FlexSearch to disk (Phase 3.7.2) | PE scaling review: rebuilding FlexSearch index for 50K+ nodes on every boot is avoidable CPU work. Export/import compiled index, surgically update changed nodes |
 | 21 | Write-Event Deduplication — self-write ignore set (Phase 3.7.3) | PE scaling review: API writes trigger redundant watcher hot-patches. Write-origin set with TTL prevents double-processing |
-| 22 | Phase 4 execution order: Foundation → Shell → CmdK → Browse → Holy Grail → Editors → Import/Settings → Dashboard → Search → E2E | PE recommendation: TanStack Query + optimistic updates from day one; CmdK early to battle-test search; Browse before Holy Grail as warm-up; E2E locked as soon as edit→persist works |
+| 22 | Phase 4 execution order: Foundation → Shell → CmdK → Browse → Holy Grail → Editors → Import/Settings → E2E → Dashboard → Search | PE recommendation: TanStack Query + optimistic updates from day one; CmdK early to battle-test search; Browse before Holy Grail as warm-up; E2E locked as soon as edit→persist works |
 | 23 | Frontend architecture: `client/` directory, shadcn/ui, Zustand, Tailwind v4 | User decision: prioritize stability, testability, and elegance. shadcn/ui for accessible styled components without bundle bloat. Zustand for minimal, testable UI state |
 | 24 | Responsive design mandatory | User decision: persistent sidebar collapses to icon-only on tablet, hamburger on mobile. Holy Grail panels stack on small screens |
 | 25 | Full event/relationship editors from Phase 4 | User decision: not just inline text editing — modal-based event editor for all 11 types with dynamic fields, searchable person selectors |
