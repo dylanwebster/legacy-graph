@@ -6,7 +6,8 @@
     "test": "vitest",
     "build": "tsc --noEmit",
     "start": "tsx --env-file=.env src/index.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "generate:synthetic-data": "tsx scripts/generateSyntheticData.ts"
   },
   "keywords": [],
   "author": "",
