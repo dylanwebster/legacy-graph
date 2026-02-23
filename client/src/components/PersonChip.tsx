@@ -13,21 +13,65 @@ interface PersonChipProps {
     className?: string;
 }
 
-function PersonHoverContent({ id }: { id: string }) {
-    const { data: person, isLoading } = usePerson(id);
+function deriveName(person: { names?: Array<{ first?: string; given?: string; last?: string; surname?: string }> } | undefined) {
+    const n = person?.names?.[0];
+    return `${n?.first || n?.given || ''} ${n?.last || n?.surname || ''}`.trim() || 'Unknown';
+}
 
-    if (isLoading) {
+export function PersonChip({ id, name, photoFilename, className }: PersonChipProps) {
+    const [open, setOpen] = useState(false);
+    // Always fetch so the chip can display names without requiring the caller to pass them
+    const { data: person } = usePerson(id);
+
+    const displayName = name ?? (person ? deriveName(person) : null);
+    const firstAsset = photoFilename ?? person?.assets?.[0];
+
+    // Split displayName for avatar initials
+    const parts = displayName?.split(' ') ?? [];
+    const avatarFirst = parts[0] ?? '';
+    const avatarLast = parts.slice(1).join(' ') ?? '';
+
+    return (
+        <HoverCard open={open} onOpenChange={setOpen}>
+            <HoverCardTrigger asChild>
+                <Link
+                    to="/people/$id"
+                    params={{ id }}
+                    className={cn(
+                        'flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 transition-colors text-sm',
+                        className
+                    )}
+                >
+                    <CustomAvatar
+                        firstName={avatarFirst}
+                        lastName={avatarLast}
+                        photoFilename={firstAsset}
+                        className="h-6 w-6 text-[10px]"
+                    />
+                    <span className="truncate">
+                        {displayName ?? <span className="font-mono text-xs text-muted-foreground">{id}</span>}
+                    </span>
+                </Link>
+            </HoverCardTrigger>
+            <HoverCardContent className="w-64" side="right">
+                {open && <PersonHoverContent id={id} person={person} />}
+            </HoverCardContent>
+        </HoverCard>
+    );
+}
+
+function PersonHoverContent({
+    id,
+    person,
+}: {
+    id: string;
+    person: ReturnType<typeof usePerson>['data'];
+}) {
+    if (!person) {
         return <div className="text-xs text-muted-foreground">Loading...</div>;
     }
 
-    if (!person) {
-        return <div className="text-xs text-muted-foreground font-mono">{id}</div>;
-    }
-
-    const primaryName = person.names?.[0];
-    const firstName = primaryName?.first || primaryName?.given || '';
-    const lastName = primaryName?.last || primaryName?.surname || '';
-    const displayName = `${firstName} ${lastName}`.trim() || 'Unknown';
+    const displayName = deriveName(person);
     const events = (person.events ?? []) as Array<Record<string, string>>;
     const birthDate = events.find((e) => e.type === 'birth')?.date;
     const deathDate = events.find((e) => e.type === 'death')?.date;
@@ -37,8 +81,8 @@ function PersonHoverContent({ id }: { id: string }) {
         <div className="space-y-2">
             <div className="flex items-center gap-2">
                 <CustomAvatar
-                    firstName={firstName}
-                    lastName={lastName}
+                    firstName={person.names?.[0]?.first || person.names?.[0]?.given || ''}
+                    lastName={person.names?.[0]?.last || person.names?.[0]?.surname || ''}
                     photoFilename={person.assets?.[0]}
                     className="h-10 w-10 text-sm"
                 />
@@ -65,39 +109,10 @@ function PersonHoverContent({ id }: { id: string }) {
             )}
             {spouse && (
                 <div className="text-xs text-muted-foreground">
-                    <span className="capitalize">{spouse.status}</span> to <span className="font-mono">{spouse.id}</span>
+                    <span className="capitalize">{spouse.status}</span> to{' '}
+                    <span className="font-mono">{spouse.id}</span>
                 </div>
             )}
         </div>
-    );
-}
-
-export function PersonChip({ id, name, photoFilename, className }: PersonChipProps) {
-    const [open, setOpen] = useState(false);
-
-    return (
-        <HoverCard open={open} onOpenChange={setOpen}>
-            <HoverCardTrigger asChild>
-                <Link
-                    to="/people/$id"
-                    params={{ id }}
-                    className={cn(
-                        'flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 transition-colors text-sm',
-                        className
-                    )}
-                >
-                    <CustomAvatar
-                        firstName={name?.split(' ')[0]}
-                        lastName={name?.split(' ').slice(1).join(' ')}
-                        photoFilename={photoFilename}
-                        className="h-6 w-6 text-[10px]"
-                    />
-                    <span className="truncate">{name || <span className="font-mono text-xs">{id}</span>}</span>
-                </Link>
-            </HoverCardTrigger>
-            <HoverCardContent className="w-64" side="right">
-                {open && <PersonHoverContent id={id} />}
-            </HoverCardContent>
-        </HoverCard>
     );
 }

@@ -375,7 +375,7 @@ function PersonDetail() {
                                 onClick={() => setRelationshipDialogOpen(true)}
                             >
                                 <UserPlus className="h-3.5 w-3.5" />
-                                Manage Parents
+                                Manage Relationships
                             </Button>
                         </div>
 
@@ -551,6 +551,9 @@ function PersonDetail() {
                 onClose={() => setRelationshipDialogOpen(false)}
                 personId={id}
                 currentParents={person.relationships?.parents ?? []}
+                currentChildIds={childIds}
+                allSpouses={computed.allSpouses ?? []}
+                currentEvents={events}
             />
         </>
     );

@@ -194,10 +194,10 @@ export async function peopleRoutes(server: FastifyInstance) {
 
     server.put<{
         Params: { id: string },
-        Body: Person
+        Body: Partial<Person>
     }>('/api/people/:id', async (request, reply) => {
         const { id } = request.params;
-        const updates = request.body;
+        const patch = request.body;
         const graph = graphEngine.getGraph();
 
         if (!graph.hasNode(id)) {
@@ -210,20 +210,34 @@ export async function peopleRoutes(server: FastifyInstance) {
         try {
             const oldSlim = graph.getNodeAttributes(id).data as SlimPerson;
 
-            updates.last_modified = new Date().toISOString();
-            PersonSchema.parse(updates);
+            // Load heavy fields so we can reconstruct the full person before merging
+            const heavyFields = await graphEngine.loadHeavyFields(id);
+            const currentPerson: Person = {
+                ...oldSlim,
+                scrapbook_md: heavyFields?.scrapbook_md ?? '',
+                _gedcom: heavyFields?._gedcom,
+            };
+
+            // Merge the incoming patch with the existing full person, then validate
+            const merged: Person = {
+                ...currentPerson,
+                ...patch,
+                last_modified: new Date().toISOString(),
+            };
+
+            PersonSchema.parse(merged);
 
             const relativePath = path.join('people', `${id}.yaml`);
-            const primaryName = updates.names?.[0];
+            const primaryName = merged.names?.[0];
             const label = primaryName ? `${primaryName.first} ${primaryName.last}` : id;
-            await txManager.writeFile(relativePath, yaml.dump(updates), label);
+            await txManager.writeFile(relativePath, yaml.dump(merged), label);
 
-            const newSlim = toSlimPerson(updates);
+            const newSlim = toSlimPerson(merged);
             graph.setNodeAttribute(id, 'data', newSlim);
 
-            graphEngine.applyWriteSideEffects(id, oldSlim, newSlim, updates.scrapbook_md || '');
+            graphEngine.applyWriteSideEffects(id, oldSlim, newSlim, merged.scrapbook_md || '');
 
-            return updates;
+            return merged;
         } catch (error: any) {
             console.error('[API] Error updating person:', error);
             return reply.status(400).send({
