@@ -5,13 +5,15 @@
   "scripts": {
     "test": "vitest",
     "build": "tsc --noEmit",
-    "start": "tsx --env-file=.env src/index.ts"
+    "start": "tsx --env-file=.env src/index.ts",
+    "test:e2e": "playwright test"
   },
   "keywords": [],
   "author": "",
   "license": "PolyForm-Noncommercial-1.0.0",
   "description": "",
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/bcryptjs": "^2.4.6",
     "@types/js-yaml": "^4.0.9",
     "@types/jsonwebtoken": "^9.0.10",

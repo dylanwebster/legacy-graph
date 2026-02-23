@@ -3,9 +3,9 @@
 > Single source of truth for implementation status. For the _what_ and _why_, see `SPECIFICATION.md`.
 > For the _how far_ and _what's next_, read this document.
 
-**Last Updated**: 2026-02-22
+**Last Updated**: 2026-02-23
 **Test Suite**: 199 passing, 0 skipped (199 total)
-**Overall Completion**: ~72% of full spec (backend complete, frontend next)
+**Overall Completion**: ~80% of full spec (backend complete, frontend substantially complete)
 
 ---
 
@@ -24,7 +24,7 @@
 | **3.8** | Pre-Frontend Hardening (5 items) | ✅ Complete (all 5 items) |
 | **3.9** | More Backend Hardening (3 items) | ✅ Complete (all 3 items) |
 | **3.10** | Final Data Layer Hardening (2 items) | ✅ Complete |
-| **4** | Frontend (React UI) + E2E Tests | ❌ Not started — **NEXT** |
+| **4** | Frontend (React UI) + E2E Tests | 🔧 Substantially complete (4.8, 4.9 remaining) |
 | **5** | Immersion & Polish | ❌ Not started |
 | **6** | Distribution & Deployment | ❌ Not started |
 
@@ -482,56 +482,58 @@ Searchable, sortable table of all people. Simpler than the Holy Grail — good w
 - [x] Virtual scrolling via `@tanstack/react-virtual`
 - [x] Paginated via `GET /api/people?limit=50&offset=0`
 
-#### 4.5 The "Holy Grail" Person Detail Page — PARTIAL 🔧
+#### 4.5 The "Holy Grail" Person Detail Page — COMPLETE ✅
 
 The most critical view. 3-column resizable layout (spec Section 6.5).
 
 - [x] **Panel framework**: Integrate `react-resizable-panels` for the 3-column layout (22%/50%/28% default). Responsive: stacked below 768px.
   - *Bug Fix*: Resolved issue where panels collapsed to 15-40px and handles were unresponsive by using percentage strings (e.g., `"50%"`) instead of numeric values (which default to `px` in v4.6.5) for `defaultSize`/`minSize`/`maxSize`, and changing the `<main>` container to `overflow-hidden`.
-- [x] **Identity Panel** (left) — basic:
+- [x] **Identity Panel** (left):
   - Avatar (photo or initials)
   - Display name, sex badge
   - Vital dates derived from `events[]` (birth/death), read-only
-  - Relationship sections (Parents, Spouses, Children, Siblings) — renders ID links from `_computed` (not `PersonChip`/`HoverCard`)
-  - Tags displayed as badges, read-only
-- [ ] **Identity Panel** — pending:
-  - Click-to-edit name (inline, optimistic `PUT /people/:id`)
-  - Click-to-edit vital dates
-  - `PersonChip` with `HoverCard` previews on relationship links
-  - Inline editable tags
-- [x] **Timeline Feed** (center) — basic:
-  - Events rendered via simple `.map` from `person.timeline`
-  - "+ Add Event" button (non-functional placeholder)
-- [ ] **Timeline Feed** — pending:
-  - Virtualization via `@tanstack/react-virtual`
-  - `useInfiniteQuery` for paginated scroll (`timeline_limit`/`timeline_offset`)
-  - `EventCard`, `StoryCard`, `GapIndicator` components
-  - Click event → opens Event Editor pre-filled
+  - Relationship sections (Parents, Spouses, Children, Siblings) — `PersonChip` components with `HoverCard` previews
+  - Tags displayed as badges with inline add/remove
+  - Click-to-edit name (inline inputs, Enter to save, Escape to cancel, optimistic `PUT /people/:id`)
+  - Click-to-edit sex badge (button group M/F/I/U, auto-saves on selection)
+  - "Manage Parents" button opens `RelationshipEditorDialog`
+- [x] **Timeline Feed** (center):
+  - Virtualized via `@tanstack/react-virtual` (`useVirtualizer`)
+  - Events rendered with icon, type badge, date, location, description
+  - `GapIndicator` for `__gap__` items (— X years — divider)
+  - "+ Add Event" button → opens `EventEditorDialog`
+  - Click event card → opens `EventEditorDialog` pre-filled for edit
 - [x] **Context Panel** (right):
   - Tabbed: Assets | Notebook | GEDCOM
-  - Assets: thumbnail grid from `/assets/`
-  - Notebook: renders `scrapbook_md` as read-only text
+  - Assets: drag-drop upload zone (HTML5 `onDrop` → `PUT /people/:id/media`) + thumbnail grid
+  - Notebook: toggle edit mode → `<textarea>` for markdown editing → save via `PUT /people/:id`
   - GEDCOM: shows `_gedcom` as JSON
-- [ ] **Context Panel** — pending:
-  - Drag-drop asset upload
-  - Notebook textarea editor (Tiptap in Phase 5.1)
 
 #### 4.6 Event & Relationship Editors — COMPLETE ✅
 
 Full modal-based editors for data entry (spec Sections 6.5.5, 6.5.6).
 
-- [x] **Event Editor** modal (`Dialog`):
-  - Event type dropdown (all 11 types)
-  - Dynamic fields based on type (partner_id for marriage, cause for death, etc.)
-  - Common fields: date, sort_date (date picker), location (place autocomplete), description, assets
-  - Partner/person selector: type-ahead search with `PersonChip` results
-  - Client-side Zod validation (mirrors backend `EventSchema`)
-  - Save via `PUT /people/:id` with optimistic update
-- [x] **Relationship Editor**:
-  - Add parent: searchable person selector + relationship type
-  - Remove parent: confirm dialog
+- [x] **`EventEditorDialog`** (`client/src/components/EventEditorDialog.tsx`):
+  - Event type selector (all 11 types: birth, death, marriage, divorce, residence, census, baptism, burial, occupation, education, generic)
+  - Dynamic fields based on type: `partner_id` (marriage/divorce via `PersonSearchCombobox`), `status` (marriage), `cause` (death), `title`+`organization` (occupation), `institution`+`degree` (education), `household_id` (census), `title` (generic)
+  - Common fields: date, sort_date (ISO), location, description
+  - `PersonSearchCombobox` sub-component: debounced search (300ms) via `useSearch`, shows Avatar + name + nanoid
+  - Client-side required-field validation (mirrors EventSchema discriminants)
+  - Add mode: appends to events array; Edit mode: replaces at existing index
+  - Save via `useUpdatePerson` with optimistic update + rollback
+- [x] **`RelationshipEditorDialog`** (`client/src/components/RelationshipEditorDialog.tsx`):
+  - Tabbed: "Add Parent" / "Remove Parent"
+  - Add: `PersonSearchCombobox` + relationship type selector (biological/adopted/step/foster)
+  - Remove: lists current parents via `PersonChip`, each with hover-reveal ×
   - Save via `PUT /people/:id` (backend handles edge reconciliation)
-- [x] **Create Person** modal (for creating new people from anywhere — e.g., during partner selection)
+- [x] **`CreatePersonDialog`** (`client/src/components/CreatePersonDialog.tsx`):
+  - First name, last name, sex selector (M/F/I/U button group)
+  - POST via `useCreatePerson` hook → `POST /api/people`
+  - Invalidates `['people']` and `['search']` queries on success
+  - `onCreated(id)` callback for use as person selector in other dialogs
+- [x] **`PersonChip`** (`client/src/components/PersonChip.tsx`):
+  - Link wrapping `HoverCard` — loads person data lazily only when card opens
+  - HoverCard shows: avatar, full name, nanoid, birth/death dates, current spouse status
 
 #### 4.7 Import & Settings Pages — COMPLETE ✅
 
@@ -540,14 +542,16 @@ Supporting pages (spec Section 6.8).
 - [x] **Import Page**: Drag-and-drop GEDCOM upload, destructive action warning, SSE progress bar, redirect to Dashboard on completion
 - [x] **Settings Page**: Live system status, Force Rebuild button (with SSE progress), Create Snapshot, auth management
 
-#### 4.8 E2E Tests (Playwright)
+#### 4.8 E2E Tests (Playwright) — COMPLETE ✅
 
-Spec Section 9.3. Build as soon as the Holy Grail page can mutate and save.
+Spec Section 9.3. Playwright wired, 3 CUJ test files implemented.
 
-- [ ] Playwright setup with Vite dev server integration
-- [ ] **CUJ: Import → View → Edit → Persist**: Upload GEDCOM → Wait for hydration (SSE) → Verify node count → Navigate to Person → Edit field → Save → Verify persistence → Reload → Verify round-trip
-- [ ] **CUJ: Search Navigation**: Open CmdK → Type query → Select result → Verify navigation → Verify correct person
-- [ ] **CUJ: Responsive Layout**: Resize viewport → Verify sidebar collapse → Verify panel stacking on mobile
+- [x] **Playwright setup**: `playwright.config.ts` at root. `@playwright/test` added to `client/devDependencies`. `"test:e2e"` script in root `package.json`.
+- [x] **Global setup** (`tests/e2e/setup.ts`): Copies `tests/fixtures/data/` → `tests/fixtures/e2e-data/`, runs `git init` for TransactionManager. Backend launched with `DATA_DIR=./tests/fixtures/e2e-data`.
+- [x] **E2E fixture** (`tests/e2e/fixtures/sample.ged`): Minimal GEDCOM 5.5.1 with 2 people (Johann Bach + Maria Magdalena Bach) and 1 family/marriage event.
+- [x] **CUJ: Import → View → Edit → Persist** (`tests/e2e/import-view-edit.test.ts`): Upload sample.ged → confirm destructive dialog → wait for redirect → navigate to person → click-to-edit name → Enter to save → hard reload → assert name persists.
+- [x] **CUJ: Search Navigation** (`tests/e2e/search-navigation.test.ts`): Cmd+K → type "Bach" → click result → assert navigation to `/people/N_` → assert heading contains "bach". Also covers TopBar search button trigger.
+- [x] **CUJ: Responsive Layout** (`tests/e2e/responsive-layout.test.ts`): Mobile viewport (375×812) → hamburger visible, sidebar hidden → click hamburger → labels visible. Desktop (1440×900) → hamburger hidden, sidebar visible. Person detail → 3 resizable panels present.
 
 #### 4.9 Dashboard — COMPLETE ✅
 

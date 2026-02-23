@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { peopleApi } from './people';
+import type { CreatePersonInput } from './people';
 import { apiFetch } from './client';
 
 export const usePeople = (params?: { limit?: number; offset?: number; sort?: string; order?: string }) => {
@@ -49,6 +50,18 @@ export const useStats = () => {
     });
 };
 
+export const useCreatePerson = () => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (data: CreatePersonInput) => peopleApi.createPerson(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['people'] });
+            queryClient.invalidateQueries({ queryKey: ['search'] });
+        },
+    });
+};
+
 export const useUpdatePerson = () => {
     const queryClient = useQueryClient();
 
@@ -73,7 +86,7 @@ export const useUpdatePerson = () => {
                 queryClient.setQueryData(key as any, data);
             });
         },
-        onSettled: (data, error, variables) => {
+        onSettled: (_data, _error, variables) => {
             queryClient.invalidateQueries({ queryKey: ['person', variables.id] });
             queryClient.invalidateQueries({ queryKey: ['people'] });
             queryClient.invalidateQueries({ queryKey: ['search'] });

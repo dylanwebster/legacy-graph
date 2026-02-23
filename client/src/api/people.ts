@@ -46,7 +46,20 @@ export interface PaginatedPeopleResponse {
     totalCount: number;
 }
 
+export interface CreatePersonInput {
+    names: Array<{ given?: string; surname?: string; primary?: boolean }>;
+    sex: string;
+}
+
 export const peopleApi = {
+    createPerson: async (data: CreatePersonInput) => {
+        return apiFetch<PersonDetail>('/people', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+    },
+
     getPeople: async (params?: { limit?: number; offset?: number; sort?: string; order?: string }) => {
         const searchParams = new URLSearchParams();
         if (params?.limit !== undefined) searchParams.append('limit', String(params.limit));

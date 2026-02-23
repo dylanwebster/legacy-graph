@@ -1,0 +1,36 @@
+0 HEAD
+1 SOUR LegacyGraph E2E Test
+2 VERS 1.0
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Johann /Bach/
+2 GIVN Johann
+2 SURN Bach
+1 SEX M
+1 BIRT
+2 DATE 21 MAR 1685
+2 PLAC Eisenach, Germany
+1 DEAT
+2 DATE 28 JUL 1750
+2 PLAC Leipzig, Germany
+0 @I2@ INDI
+1 NAME Maria /Magdalena Bach/
+2 GIVN Maria Magdalena
+2 SURN Bach
+1 SEX F
+1 BIRT
+2 DATE 27 SEP 1701
+2 PLAC Zeitz, Germany
+1 DEAT
+2 DATE 27 FEB 1760
+2 PLAC Leipzig, Germany
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 MARR
+2 DATE 3 DEC 1721
+2 PLAC Köthen, Germany
+0 TRLR
