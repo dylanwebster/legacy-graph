@@ -10,7 +10,7 @@ Self-hosted genealogy platform. File-system-first, Git-versioned, in-memory grap
 ```bash
 npm test          # Run all Vitest tests (199 passing, 0 skipped)
 npm run build     # tsc → dist/
-npm start         # node dist/index.js
+npm start         # node dist/src/index.js
 ```
 
 ### Frontend
