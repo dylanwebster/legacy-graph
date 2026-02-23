@@ -50,21 +50,12 @@ function PersonSearchCombobox({
 
     const people = (searchResults?.people ?? []).filter(
         (p: { id: string }) => !excludeIds.includes(p.id)
-    ) as Array<{
-        id: string;
-        names: Array<{ first?: string; given?: string; last?: string; surname?: string }>;
-        assets?: string[];
-    }>;
+    ) as Array<{ id: string; name: string }>;
 
     const handleSelect = (id: string) => {
         onChange(id);
         const found = people.find((p) => p.id === id);
-        if (found) {
-            const n = found.names?.[0];
-            setQuery(`${n?.first || n?.given || ''} ${n?.last || n?.surname || ''}`.trim() || id);
-        } else {
-            setQuery(id);
-        }
+        setQuery(found?.name || id);
         setShowDropdown(false);
     };
 
@@ -84,10 +75,9 @@ function PersonSearchCombobox({
             {showDropdown && debouncedQuery && people.length > 0 && (
                 <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-md max-h-48 overflow-auto">
                     {people.map((p) => {
-                        const n = p.names?.[0];
-                        const first = n?.first || n?.given || '';
-                        const last = n?.last || n?.surname || '';
-                        const name = `${first} ${last}`.trim() || p.id;
+                        const parts = p.name.split(' ');
+                        const first = parts[0] ?? '';
+                        const last = parts.slice(1).join(' ') ?? '';
                         return (
                             <button
                                 key={p.id}
@@ -95,8 +85,8 @@ function PersonSearchCombobox({
                                 className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 text-left"
                                 onMouseDown={() => handleSelect(p.id)}
                             >
-                                <CustomAvatar firstName={first} lastName={last} photoFilename={p.assets?.[0]} className="h-5 w-5 text-[9px]" />
-                                <span className="truncate">{name}</span>
+                                <CustomAvatar firstName={first} lastName={last} className="h-5 w-5 text-[9px]" />
+                                <span className="truncate">{p.name || p.id}</span>
                                 <span className="ml-auto text-xs text-muted-foreground font-mono shrink-0">{p.id}</span>
                             </button>
                         );
