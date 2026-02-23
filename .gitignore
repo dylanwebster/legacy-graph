@@ -2,6 +2,8 @@ node_modules
 dist
 coverage
 .DS_Store
+.env
+data/
 temp_data
 temp_repo
 tests/fixtures/auth-data

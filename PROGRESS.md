@@ -1,6 +1,6 @@
 # LegacyGraph: Implementation Progress & Roadmap
 
-> Single source of truth for implementation status. For the _what_ and _why_, see `spec.md`.
+> Single source of truth for implementation status. For the _what_ and _why_, see `SPECIFICATION.md`.
 > For the _how far_ and _what's next_, read this document.
 
 **Last Updated**: 2026-02-22
