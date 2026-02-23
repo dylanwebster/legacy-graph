@@ -82,9 +82,9 @@ function PersonDetail() {
     const hasRelationships = parentIds.length > 0 || spouseIds.length > 0 || childIds.length > 0 || siblingIds.length > 0;
 
     return (
-        <ResizablePanelGroup direction="horizontal" className="h-full">
+        <ResizablePanelGroup orientation="horizontal" className="h-full">
             {/* Identity Panel */}
-            <ResizablePanel defaultSize={22} minSize={15} maxSize={35}>
+            <ResizablePanel defaultSize="22%" minSize="15%" maxSize="35%">
                 <div className="h-full overflow-y-auto p-4 space-y-6">
                     {/* Avatar + Name */}
                     <div className="flex flex-col items-center text-center gap-3 pt-2">
@@ -150,7 +150,7 @@ function PersonDetail() {
             <ResizableHandle withHandle />
 
             {/* Timeline Panel */}
-            <ResizablePanel defaultSize={50} minSize={30}>
+            <ResizablePanel defaultSize="50%" minSize="30%">
                 <div className="h-full flex flex-col">
                     <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                         <h3 className="text-sm font-semibold">Timeline</h3>
@@ -203,7 +203,7 @@ function PersonDetail() {
             <ResizableHandle withHandle />
 
             {/* Context Panel */}
-            <ResizablePanel defaultSize={28} minSize={15} maxSize={40}>
+            <ResizablePanel defaultSize="28%" minSize="15%" maxSize="40%">
                 <Tabs defaultValue="assets" className="h-full flex flex-col">
                     <TabsList className="w-full justify-start rounded-none border-b border-border bg-transparent px-2 pt-1">
                         <TabsTrigger value="assets" className="gap-1.5 text-xs">
