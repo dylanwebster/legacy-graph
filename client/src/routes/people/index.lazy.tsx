@@ -3,11 +3,12 @@ import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import { usePeople } from '@/api/hooks';
 import type { SlimPersonSummary } from '@/api/people';
 import { CustomAvatar } from '@/components/CustomAvatar';
+import { CreatePersonDialog } from '@/components/CreatePersonDialog';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { Search, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react';
+import { Search, ChevronUp, ChevronDown, ArrowUpDown, UserPlus } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 export const Route = createLazyFileRoute('/people/')({
@@ -24,6 +25,7 @@ function PeopleBrowse() {
     const [sort, setSort] = useState<SortField>('last_modified');
     const [order, setOrder] = useState<SortOrder>('desc');
     const [filter, setFilter] = useState('');
+    const [createOpen, setCreateOpen] = useState(false);
     const navigate = useNavigate();
 
     const { data, isLoading, isError } = usePeople({ limit: PAGE_SIZE, offset, sort, order });
@@ -80,7 +82,16 @@ function PeopleBrowse() {
                         {totalCount > 0 ? `${totalCount} people in the graph` : 'Browse all people'}
                     </p>
                 </div>
+                <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
+                    <UserPlus className="h-4 w-4" /> New Person
+                </Button>
             </div>
+
+            <CreatePersonDialog
+                isOpen={createOpen}
+                onClose={() => setCreateOpen(false)}
+                onCreated={(id) => navigate({ to: '/people/$id', params: { id } })}
+            />
 
             <div className="px-4 lg:px-6 pt-4">
                 <div className="relative">

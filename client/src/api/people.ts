@@ -47,7 +47,7 @@ export interface PaginatedPeopleResponse {
 }
 
 export interface CreatePersonInput {
-    names: Array<{ given?: string; surname?: string; primary?: boolean }>;
+    names: Array<{ first?: string; last?: string; primary?: boolean }>;
     sex: string;
 }
 

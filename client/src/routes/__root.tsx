@@ -1,4 +1,5 @@
 import { createRootRoute, Outlet } from '@tanstack/react-router';
+import { Toaster } from 'sonner';
 import { HydrationProgress } from '@/components/HydrationProgress';
 import { ErrorFallback } from '@/components/ErrorFallback';
 import { GlobalNotFound } from '@/components/GlobalNotFound';
@@ -9,6 +10,7 @@ import { CommandPalette } from '@/components/CommandPalette';
 export const Route = createRootRoute({
     component: () => (
         <>
+            <Toaster richColors position="bottom-right" />
             <HydrationProgress />
             <CommandPalette />
             <div className="flex h-screen w-full bg-background text-foreground overflow-hidden">

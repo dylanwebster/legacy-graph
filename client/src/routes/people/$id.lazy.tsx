@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 export const Route = createLazyFileRoute('/people/$id')({
@@ -51,6 +52,7 @@ function PersonDetail() {
     const { id } = Route.useParams();
     const { data: person, isLoading, isError } = usePerson(id);
     const updatePerson = useUpdatePerson();
+    const queryClient = useQueryClient();
 
     // Inline editing state
     const [editingName, setEditingName] = useState(false);
@@ -218,8 +220,7 @@ function PersonDetail() {
             const res = await fetch(`/api/people/${id}/media`, { method: 'PUT', body: formData });
             if (!res.ok) throw new Error('Upload failed');
             toast.success('Asset uploaded.');
-            // Invalidate person query to refresh assets
-            updatePerson.mutate({ id, updates: {} });
+            queryClient.invalidateQueries({ queryKey: ['person', id] });
         } catch {
             toast.error('Failed to upload asset.');
         }
@@ -231,7 +232,11 @@ function PersonDetail() {
         setEventDialogOpen(true);
     };
 
-    const openEditEvent = (idx: number) => {
+    const openEditEvent = (eventData: Record<string, unknown>) => {
+        // Map the timeline item back to its index in the events array.
+        // Timeline may include __gap__ pseudo-events and story items that are not in events[].
+        const idx = events.findIndex((e) => JSON.stringify(e) === JSON.stringify(eventData));
+        if (idx < 0) return; // gap or story — not editable here
         setEditingEventIndex(idx);
         setEventDialogOpen(true);
     };
@@ -559,7 +564,7 @@ function VirtualizedTimeline({
 }: {
     timeline: Array<Record<string, unknown>>;
     parentRef: React.RefObject<HTMLDivElement | null>;
-    onEditEvent: (idx: number) => void;
+    onEditEvent: (event: Record<string, unknown>) => void;
 }) {
     const rowVirtualizer = useVirtualizer({
         count: timeline.length,
@@ -611,10 +616,7 @@ function VirtualizedTimeline({
                         ) : (
                             <button
                                 className="w-full flex gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 cursor-pointer transition-colors group text-left"
-                                onClick={() => {
-                                    // Find actual index in events array (not timeline which may include stories/gaps)
-                                    onEditEvent(virtualItem.index);
-                                }}
+                                onClick={() => onEditEvent(event)}
                             >
                                 <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center shrink-0 group-hover:bg-primary/10">
                                     <IconComp className="h-4 w-4 text-muted-foreground group-hover:text-primary" />

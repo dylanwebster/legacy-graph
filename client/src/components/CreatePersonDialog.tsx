@@ -33,7 +33,7 @@ export function CreatePersonDialog({ isOpen, onClose, onCreated }: CreatePersonD
         }
         createPerson.mutate(
             {
-                names: [{ given: firstName.trim(), surname: lastName.trim(), primary: true }],
+                names: [{ first: firstName.trim(), last: lastName.trim(), primary: true }],
                 sex,
             },
             {
