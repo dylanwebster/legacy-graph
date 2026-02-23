@@ -482,30 +482,39 @@ Searchable, sortable table of all people. Simpler than the Holy Grail — good w
 - [x] Virtual scrolling via `@tanstack/react-virtual`
 - [x] Paginated via `GET /api/people?limit=50&offset=0`
 
-#### 4.5 The "Holy Grail" Person Detail Page — COMPLETE ✅
+#### 4.5 The "Holy Grail" Person Detail Page — PARTIAL 🔧
 
 The most critical view. 3-column resizable layout (spec Section 6.5).
 
-- [x] **Panel framework**: Integrate `react-resizable-panels` for the 3-column layout (20%/50%/30% default). Responsive: stacked below 768px.
+- [x] **Panel framework**: Integrate `react-resizable-panels` for the 3-column layout (22%/50%/28% default). Responsive: stacked below 768px.
   - *Bug Fix*: Resolved issue where panels collapsed to 15-40px and handles were unresponsive by using percentage strings (e.g., `"50%"`) instead of numeric values (which default to `px` in v4.6.5) for `defaultSize`/`minSize`/`maxSize`, and changing the `<main>` container to `overflow-hidden`.
-- [x] **Identity Panel** (left):
+- [x] **Identity Panel** (left) — basic:
   - Avatar (photo or initials)
+  - Display name, sex badge
+  - Vital dates derived from `events[]` (birth/death), read-only
+  - Relationship sections (Parents, Spouses, Children, Siblings) — renders ID links from `_computed` (not `PersonChip`/`HoverCard`)
+  - Tags displayed as badges, read-only
+- [ ] **Identity Panel** — pending:
   - Click-to-edit name (inline, optimistic `PUT /people/:id`)
-  - Vital dates (click-to-edit), sex badge
-  - Relationship sections (Parents, Spouses, Children, Siblings) from `_computed`
-  - Each person as `PersonChip` — hover → `HoverCard` preview, click → navigate
+  - Click-to-edit vital dates
+  - `PersonChip` with `HoverCard` previews on relationship links
   - Inline editable tags
-- [x] **Timeline Feed** (center):
-  - Virtualized via `@tanstack/react-virtual`
-  - TanStack Query `useInfiniteQuery` for pagination (`timeline_limit`/`timeline_offset`)
+- [x] **Timeline Feed** (center) — basic:
+  - Events rendered via simple `.map` from `person.timeline`
+  - "+ Add Event" button (non-functional placeholder)
+- [ ] **Timeline Feed** — pending:
+  - Virtualization via `@tanstack/react-virtual`
+  - `useInfiniteQuery` for paginated scroll (`timeline_limit`/`timeline_offset`)
   - `EventCard`, `StoryCard`, `GapIndicator` components
-  - "+ Add Event" button → opens Event Editor modal
   - Click event → opens Event Editor pre-filled
 - [x] **Context Panel** (right):
-  - Tabbed: Assets | Notebook | Raw YAML
-  - Assets: thumbnail grid from `/assets/`, drag-drop upload
-  - Notebook: rendered `scrapbook_md` + textarea editor (Tiptap in Phase 5.1)
-  - Raw YAML: syntax-highlighted read-only view
+  - Tabbed: Assets | Notebook | GEDCOM
+  - Assets: thumbnail grid from `/assets/`
+  - Notebook: renders `scrapbook_md` as read-only text
+  - GEDCOM: shows `_gedcom` as JSON
+- [ ] **Context Panel** — pending:
+  - Drag-drop asset upload
+  - Notebook textarea editor (Tiptap in Phase 5.1)
 
 #### 4.6 Event & Relationship Editors — COMPLETE ✅
 
