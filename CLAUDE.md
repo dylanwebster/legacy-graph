@@ -10,7 +10,7 @@ Self-hosted genealogy platform. File-system-first, Git-versioned, in-memory grap
 ```bash
 npm test          # Run all Vitest tests (199 passing, 0 skipped)
 npm run build     # tsc --noEmit (type-check only)
-npm start         # tsx src/index.ts
+npm start         # tsx --env-file=.env src/index.ts
 ```
 
 ### Frontend
@@ -18,6 +18,11 @@ npm start         # tsx src/index.ts
 cd client
 npm run dev       # Vite dev server (proxies /api → localhost:3000)
 npm run build     # Production build → client/dist/
+```
+
+### Kill Stale Backend Server
+```bash
+lsof -ti :3000 | xargs kill
 ```
 
 ---

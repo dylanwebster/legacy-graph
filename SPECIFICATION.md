@@ -4,7 +4,7 @@
 
 ## **1. Executive Summary & Core Axioms**
 
-LegacyGraph is a professional-grade, self-hosted genealogy platform. It rejects proprietary database "lock-in", treating family history as a durable, version-controlled, human-readable file system.
+LegacyGraph is a self-hosted genealogy platform. It rejects proprietary database "lock-in", treating family history as a durable, version-controlled, human-readable file system.
 
 ### **1.1 Core Axioms**
 
