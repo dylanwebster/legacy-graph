@@ -112,6 +112,33 @@ describe('Fastify API Server', () => {
         });
     });
 
+    describe('GET /api/stats', () => {
+        it('should return dashboard statistics', async () => {
+            const response = await request.get('/api/stats');
+
+            expect(response.status).toBe(200);
+            expect(response.body).toHaveProperty('totalPeople');
+            expect(response.body).toHaveProperty('totalFamilies');
+            expect(response.body).toHaveProperty('lastModified');
+        });
+    });
+
+    describe('GET /api/people', () => {
+        it('should return a paginated list of all people', async () => {
+            const response = await request.get('/api/people').query({ limit: 10, offset: 0 });
+
+            expect(response.status).toBe(200);
+            expect(response.body).toHaveProperty('people');
+            expect(response.body).toHaveProperty('totalCount');
+            expect(Array.isArray(response.body.people)).toBe(true);
+        });
+
+        it('should respect limit, offset, sort, and order parameters', async () => {
+            const response = await request.get('/api/people').query({ limit: 5, offset: 5, sort: 'last_modified', order: 'desc' });
+            expect(response.status).toBe(200);
+        });
+    });
+
     describe('GET /api/people/:id', () => {
         it('should return 404 for non-existent person', async () => {
             const response = await request.get('/api/people/N_nonexistent');

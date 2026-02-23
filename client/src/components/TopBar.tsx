@@ -1,0 +1,60 @@
+import { Menu, Search } from 'lucide-react';
+import { useUIStore } from '@/store/uiStore';
+import { Button } from '@/components/ui/button';
+import {
+    Breadcrumb,
+    BreadcrumbItem,
+    BreadcrumbLink,
+    BreadcrumbList,
+    BreadcrumbPage,
+    BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
+
+export function TopBar() {
+    const { toggleSidebar, setSearchOpen } = useUIStore();
+
+    return (
+        <div className="flex h-14 items-center justify-between border-b border-border bg-background px-4 lg:px-6 z-10 w-full shrink-0">
+            <div className="flex items-center gap-4">
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="md:hidden shrink-0"
+                    onClick={toggleSidebar}
+                >
+                    <Menu className="h-5 w-5" />
+                    <span className="sr-only">Toggle sidebar</span>
+                </Button>
+
+                <div className="hidden sm:block">
+                    <Breadcrumb>
+                        <BreadcrumbList>
+                            <BreadcrumbItem>
+                                <BreadcrumbLink href="/">Home</BreadcrumbLink>
+                            </BreadcrumbItem>
+                            <BreadcrumbSeparator />
+                            <BreadcrumbItem>
+                                <BreadcrumbPage>Current Page</BreadcrumbPage>
+                            </BreadcrumbItem>
+                        </BreadcrumbList>
+                    </Breadcrumb>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+                <Button
+                    variant="outline"
+                    className="w-full justify-start text-sm text-muted-foreground sm:w-64 pr-2 hover:bg-muted/50 transition-colors"
+                    onClick={() => setSearchOpen(true)}
+                >
+                    <Search className="mr-2 h-4 w-4 shrink-0" />
+                    <span className="hidden lg:inline-flex">Search people & families...</span>
+                    <span className="inline-flex lg:hidden">Search...</span>
+                    <kbd className="pointer-events-none ml-auto hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100 sm:flex">
+                        <span className="text-xs">⌘</span>K
+                    </kbd>
+                </Button>
+            </div>
+        </div>
+    );
+}
