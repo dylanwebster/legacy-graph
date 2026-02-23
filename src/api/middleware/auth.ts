@@ -61,7 +61,7 @@ export function issueToken(authConfig: AuthConfig, username: string): string {
     return jwt.sign(
         { username },
         authConfig.jwt_secret,
-        { expiresIn: authConfig.session_expiry }
+        { expiresIn: authConfig.session_expiry as any }
     );
 }
 
