@@ -9,7 +9,7 @@ interface CustomAvatarProps {
 
 export function CustomAvatar({ photoFilename, firstName, lastName, className }: CustomAvatarProps) {
     const initials = `${firstName?.[0] || ""}${lastName?.[0] || ""}`.toUpperCase() || "?";
-    const imageUrl = photoFilename ? `/api/assets/${photoFilename}` : undefined;
+    const imageUrl = photoFilename ? `/assets/${photoFilename}` : undefined;
 
     return (
         <Avatar className={className}>

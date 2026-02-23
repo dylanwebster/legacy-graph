@@ -1,4 +1,4 @@
-import { createLazyFileRoute } from '@tanstack/react-router';
+import { createLazyFileRoute, Link } from '@tanstack/react-router';
 import { usePerson } from '@/api/hooks';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { Badge } from '@/components/ui/badge';
@@ -65,19 +65,32 @@ function PersonDetail() {
     const lastName = primaryName?.last || primaryName?.surname || '';
     const displayName = `${firstName} ${lastName}`.trim() || 'Unknown';
     const timeline = person.timeline ?? [];
-    const relationships = person._computed ?? {};
+    const computed = person._computed ?? { currentSpouse: null, siblings: [], children: [], allSpouses: [] };
     const tags = person.tags ?? [];
 
+    // Derive birth/death dates from events
+    const events = (person.events ?? []) as Array<Record<string, string>>;
+    const birthDate = events.find((e) => e.type === 'birth')?.date;
+    const deathDate = events.find((e) => e.type === 'death')?.date;
+
+    // Build relationship ID arrays from the actual _computed shape
+    const parentIds = person.relationships?.parents?.map((p) => p.id) ?? [];
+    const spouseIds = computed.allSpouses?.map((s) => s.id) ?? [];
+    const childIds = computed.children ?? [];
+    const siblingIds = computed.siblings ?? [];
+
+    const hasRelationships = parentIds.length > 0 || spouseIds.length > 0 || childIds.length > 0 || siblingIds.length > 0;
+
     return (
-        <ResizablePanelGroup orientation="horizontal" className="h-full">
+        <ResizablePanelGroup direction="horizontal" className="h-full">
             {/* Identity Panel */}
-            <ResizablePanel defaultSize="22%" minSize="15%" maxSize="35%">
+            <ResizablePanel defaultSize={22} minSize={15} maxSize={35}>
                 <div className="h-full overflow-y-auto p-4 space-y-6">
                     {/* Avatar + Name */}
                     <div className="flex flex-col items-center text-center gap-3 pt-2">
                         <CustomAvatar
-                            firstName={primaryName?.given}
-                            lastName={primaryName?.surname}
+                            firstName={primaryName?.given ?? firstName}
+                            lastName={primaryName?.surname ?? lastName}
                             photoFilename={person.assets?.[0]}
                             className="h-20 w-20 text-2xl"
                         />
@@ -96,27 +109,27 @@ function PersonDetail() {
                         <div className="flex items-center gap-2 text-sm">
                             <Badge variant="outline" className="text-xs px-1.5">{person.sex ?? 'U'}</Badge>
                         </div>
-                        {person.birthDate && (
+                        {birthDate && (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Calendar className="h-4 w-4 shrink-0" />
-                                <span>b. {person.birthDate}</span>
+                                <span>b. {birthDate}</span>
                             </div>
                         )}
-                        {person.deathDate && (
+                        {deathDate && (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Skull className="h-4 w-4 shrink-0" />
-                                <span>d. {person.deathDate}</span>
+                                <span>d. {deathDate}</span>
                             </div>
                         )}
                     </div>
 
                     {/* Relationships */}
-                    {((relationships.parents?.length ?? 0) > 0 || (relationships.spouses?.length ?? 0) > 0 || (relationships.children?.length ?? 0) > 0 || (relationships.siblings?.length ?? 0) > 0) && (
+                    {hasRelationships && (
                         <div className="space-y-3 border-t border-border pt-4">
-                            <RelationshipSection title="Parents" people={relationships.parents} />
-                            <RelationshipSection title="Spouses" people={relationships.spouses} />
-                            <RelationshipSection title="Children" people={relationships.children} />
-                            <RelationshipSection title="Siblings" people={relationships.siblings} />
+                            <RelationshipSection title="Parents" ids={parentIds} />
+                            <RelationshipSection title="Spouses" ids={spouseIds} />
+                            <RelationshipSection title="Children" ids={childIds} />
+                            <RelationshipSection title="Siblings" ids={siblingIds} />
                         </div>
                     )}
 
@@ -137,7 +150,7 @@ function PersonDetail() {
             <ResizableHandle withHandle />
 
             {/* Timeline Panel */}
-            <ResizablePanel defaultSize="50%" minSize="30%">
+            <ResizablePanel defaultSize={50} minSize={30}>
                 <div className="h-full flex flex-col">
                     <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                         <h3 className="text-sm font-semibold">Timeline</h3>
@@ -151,7 +164,7 @@ function PersonDetail() {
                                 No events recorded yet.
                             </div>
                         ) : (
-                            timeline.map((event: Record<string, string>, idx: number) => {
+                            (timeline as Array<Record<string, string>>).map((event, idx: number) => {
                                 const IconComp = EVENT_ICONS[event.type] ?? Calendar;
                                 return (
                                     <div
@@ -190,7 +203,7 @@ function PersonDetail() {
             <ResizableHandle withHandle />
 
             {/* Context Panel */}
-            <ResizablePanel defaultSize="28%" minSize="15%" maxSize="40%">
+            <ResizablePanel defaultSize={28} minSize={15} maxSize={40}>
                 <Tabs defaultValue="assets" className="h-full flex flex-col">
                     <TabsList className="w-full justify-start rounded-none border-b border-border bg-transparent px-2 pt-1">
                         <TabsTrigger value="assets" className="gap-1.5 text-xs">
@@ -199,8 +212,8 @@ function PersonDetail() {
                         <TabsTrigger value="notebook" className="gap-1.5 text-xs">
                             <BookOpen className="h-3.5 w-3.5" /> Notebook
                         </TabsTrigger>
-                        <TabsTrigger value="yaml" className="gap-1.5 text-xs">
-                            <Code className="h-3.5 w-3.5" /> Raw YAML
+                        <TabsTrigger value="gedcom" className="gap-1.5 text-xs">
+                            <Code className="h-3.5 w-3.5" /> GEDCOM
                         </TabsTrigger>
                     </TabsList>
                     <TabsContent value="assets" className="flex-1 overflow-auto p-4 mt-0">
@@ -208,7 +221,7 @@ function PersonDetail() {
                             <div className="grid grid-cols-2 gap-2">
                                 {person.assets.map((asset: string, idx: number) => (
                                     <div key={idx} className="aspect-square rounded-lg bg-muted border border-border flex items-center justify-center overflow-hidden">
-                                        <img src={`/api/assets/${asset}`} alt={asset} className="object-cover w-full h-full" loading="lazy" />
+                                        <img src={`/assets/${asset}`} alt={asset} className="object-cover w-full h-full" loading="lazy" />
                                     </div>
                                 ))}
                             </div>
@@ -225,13 +238,13 @@ function PersonDetail() {
                             <div className="p-8 text-center text-muted-foreground text-sm">No notebook entries</div>
                         )}
                     </TabsContent>
-                    <TabsContent value="yaml" className="flex-1 overflow-auto p-4 mt-0">
-                        {person._raw_yaml ? (
+                    <TabsContent value="gedcom" className="flex-1 overflow-auto p-4 mt-0">
+                        {person._gedcom ? (
                             <pre className="text-xs font-mono bg-muted/50 p-4 rounded-lg overflow-auto whitespace-pre-wrap">
-                                {person._raw_yaml}
+                                {JSON.stringify(person._gedcom, null, 2)}
                             </pre>
                         ) : (
-                            <div className="p-8 text-center text-muted-foreground text-sm">Raw YAML not available</div>
+                            <div className="p-8 text-center text-muted-foreground text-sm">No GEDCOM data available</div>
                         )}
                     </TabsContent>
                 </Tabs>
@@ -240,25 +253,22 @@ function PersonDetail() {
     );
 }
 
-function RelationshipSection({ title, people }: { title: string; people?: Array<Record<string, string>> }) {
-    if (!people || people.length === 0) return null;
+function RelationshipSection({ title, ids }: { title: string; ids?: string[] }) {
+    if (!ids || ids.length === 0) return null;
     return (
         <div>
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">{title}</h3>
             <div className="space-y-1">
-                {people.map((person, idx) => (
-                    <a
-                        key={idx}
-                        href={`/people/${person.id}`}
+                {ids.map((id) => (
+                    <Link
+                        key={id}
+                        to="/people/$id"
+                        params={{ id }}
                         className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 transition-colors text-sm"
                     >
-                        <CustomAvatar
-                            firstName={person.given}
-                            lastName={person.surname}
-                            className="h-6 w-6 text-[10px]"
-                        />
-                        <span className="truncate">{person.given || ''} {person.surname || ''}</span>
-                    </a>
+                        <CustomAvatar className="h-6 w-6 text-[10px]" />
+                        <span className="truncate font-mono text-xs">{id}</span>
+                    </Link>
                 ))}
             </div>
         </div>

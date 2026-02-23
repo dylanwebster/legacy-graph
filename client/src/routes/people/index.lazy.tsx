@@ -16,13 +16,13 @@ export const Route = createLazyFileRoute('/people/')({
 
 const PAGE_SIZE = 50;
 
-type SortField = 'name' | 'birthDate' | 'deathDate' | 'last_modified';
+type SortField = 'birthDate' | 'deathDate' | 'last_modified';
 type SortOrder = 'asc' | 'desc';
 
 function PeopleBrowse() {
     const [offset, setOffset] = useState(0);
-    const [sort, setSort] = useState<SortField>('name');
-    const [order, setOrder] = useState<SortOrder>('asc');
+    const [sort, setSort] = useState<SortField>('last_modified');
+    const [order, setOrder] = useState<SortOrder>('desc');
     const [filter, setFilter] = useState('');
     const navigate = useNavigate();
 
@@ -97,9 +97,7 @@ function PeopleBrowse() {
             <div className="px-4 lg:px-6 pt-4">
                 <div className="grid grid-cols-[48px_1fr_100px_100px_1fr_60px] gap-3 px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider border-b border-border">
                     <div></div>
-                    <button onClick={() => toggleSort('name')} className="flex items-center hover:text-foreground transition-colors text-left">
-                        Name <SortIcon field="name" />
-                    </button>
+                    <div>Name</div>
                     <button onClick={() => toggleSort('birthDate')} className="flex items-center hover:text-foreground transition-colors text-left">
                         Born <SortIcon field="birthDate" />
                     </button>
@@ -107,7 +105,7 @@ function PeopleBrowse() {
                         Died <SortIcon field="deathDate" />
                     </button>
                     <div>Tags</div>
-                    <div className="text-right">Events</div>
+                    <div className="text-right">Assets</div>
                 </div>
             </div>
 

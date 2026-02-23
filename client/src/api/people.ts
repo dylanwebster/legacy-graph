@@ -23,18 +23,20 @@ export interface PersonDetail {
     id: string;
     names: PersonName[];
     sex?: string;
-    birthDate?: string;
-    deathDate?: string;
     tags: string[];
     assets: string[];
-    timeline: Array<Record<string, string>>;
+    events: Array<Record<string, unknown>>;
+    relationships: {
+        parents: Array<{ id: string; type: string }>;
+    };
+    timeline: Array<Record<string, unknown>>;
     scrapbook_md?: string;
-    _raw_yaml?: string;
+    _gedcom?: Record<string, unknown>;
     _computed: {
-        parents?: Array<Record<string, string>>;
-        spouses?: Array<Record<string, string>>;
-        children?: Array<Record<string, string>>;
-        siblings?: Array<Record<string, string>>;
+        currentSpouse: { id: string; status: string } | null;
+        siblings: string[];
+        children: string[];
+        allSpouses: Array<{ id: string; status: string; sortDate: string }>;
     };
     last_modified: string;
 }

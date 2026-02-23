@@ -42,6 +42,13 @@ export const useSystemStatus = () => {
     });
 };
 
+export const useStats = () => {
+    return useQuery({
+        queryKey: ['stats'],
+        queryFn: () => apiFetch<any>('/stats')
+    });
+};
+
 export const useUpdatePerson = () => {
     const queryClient = useQueryClient();
 
@@ -55,15 +62,16 @@ export const useUpdatePerson = () => {
         },
         onMutate: async ({ id, updates }) => {
             await queryClient.cancelQueries({ queryKey: ['person', id] });
-            const previousPerson = queryClient.getQueryData(['person', id]);
-            queryClient.setQueryData(['person', id], (old: any) => ({
-                ...old,
-                ...updates
-            }));
-            return { previousPerson };
+            const previousPersons = queryClient.getQueriesData({ queryKey: ['person', id] });
+            queryClient.setQueriesData({ queryKey: ['person', id] }, (old: any) =>
+                old ? { ...old, ...updates } : old
+            );
+            return { previousPersons };
         },
-        onError: (err, newPerson, context) => {
-            queryClient.setQueryData(['person', newPerson.id], context?.previousPerson);
+        onError: (_err, _newPerson, context) => {
+            (context?.previousPersons as [unknown, any][] | undefined)?.forEach(([key, data]) => {
+                queryClient.setQueryData(key as any, data);
+            });
         },
         onSettled: (data, error, variables) => {
             queryClient.invalidateQueries({ queryKey: ['person', variables.id] });

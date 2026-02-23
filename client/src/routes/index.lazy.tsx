@@ -1,5 +1,5 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
-import { useSystemStatus } from '@/api/hooks';
+import { useSystemStatus, useStats } from '@/api/hooks';
 import { usePeople } from '@/api/hooks';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Users, GitBranch, Clock, Activity } from 'lucide-react';
@@ -10,9 +10,10 @@ export const Route = createLazyFileRoute('/')({
 
 function Dashboard() {
   const { data: status, isLoading: statusLoading } = useSystemStatus();
+  const { data: statsData, isLoading: statsLoading } = useStats();
   const { data: peopleData, isLoading: peopleLoading } = usePeople({ limit: 1 });
 
-  const isLoading = statusLoading || peopleLoading;
+  const isLoading = statusLoading || statsLoading || peopleLoading;
 
   return (
     <div className="h-full overflow-auto p-6 space-y-8">
@@ -31,18 +32,18 @@ function Dashboard() {
         <StatCard
           icon={GitBranch}
           label="Relationships"
-          value={isLoading ? undefined : String(status?.stats?.edgeCount ?? 0)}
+          value={isLoading ? undefined : String(status?.edgeCount ?? 0)}
         />
         <StatCard
           icon={Clock}
           label="Last Modified"
-          value={isLoading ? undefined : (status?.stats?.last_modified ? new Date(status.stats.last_modified).toLocaleDateString() : '—')}
+          value={isLoading ? undefined : (statsData?.lastModified ? new Date(statsData.lastModified).toLocaleDateString() : '—')}
         />
         <StatCard
           icon={Activity}
           label="Engine Status"
           value={isLoading ? undefined : (status?.hydrationState ?? 'unknown')}
-          accent={status?.hydrationState === 'ready' ? 'green' : status?.hydrationState === 'hydrating' ? 'amber' : 'red'}
+          accent={status?.hydrationState === 'ready' ? 'green' : status?.hydrationState === 'loading' ? 'amber' : 'red'}
         />
       </div>
 

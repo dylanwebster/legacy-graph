@@ -69,9 +69,9 @@ function SettingsPage() {
                 ) : (
                     <div className="grid grid-cols-2 gap-4">
                         <StatusCard icon={Server} label="Hydration State" value={status?.hydrationState ?? 'unknown'} />
-                        <StatusCard icon={Database} label="Nodes" value={String(status?.stats?.nodeCount ?? '—')} />
-                        <StatusCard icon={Database} label="Edges" value={String(status?.stats?.edgeCount ?? '—')} />
-                        <StatusCard icon={Clock} label="Last Modified" value={status?.stats?.last_modified ? new Date(status.stats.last_modified).toLocaleString() : '—'} />
+                        <StatusCard icon={Database} label="Nodes" value={String(status?.nodeCount ?? '—')} />
+                        <StatusCard icon={Database} label="Edges" value={String(status?.edgeCount ?? '—')} />
+                        <StatusCard icon={Clock} label="Cache Written" value={status?.cacheAge ? new Date(status.cacheAge).toLocaleString() : '—'} />
                     </div>
                 )}
             </div>
@@ -124,7 +124,7 @@ function StatusCard({ icon: Icon, label, value }: { icon: typeof Server; label: 
                 <div className="text-sm font-medium truncate">
                     {value === 'ready' ? (
                         <Badge variant="default" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20">{value}</Badge>
-                    ) : value === 'hydrating' ? (
+                    ) : value === 'loading' ? (
                         <Badge variant="default" className="bg-amber-500/10 text-amber-500 border-amber-500/20">{value}</Badge>
                     ) : (
                         value

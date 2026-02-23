@@ -55,11 +55,12 @@ export function HydrationProgress() {
                 if (msgEvent.data) {
                     const data = JSON.parse(msgEvent.data);
                     setState({ status: 'error', error: data.message });
+                    evtSource.close();
                 }
+                // No data means a transient connection issue; let EventSource auto-reconnect
             } catch {
                 // Not a server-sent error event, ignore
             }
-            evtSource.close();
         });
 
         // Browser-level connection error (backend offline, network failure)

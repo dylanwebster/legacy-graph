@@ -126,7 +126,7 @@ export function CommandPalette() {
                                 <CommandItem
                                     key={story.id as string}
                                     value={`story-${story.id}`}
-                                    onSelect={() => handleSelect(story.id as string)}
+                                    onSelect={handleViewAll}
                                     className="flex items-center gap-3 py-2"
                                 >
                                     <BookOpen className="h-5 w-5 text-muted-foreground shrink-0" />

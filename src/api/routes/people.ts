@@ -53,8 +53,9 @@ export async function peopleRoutes(server: FastifyInstance) {
             }
         });
 
-        const sortBy = sort || 'last_modified';
-        const sortOrder = order === 'asc' ? 1 : -1;
+        const VALID_SORT_FIELDS = new Set(['last_modified', 'birthDate', 'deathDate', 'assetCount']);
+        const sortBy = (sort && VALID_SORT_FIELDS.has(sort)) ? sort : 'last_modified';
+        const sortOrder = (order === 'asc' || order === 'desc') ? (order === 'asc' ? 1 : -1) : -1;
 
         people.sort((a, b) => {
             const valA = a[sortBy] || '';

@@ -11,10 +11,10 @@ export function StatusDot({ className }: { className?: string }) {
     if (isLoading) {
         statusColor = 'bg-amber-500 animate-pulse';
         statusText = 'Connecting to engine...';
-    } else if (isError || data?.hydrationState === 'error') {
+    } else if (isError) {
         statusColor = 'bg-red-500';
         statusText = 'Engine offline or error';
-    } else if (data?.hydrationState === 'hydrating') {
+    } else if (data?.hydrationState === 'loading') {
         statusColor = 'bg-amber-500 animate-pulse';
         statusText = 'Hydrating graph...';
     } else if (data?.hydrationState === 'ready') {
@@ -32,9 +32,9 @@ export function StatusDot({ className }: { className?: string }) {
                 </TooltipTrigger>
                 <TooltipContent side="right">
                     <p className="text-sm font-medium">{statusText}</p>
-                    {data?.stats?.last_modified && (
+                    {data?.cacheAge && (
                         <p className="text-xs text-muted-foreground mt-1">
-                            Refreshed: {new Date(data.stats.last_modified).toLocaleString()}
+                            Cache written: {new Date(data.cacheAge).toLocaleString()}
                         </p>
                     )}
                 </TooltipContent>
