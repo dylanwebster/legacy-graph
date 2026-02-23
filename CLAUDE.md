@@ -1,6 +1,6 @@
 # LegacyGraph — Developer Guide
 
-Self-hosted genealogy platform. File-system-first, Git-versioned, in-memory graph runtime. See `spec.md` for the full technical specification and `PROGRESS.md` for implementation status.
+Self-hosted genealogy platform. File-system-first, Git-versioned, in-memory graph runtime. See `SPECIFICATION.md` for the full technical specification and `PROGRESS.md` for implementation status.
 
 ---
 
@@ -9,8 +9,8 @@ Self-hosted genealogy platform. File-system-first, Git-versioned, in-memory grap
 ### Backend
 ```bash
 npm test          # Run all Vitest tests (199 passing, 0 skipped)
-npm run build     # tsc → dist/
-npm start         # node dist/src/index.js
+npm run build     # tsc --noEmit (type-check only)
+npm start         # tsx src/index.ts
 ```
 
 ### Frontend
@@ -91,7 +91,7 @@ client/src/
 ## Core Principles
 
 1. **TDD is mandatory** — write a failing test before writing implementation code.
-2. **Spec-first** — `spec.md` is authoritative. Discrepancies between spec and code are critical bugs.
+2. **Spec-first** — `SPECIFICATION.md` is authoritative. Discrepancies between spec and code are critical bugs.
 3. **Slim Nodes** — `scrapbook_md` and `_gedcom` are stripped from the in-memory graph. Lazy-loaded from disk on `GET /people/:id`. This keeps ~100MB+ of idle text out of the V8 heap at 50K nodes.
 4. **Self-write dedup** — API writes register the file path in a write-origin set (`GraphEngine`). The file watcher skips hot-patching for self-written files. External edits (VS Code, `git checkout`) pass through normally.
 5. **Debounced commits** — `TransactionManager` batches writes into a single `isomorphic-git` commit every 5 seconds. No child processes for git.
