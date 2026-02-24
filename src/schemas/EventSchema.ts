@@ -3,8 +3,8 @@ import { nanoid } from 'nanoid';
 
 const BaseEvent = z.object({
     id: z.string().default(() => nanoid()),
-    date: z.string(), // "Bet. 1900 and 1910"
-    sort_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(), // ISO-8601, null if unparseable
+    date: z.string().default(''), // "Bet. 1900 and 1910" — optional, empty string when unknown
+    sort_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null), // ISO-8601, null if unparseable or absent
     location: z.string().optional(),
     description: z.string().optional(),
     assets: z.array(z.string()).default([]) // List of filenames/IDs

@@ -27,12 +27,10 @@ interface RelationshipEditorDialogProps {
 }
 
 function PersonSearchCombobox({
-    value,
     onChange,
     placeholder = 'Search people...',
     excludeIds = [],
 }: {
-    value: string;
     onChange: (id: string) => void;
     placeholder?: string;
     excludeIds?: string[];
@@ -69,9 +67,6 @@ function PersonSearchCombobox({
                 onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
                 className="h-8 text-sm"
             />
-            {value && !showDropdown && (
-                <p className="text-xs text-muted-foreground mt-1 font-mono">{value}</p>
-            )}
             {showDropdown && debouncedQuery && people.length > 0 && (
                 <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-md max-h-48 overflow-auto">
                     {people.map((p) => {
@@ -134,7 +129,7 @@ export function RelationshipEditorDialog({
     // --- Children state ---
     const [newChildId, setNewChildId] = useState('');
     const [newChildType, setNewChildType] = useState<typeof RELATIONSHIP_TYPES[number]>('biological');
-    const [addingChild, setAddingChild] = useState(false);
+    const [saving, setSaving] = useState(false);
 
     // --- Spouses state ---
     const [newSpouseId, setNewSpouseId] = useState('');
@@ -182,7 +177,7 @@ export function RelationshipEditorDialog({
     const handleAddChild = async () => {
         if (!newChildId) { toast.error('Please select a child.'); return; }
         if (currentChildIds.includes(newChildId)) { toast.error('Already a child.'); return; }
-        setAddingChild(true);
+        setSaving(true);
         try {
             const child = await peopleApi.getPerson(newChildId);
             const childParents = child.relationships?.parents ?? [];
@@ -190,76 +185,103 @@ export function RelationshipEditorDialog({
                 toast.error('Already linked as a parent of that person.');
                 return;
             }
-            updatePerson.mutate(
-                { id: newChildId, updates: { relationships: { parents: [...childParents, { id: personId, type: newChildType }] } } },
-                {
-                    onSuccess: () => { toast.success('Child added.'); setNewChildId(''); onClose(); },
-                    onError: () => toast.error('Failed to add child.'),
-                }
+            await updatePerson.mutateAsync(
+                { id: newChildId, updates: { relationships: { parents: [...childParents, { id: personId, type: newChildType }] } } }
             );
+            toast.success('Child added.');
+            setNewChildId('');
+            onClose();
         } catch {
-            toast.error('Could not load the selected person\'s data.');
+            toast.error('Failed to add child.');
         } finally {
-            setAddingChild(false);
+            setSaving(false);
         }
     };
 
     const handleRemoveChild = async (childId: string) => {
+        setSaving(true);
         try {
             const child = await peopleApi.getPerson(childId);
             const updatedParents = (child.relationships?.parents ?? []).filter((p) => p.id !== personId);
-            updatePerson.mutate(
-                { id: childId, updates: { relationships: { parents: updatedParents } } },
-                {
-                    onSuccess: () => toast.success('Child removed.'),
-                    onError: () => toast.error('Failed to remove child.'),
-                }
-            );
+            await updatePerson.mutateAsync({ id: childId, updates: { relationships: { parents: updatedParents } } });
+            toast.success('Child removed.');
         } catch {
-            toast.error('Could not load the child\'s data.');
+            toast.error('Failed to remove child.');
+        } finally {
+            setSaving(false);
         }
     };
 
     // ─── Spouses ────────────────────────────────────────────────────────────────
 
-    const handleAddSpouse = () => {
+    const handleAddSpouse = async () => {
         if (!newSpouseId) { toast.error('Please select a partner.'); return; }
         if (allSpouses.some((s) => s.id === newSpouseId)) { toast.error('Already linked as a spouse.'); return; }
-        const event: Record<string, unknown> = {
-            type: 'marriage',
-            partner_id: newSpouseId,
-            status: newSpouseStatus,
+
+        const buildEvent = (partnerId: string): Record<string, unknown> => {
+            const ev: Record<string, unknown> = { type: 'marriage', partner_id: partnerId, status: newSpouseStatus };
+            if (newSpouseDate.trim()) { ev.date = newSpouseDate.trim(); ev.sort_date = newSpouseDate.trim(); }
+            return ev;
         };
-        if (newSpouseDate.trim()) {
-            event.date = newSpouseDate.trim();
-            event.sort_date = newSpouseDate.trim();
-        }
-        updatePerson.mutate(
-            { id: personId, updates: { events: [...currentEvents, event] } },
-            {
-                onSuccess: () => { toast.success('Spouse added.'); setNewSpouseId(''); setNewSpouseDate(''); onClose(); },
-                onError: () => toast.error('Failed to add spouse.'),
+
+        setSaving(true);
+        try {
+            // Write marriage event on the current person
+            await updatePerson.mutateAsync({ id: personId, updates: { events: [...currentEvents, buildEvent(newSpouseId)] } });
+
+            // Write the reverse marriage event on the spouse so their page shows the link too
+            const spouse = await peopleApi.getPerson(newSpouseId);
+            const spouseEvents = (spouse.events ?? []) as Array<Record<string, unknown>>;
+            const alreadyLinked = spouseEvents.some(
+                (e) => (e.type === 'marriage' || e.type === 'divorce') && e.partner_id === personId
+            );
+            if (!alreadyLinked) {
+                await updatePerson.mutateAsync({ id: newSpouseId, updates: { events: [...spouseEvents, buildEvent(personId)] } });
             }
-        );
+
+            toast.success('Spouse added.');
+            setNewSpouseId('');
+            setNewSpouseDate('');
+            onClose();
+        } catch {
+            toast.error('Failed to add spouse.');
+        } finally {
+            setSaving(false);
+        }
     };
 
-    const handleRemoveSpouse = (spouseId: string) => {
-        // Remove the last marriage/divorce event that links this spouse
+    const handleRemoveSpouse = async (spouseId: string) => {
         const idx = currentEvents.reduceRight((found, e, i) =>
             found === -1 && (e.type === 'marriage' || e.type === 'divorce') && e.partner_id === spouseId ? i : found
         , -1);
         if (idx === -1) { toast.error('Could not find the marriage event to remove.'); return; }
-        const updatedEvents = currentEvents.filter((_, i) => i !== idx);
-        updatePerson.mutate(
-            { id: personId, updates: { events: updatedEvents } },
-            {
-                onSuccess: () => toast.success('Spouse removed.'),
-                onError: () => toast.error('Failed to remove spouse.'),
+
+        setSaving(true);
+        try {
+            // Remove marriage event from the current person
+            const updatedEvents = currentEvents.filter((_, i) => i !== idx);
+            await updatePerson.mutateAsync({ id: personId, updates: { events: updatedEvents } });
+
+            // Also remove the reverse event from the spouse's record
+            const spouse = await peopleApi.getPerson(spouseId);
+            const spouseEvents = (spouse.events ?? []) as Array<Record<string, unknown>>;
+            const reverseIdx = spouseEvents.reduceRight((found, e, i) =>
+                found === -1 && (e.type === 'marriage' || e.type === 'divorce') && e.partner_id === personId ? i : found
+            , -1);
+            if (reverseIdx !== -1) {
+                const updatedSpouseEvents = spouseEvents.filter((_, i) => i !== reverseIdx);
+                await updatePerson.mutateAsync({ id: spouseId, updates: { events: updatedSpouseEvents } });
             }
-        );
+
+            toast.success('Spouse removed.');
+        } catch {
+            toast.error('Failed to remove spouse.');
+        } finally {
+            setSaving(false);
+        }
     };
 
-    const isSaving = updatePerson.isPending || addingChild;
+    const isSaving = updatePerson.isPending || saving;
     const currentParentIds = currentParents.map((p) => p.id);
     const currentSpouseIds = allSpouses.map((s) => s.id);
 
@@ -307,7 +329,7 @@ export function RelationshipEditorDialog({
                             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Add parent</p>
                             <div className="space-y-1">
                                 <label className="text-xs font-medium">Search</label>
-                                <PersonSearchCombobox value={newParentId} onChange={setNewParentId} excludeIds={[personId, ...currentParentIds]} />
+                                <PersonSearchCombobox onChange={setNewParentId} excludeIds={[personId, ...currentParentIds]} />
                             </div>
                             <div className="space-y-1">
                                 <label className="text-xs font-medium">Relationship type</label>
@@ -345,7 +367,7 @@ export function RelationshipEditorDialog({
                             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Add child</p>
                             <div className="space-y-1">
                                 <label className="text-xs font-medium">Search</label>
-                                <PersonSearchCombobox value={newChildId} onChange={setNewChildId} excludeIds={[personId, ...currentChildIds]} />
+                                <PersonSearchCombobox onChange={setNewChildId} excludeIds={[personId, ...currentChildIds]} />
                             </div>
                             <div className="space-y-1">
                                 <label className="text-xs font-medium">Relationship type</label>
@@ -384,7 +406,7 @@ export function RelationshipEditorDialog({
                             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Add spouse</p>
                             <div className="space-y-1">
                                 <label className="text-xs font-medium">Search</label>
-                                <PersonSearchCombobox value={newSpouseId} onChange={setNewSpouseId} excludeIds={[personId, ...currentSpouseIds]} />
+                                <PersonSearchCombobox onChange={setNewSpouseId} excludeIds={[personId, ...currentSpouseIds]} />
                             </div>
                             <div className="space-y-1">
                                 <label className="text-xs font-medium">Status</label>

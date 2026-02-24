@@ -26,11 +26,9 @@ interface EventEditorDialogProps {
 
 // Debounced person search combobox
 function PersonSearchCombobox({
-    value,
     onChange,
     placeholder = 'Search people...',
 }: {
-    value: string;
     onChange: (id: string) => void;
     placeholder?: string;
 }) {
@@ -67,9 +65,6 @@ function PersonSearchCombobox({
                 onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
                 className="h-8 text-sm"
             />
-            {value && !showDropdown && (
-                <p className="text-xs text-muted-foreground mt-1 font-mono">{value}</p>
-            )}
             {showDropdown && debouncedQuery && people.length > 0 && (
                 <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-md max-h-48 overflow-auto">
                     {people.map((p) => {
@@ -318,7 +313,7 @@ export function EventEditorDialog({
                             <label className="text-xs font-medium">
                                 Partner <span className="text-destructive">*</span>
                             </label>
-                            <PersonSearchCombobox value={partnerId} onChange={setPartnerId} />
+                            <PersonSearchCombobox onChange={setPartnerId} />
                         </div>
                     )}
 
