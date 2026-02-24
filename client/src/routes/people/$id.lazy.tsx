@@ -309,12 +309,13 @@ function PersonDetail() {
     // --- Event editor ---
     const openAddEvent = () => openEventDialog();
 
-    const openEditEvent = (eventData: Record<string, unknown>) => {
-        // Map the timeline item back to its index in the events array.
-        // Timeline may include gap pseudo-events and story items that are not in events[].
-        const idx = events.findIndex((e) => JSON.stringify(e) === JSON.stringify(eventData));
+    const openEditEvent = (timelineItem: Record<string, unknown>) => {
+        // Timeline items have shape { type, sort_date, data: LegacyEvent }.
+        // The raw event matching person.events is in the 'data' field.
+        const rawEvent = (timelineItem.data ?? timelineItem) as Record<string, unknown>;
+        const idx = events.findIndex((e) => JSON.stringify(e) === JSON.stringify(rawEvent));
         if (idx < 0) return; // gap or story — not editable here
-        openEventDialog(eventData.type as string, idx);
+        openEventDialog(rawEvent.type as string, idx);
     };
 
     const existingEvent = editingEventIndex !== undefined ? events[editingEventIndex] : undefined;
@@ -807,9 +808,12 @@ function VirtualizedTimeline({
             className="px-4 py-3"
         >
             {rowVirtualizer.getVirtualItems().map((virtualItem) => {
-                const event = timeline[virtualItem.index];
-                const IconComp = EVENT_ICONS[event.type as string] ?? Calendar;
-                const isGap = event.type === 'gap';
+                const item = timeline[virtualItem.index];
+                const isGap = item.type === 'gap';
+                // Timeline items: { type, sort_date, data: LegacyEvent } for events.
+                // Actual fields (date, location, description) are nested in 'data'.
+                const details = (item.data as Record<string, unknown>) ?? item;
+                const IconComp = EVENT_ICONS[String(details.type ?? item.type)] ?? Calendar;
 
                 return (
                     <div
@@ -829,33 +833,33 @@ function VirtualizedTimeline({
                             <div className="flex items-center gap-2 py-2 px-3">
                                 <div className="h-px flex-1 bg-border" />
                                 <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                    {String(event.label ?? '—')}
+                                    {item.years ? `${item.years} year gap` : '—'}
                                 </span>
                                 <div className="h-px flex-1 bg-border" />
                             </div>
                         ) : (
                             <button
                                 className="w-full flex gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 cursor-pointer transition-colors group text-left"
-                                onClick={() => onEditEvent(event)}
+                                onClick={() => onEditEvent(item)}
                             >
                                 <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center shrink-0 group-hover:bg-primary/10">
                                     <IconComp className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
-                                        <span className="font-medium text-sm capitalize">{String(event.type ?? '')}</span>
-                                        {!!event.date && (
-                                            <span className="text-xs text-muted-foreground font-mono">{String(event.date)}</span>
+                                        <span className="font-medium text-sm capitalize">{String(details.type ?? item.type ?? '')}</span>
+                                        {!!details.date && (
+                                            <span className="text-xs text-muted-foreground font-mono">{String(details.date)}</span>
                                         )}
                                     </div>
-                                    {!!event.location && (
+                                    {!!details.location && (
                                         <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
                                             <MapPin className="h-3 w-3" />
-                                            <span className="truncate">{String(event.location)}</span>
+                                            <span className="truncate">{String(details.location)}</span>
                                         </div>
                                     )}
-                                    {!!event.description && (
-                                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{String(event.description)}</p>
+                                    {!!details.description && (
+                                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{String(details.description)}</p>
                                     )}
                                 </div>
                                 <ChevronRight className="h-4 w-4 text-muted-foreground self-center opacity-0 group-hover:opacity-100 transition-opacity" />
