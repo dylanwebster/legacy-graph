@@ -17,10 +17,10 @@ import {
 import {
     Calendar, MapPin, Heart, Skull, GraduationCap, Briefcase, Church,
     Ship, ScrollText, FileText, Plus, ChevronRight, Image, BookOpen, Code,
-    Pencil, X, Check, UserPlus,
+    Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2,
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -65,6 +65,7 @@ function PersonDetail() {
     // Dialog state
     const [eventDialogOpen, setEventDialogOpen] = useState(false);
     const [editingEventIndex, setEditingEventIndex] = useState<number | undefined>(undefined);
+    const [eventInitialType, setEventInitialType] = useState<string | undefined>(undefined);
     const [relationshipDialogOpen, setRelationshipDialogOpen] = useState(false);
 
     // Notebook editing state
@@ -74,8 +75,41 @@ function PersonDetail() {
     // Drag state for asset upload
     const [isDragOver, setIsDragOver] = useState(false);
 
+    // Asset panel state
+    const [lightboxAsset, setLightboxAsset] = useState<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+
     // Timeline virtualizer
     const timelineParentRef = useRef<HTMLDivElement>(null);
+
+    // Reset all editing state when navigating to a different person
+    useEffect(() => {
+        setEditingName(false);
+        setEditingSex(false);
+        setAddingTag(false);
+        setNewTag('');
+        setEventDialogOpen(false);
+        setEditingEventIndex(undefined);
+        setEventInitialType(undefined);
+        setRelationshipDialogOpen(false);
+        setEditingNotebook(false);
+        setLightboxAsset(null);
+    }, [id]);
+
+    // Lightbox keyboard navigation: ESC to close, arrow keys to navigate
+    useEffect(() => {
+        if (!lightboxAsset) return;
+        const assets = (person?.assets ?? []) as string[];
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') { setLightboxAsset(null); return; }
+            if (assets.length <= 1) return;
+            const idx = assets.indexOf(lightboxAsset);
+            if (e.key === 'ArrowLeft') setLightboxAsset(assets[(idx - 1 + assets.length) % assets.length]);
+            if (e.key === 'ArrowRight') setLightboxAsset(assets[(idx + 1) % assets.length]);
+        };
+        document.addEventListener('keydown', handler);
+        return () => document.removeEventListener('keydown', handler);
+    }, [lightboxAsset, person?.assets]);
 
     if (isLoading) {
         return (
@@ -208,12 +242,8 @@ function PersonDetail() {
         setEditingNotebook(false);
     };
 
-    // --- Asset drag-drop upload ---
-    const handleDrop = async (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragOver(false);
-        const file = e.dataTransfer.files?.[0];
-        if (!file) return;
+    // --- Asset upload (shared by drag-drop and file dialog) ---
+    const uploadFile = async (file: File) => {
         const formData = new FormData();
         formData.append('file', file);
         try {
@@ -226,19 +256,65 @@ function PersonDetail() {
         }
     };
 
-    // --- Event editor ---
-    const openAddEvent = () => {
-        setEditingEventIndex(undefined);
+    const handleDrop = async (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        const file = e.dataTransfer.files?.[0];
+        if (file) uploadFile(file);
+    };
+
+    const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) uploadFile(file);
+        e.target.value = '';
+    };
+
+    // Set an asset as primary (first in the assets array)
+    const handleSetPrimary = (filename: string) => {
+        const currentAssets = (person.assets ?? []) as string[];
+        if (currentAssets[0] === filename) return;
+        const updated = [filename, ...currentAssets.filter((a) => a !== filename)];
+        updatePerson.mutate(
+            { id, updates: { assets: updated } },
+            {
+                onSuccess: () => toast.success('Primary photo updated.'),
+                onError: () => toast.error('Failed to update primary photo.'),
+            }
+        );
+    };
+
+    // Delete an asset
+    const handleDeleteAsset = (filename: string) => {
+        const currentAssets = (person.assets ?? []) as string[];
+        const updated = currentAssets.filter((a) => a !== filename);
+        updatePerson.mutate(
+            { id, updates: { assets: updated } },
+            {
+                onSuccess: () => {
+                    toast.success('Asset deleted.');
+                    if (lightboxAsset === filename) setLightboxAsset(null);
+                },
+                onError: () => toast.error('Failed to delete asset.'),
+            }
+        );
+    };
+
+    // Open the event editor for a specific event type (or to edit an existing event)
+    const openEventDialog = (type?: string, eventIndex?: number) => {
+        setEditingEventIndex(eventIndex);
+        setEventInitialType(type);
         setEventDialogOpen(true);
     };
 
+    // --- Event editor ---
+    const openAddEvent = () => openEventDialog();
+
     const openEditEvent = (eventData: Record<string, unknown>) => {
         // Map the timeline item back to its index in the events array.
-        // Timeline may include __gap__ pseudo-events and story items that are not in events[].
+        // Timeline may include gap pseudo-events and story items that are not in events[].
         const idx = events.findIndex((e) => JSON.stringify(e) === JSON.stringify(eventData));
         if (idx < 0) return; // gap or story — not editable here
-        setEditingEventIndex(idx);
-        setEventDialogOpen(true);
+        openEventDialog(eventData.type as string, idx);
     };
 
     const existingEvent = editingEventIndex !== undefined ? events[editingEventIndex] : undefined;
@@ -256,6 +332,7 @@ function PersonDetail() {
                                 lastName={primaryName?.surname ?? lastName}
                                 photoFilename={person.assets?.[0]}
                                 className="h-20 w-20 text-2xl"
+                                onClick={person.assets?.length ? () => setLightboxAsset((person.assets as string[])[0]) : undefined}
                             />
                             <div className="w-full">
                                 {editingName ? (
@@ -344,17 +421,47 @@ function PersonDetail() {
                                     </button>
                                 )}
                             </div>
-                            {birthDate && (
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            {birthDate ? (
+                                <button
+                                    className="group flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                                    onClick={() => openEventDialog('birth', events.findIndex((e) => e.type === 'birth'))}
+                                    title="Edit birth event"
+                                >
                                     <Calendar className="h-4 w-4 shrink-0" />
                                     <span>b. {birthDate}</span>
-                                </div>
+                                    <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                </button>
+                            ) : (
+                                <button
+                                    className="flex items-center gap-2 text-sm text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                                    onClick={() => openEventDialog('birth')}
+                                    title="Add birth event"
+                                >
+                                    <Calendar className="h-4 w-4 shrink-0" />
+                                    <span>Add birth date</span>
+                                    <Plus className="h-3 w-3" />
+                                </button>
                             )}
-                            {deathDate && (
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            {deathDate ? (
+                                <button
+                                    className="group flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                                    onClick={() => openEventDialog('death', events.findIndex((e) => e.type === 'death'))}
+                                    title="Edit death event"
+                                >
                                     <Skull className="h-4 w-4 shrink-0" />
                                     <span>d. {deathDate}</span>
-                                </div>
+                                    <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                </button>
+                            ) : (
+                                <button
+                                    className="flex items-center gap-2 text-sm text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                                    onClick={() => openEventDialog('death')}
+                                    title="Add death event"
+                                >
+                                    <Skull className="h-4 w-4 shrink-0" />
+                                    <span>Add death date</span>
+                                    <Plus className="h-3 w-3" />
+                                </button>
                             )}
                         </div>
 
@@ -466,28 +573,85 @@ function PersonDetail() {
                             </TabsTrigger>
                         </TabsList>
 
-                        {/* Assets tab with drag-drop */}
+                        {/* Assets tab with drag-drop + file dialog + gallery */}
                         <TabsContent value="assets" className="flex-1 overflow-auto p-4 mt-0">
+                            {/* Hidden file input */}
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*,video/*,.pdf"
+                                className="hidden"
+                                onChange={handleFileInputChange}
+                            />
+                            {/* Upload zone */}
                             <div
-                                className={`min-h-[80px] rounded-lg border-2 border-dashed transition-colors mb-3 flex items-center justify-center text-xs text-muted-foreground ${
-                                    isDragOver ? 'border-primary bg-primary/5' : 'border-border'
+                                className={`rounded-lg border-2 border-dashed transition-colors mb-3 flex flex-col items-center justify-center gap-2 py-4 text-xs text-muted-foreground ${
+                                    isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground/40'
                                 }`}
                                 onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
                                 onDragLeave={() => setIsDragOver(false)}
                                 onDrop={handleDrop}
                             >
-                                {isDragOver ? 'Drop to upload' : 'Drag & drop an image here'}
+                                <Upload className="h-5 w-5 opacity-50" />
+                                <span>{isDragOver ? 'Drop to upload' : 'Drop files here'}</span>
+                                <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="px-2.5 py-1 rounded border border-border text-xs hover:bg-muted transition-colors"
+                                >
+                                    Browse files
+                                </button>
                             </div>
-                            {person.assets?.length > 0 ? (
+                            {(person.assets?.length ?? 0) > 0 ? (
                                 <div className="grid grid-cols-2 gap-2">
-                                    {person.assets.map((asset: string, idx: number) => (
-                                        <div key={idx} className="aspect-square rounded-lg bg-muted border border-border flex items-center justify-center overflow-hidden">
-                                            <img src={`/assets/${asset}`} alt={asset} className="object-cover w-full h-full" loading="lazy" />
+                                    {(person.assets as string[]).map((asset, idx) => (
+                                        <div key={asset} className="group relative aspect-square rounded-lg bg-muted border border-border overflow-hidden">
+                                            <img
+                                                src={`/assets/${asset}`}
+                                                alt={asset}
+                                                className="object-contain w-full h-full"
+                                                loading="lazy"
+                                            />
+                                            {/* Primary badge */}
+                                            {idx === 0 && (
+                                                <div className="absolute top-1 left-1 bg-primary/80 text-primary-foreground rounded px-1 py-0.5 text-[10px] font-medium flex items-center gap-0.5">
+                                                    <Star className="h-2.5 w-2.5" /> Primary
+                                                </div>
+                                            )}
+                                            {/* Hover controls */}
+                                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    title="View full size"
+                                                    onClick={() => setLightboxAsset(asset)}
+                                                    className="p-1.5 rounded-full bg-white/20 hover:bg-white/30 text-white"
+                                                >
+                                                    <ZoomIn className="h-4 w-4" />
+                                                </button>
+                                                {idx !== 0 && (
+                                                    <button
+                                                        type="button"
+                                                        title="Set as primary photo"
+                                                        onClick={() => handleSetPrimary(asset)}
+                                                        className="p-1.5 rounded-full bg-white/20 hover:bg-white/30 text-white"
+                                                    >
+                                                        <Star className="h-4 w-4" />
+                                                    </button>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    title="Delete asset"
+                                                    onClick={(e) => { e.stopPropagation(); handleDeleteAsset(asset); }}
+                                                    className="p-1.5 rounded-full bg-white/20 hover:bg-red-500/70 text-white"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </button>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
                             ) : (
-                                <div className="text-center text-muted-foreground text-sm">No assets</div>
+                                <div className="text-center text-muted-foreground text-sm py-4">No assets yet</div>
                             )}
                         </TabsContent>
 
@@ -537,14 +701,67 @@ function PersonDetail() {
                 </ResizablePanel>
             </ResizablePanelGroup>
 
+            {/* Asset Lightbox */}
+            {lightboxAsset && (
+                <div
+                    className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
+                    onClick={() => setLightboxAsset(null)}
+                >
+                    <button
+                        type="button"
+                        onClick={() => setLightboxAsset(null)}
+                        className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
+                    >
+                        <X className="h-5 w-5" />
+                    </button>
+                    {/* Navigate previous */}
+                    {(person.assets as string[]).length > 1 && (
+                        <button
+                            type="button"
+                            className="absolute left-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const assets = person.assets as string[];
+                                const idx = assets.indexOf(lightboxAsset);
+                                setLightboxAsset(assets[(idx - 1 + assets.length) % assets.length]);
+                            }}
+                        >
+                            <ChevronRight className="h-6 w-6 rotate-180" />
+                        </button>
+                    )}
+                    <img
+                        src={`/assets/${lightboxAsset}`}
+                        alt={lightboxAsset}
+                        className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                    {/* Navigate next */}
+                    {(person.assets as string[]).length > 1 && (
+                        <button
+                            type="button"
+                            className="absolute right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const assets = person.assets as string[];
+                                const idx = assets.indexOf(lightboxAsset);
+                                setLightboxAsset(assets[(idx + 1) % assets.length]);
+                            }}
+                        >
+                            <ChevronRight className="h-6 w-6" />
+                        </button>
+                    )}
+                </div>
+            )}
+
             {/* Dialogs */}
             <EventEditorDialog
                 isOpen={eventDialogOpen}
-                onClose={() => { setEventDialogOpen(false); setEditingEventIndex(undefined); }}
+                onClose={() => { setEventDialogOpen(false); setEditingEventIndex(undefined); setEventInitialType(undefined); }}
                 personId={id}
                 existingEvent={existingEvent}
                 existingEventIndex={editingEventIndex}
                 currentEvents={events}
+                initialEventType={eventInitialType as Parameters<typeof EventEditorDialog>[0]['initialEventType']}
             />
             <RelationshipEditorDialog
                 isOpen={relationshipDialogOpen}
@@ -592,7 +809,7 @@ function VirtualizedTimeline({
             {rowVirtualizer.getVirtualItems().map((virtualItem) => {
                 const event = timeline[virtualItem.index];
                 const IconComp = EVENT_ICONS[event.type as string] ?? Calendar;
-                const isGap = event.type === '__gap__';
+                const isGap = event.type === 'gap';
 
                 return (
                     <div

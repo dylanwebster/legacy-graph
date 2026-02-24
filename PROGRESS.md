@@ -4,8 +4,8 @@
 > For the _how far_ and _what's next_, read this document.
 
 **Last Updated**: 2026-02-23
-**Test Suite**: 199 passing, 0 skipped (199 total)
-**Overall Completion**: ~80% of full spec (backend complete, frontend substantially complete)
+**Test Suite**: 204 passing, 0 skipped (204 total)
+**Overall Completion**: ~82% of full spec (backend complete, frontend substantially complete)
 
 ---
 
@@ -488,6 +488,10 @@ The most critical view. 3-column resizable layout (spec Section 6.5).
 
 - [x] **Panel framework**: Integrate `react-resizable-panels` for the 3-column layout (22%/50%/28% default). Responsive: stacked below 768px.
   - *Bug Fix*: Resolved issue where panels collapsed to 15-40px and handles were unresponsive by using percentage strings (e.g., `"50%"`) instead of numeric values (which default to `px` in v4.6.5) for `defaultSize`/`minSize`/`maxSize`, and changing the `<main>` container to `overflow-hidden`.
+  - *Bug Fix*: Events without `sort_date` were silently excluded from the timeline (`TimelineSlicer` skipped them). Fixed: undated events now appear at the end of the timeline. Added 2 new TDD tests.
+  - *Bug Fix*: Gap items from TimelineSlicer use `type: 'gap'` but frontend checked `type: '__gap__'`. Fixed.
+  - *Feature*: `e` keyboard shortcut on person page → enter name-edit mode.
+  - *Feature*: `EventEditorDialog` auto-populates Sort Date from Date when Date is already ISO format; adds hint "Required to appear on timeline".
 - [x] **Identity Panel** (left):
   - Avatar (photo or initials)
   - Display name, sex badge
@@ -505,7 +509,7 @@ The most critical view. 3-column resizable layout (spec Section 6.5).
   - Click event card → opens `EventEditorDialog` pre-filled for edit
 - [x] **Context Panel** (right):
   - Tabbed: Assets | Notebook | GEDCOM
-  - Assets: drag-drop upload zone (HTML5 `onDrop` → `PUT /people/:id/media`) + thumbnail grid
+  - Assets: drag-drop upload zone + "Browse files" button (hidden file input) + thumbnail gallery with hover controls: zoom/lightbox, ⭐ set-as-primary; first asset shown with Primary badge and used as avatar
   - Notebook: toggle edit mode → `<textarea>` for markdown editing → save via `PUT /people/:id`
   - GEDCOM: shows `_gedcom` as JSON
 
@@ -522,15 +526,19 @@ Full modal-based editors for data entry (spec Sections 6.5.5, 6.5.6).
   - Add mode: appends to events array; Edit mode: replaces at existing index
   - Save via `useUpdatePerson` with optimistic update + rollback
 - [x] **`RelationshipEditorDialog`** (`client/src/components/RelationshipEditorDialog.tsx`):
-  - Tabbed: "Add Parent" / "Remove Parent"
-  - Add: `PersonSearchCombobox` + relationship type selector (biological/adopted/step/foster)
-  - Remove: lists current parents via `PersonChip`, each with hover-reveal ×
+  - Tabbed: Parents / Children / Spouses — each with add + remove sections
+  - Add: `PersonSearchCombobox` (debounced search, no ID clutter in results) + relationship type selector
+  - Remove: lists current relationships via `PersonChip`, each with hover-reveal ×
   - Save via `PUT /people/:id` (backend handles edge reconciliation)
+  - Child add/remove invalidates parent person query so UI refreshes without reload
+  - Spouse date: two separate fields (Date free-text + Sort Date ISO) to avoid schema validation error
+  - "Create '[name]'" option in every search combobox — opens `CreatePersonDialog` pre-filled, auto-selects new person on creation
 - [x] **`CreatePersonDialog`** (`client/src/components/CreatePersonDialog.tsx`):
-  - First name, last name, sex selector (M/F/I/U button group)
+  - First name, last name, sex selector (M/F/I/U button group, defaults to Male)
   - POST via `useCreatePerson` hook → `POST /api/people`
   - Invalidates `['people']` and `['search']` queries on success
   - `onCreated(id)` callback for use as person selector in other dialogs
+  - `initialFirstName` / `initialLastName` props for pre-population from relationship dialog
 - [x] **`PersonChip`** (`client/src/components/PersonChip.tsx`):
   - Link wrapping `HoverCard` — loads person data lazily only when card opens
   - HoverCard shows: avatar, full name, nanoid, birth/death dates, current spouse status

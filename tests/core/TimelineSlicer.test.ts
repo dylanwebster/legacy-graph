@@ -201,4 +201,38 @@ describe('TimelineSlicer', () => {
         expect(Array.isArray(result)).toBe(true);
         expect(result).toHaveLength(3); // birth, gap, death
     });
+
+    // --- Undated events (Phase 4 fix) ---
+
+    it('should include events without sort_date at the end of the timeline', () => {
+        const person = makePerson('N_undated', {
+            events: [
+                { id: 'e1', type: 'birth', date: '1900', sort_date: '1900-01-01', assets: [] } as any,
+                { id: 'e2', type: 'marriage', date: 'around 1925', sort_date: null, partner_id: 'N_x', status: 'married', assets: [] } as any,
+                { id: 'e3', type: 'generic', date: '', sort_date: null, assets: [] } as any,
+            ]
+        });
+        graph.addNode('N_undated', { type: 'person', data: person });
+
+        const timeline = sliceTimeline(graph, 'N_undated');
+        const nonGapItems = timeline.filter(item => item.type !== 'gap');
+        // All 3 events should appear; dated first, undated at end
+        expect(nonGapItems).toHaveLength(3);
+        expect(nonGapItems[0].type).toBe('birth');    // dated — sorted first
+        expect(nonGapItems[1].type).toBe('marriage'); // undated — appended
+        expect(nonGapItems[2].type).toBe('generic');  // undated — appended
+    });
+
+    it('should return timeline for a person with only undated events', () => {
+        const person = makePerson('N_nodates', {
+            events: [
+                { id: 'e1', type: 'generic', date: 'sometime', sort_date: null, assets: [] } as any,
+            ]
+        });
+        graph.addNode('N_nodates', { type: 'person', data: person });
+
+        const timeline = sliceTimeline(graph, 'N_nodates');
+        expect(timeline).toHaveLength(1);
+        expect(timeline[0].type).toBe('generic');
+    });
 });

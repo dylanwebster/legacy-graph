@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useUpdatePerson } from '@/api/hooks';
 import { useSearch } from '@/api/hooks';
 import { CustomAvatar } from '@/components/CustomAvatar';
+import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
@@ -22,6 +23,7 @@ interface EventEditorDialogProps {
     existingEvent?: Record<string, unknown>;
     existingEventIndex?: number;
     currentEvents: Array<Record<string, unknown>>;
+    initialEventType?: EventType;
 }
 
 // Debounced person search combobox
@@ -42,7 +44,6 @@ function PersonSearchCombobox({
     }, [query]);
 
     const { data: searchResults } = useSearch(debouncedQuery, { limit: 8 });
-
     const people = (searchResults?.people ?? []) as Array<{ id: string; name: string }>;
 
     const handleSelect = (id: string) => {
@@ -57,10 +58,7 @@ function PersonSearchCombobox({
             <Input
                 placeholder={placeholder}
                 value={query}
-                onChange={(e) => {
-                    setQuery(e.target.value);
-                    setShowDropdown(true);
-                }}
+                onChange={(e) => { setQuery(e.target.value); setShowDropdown(true); }}
                 onFocus={() => setShowDropdown(true)}
                 onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
                 className="h-8 text-sm"
@@ -80,7 +78,6 @@ function PersonSearchCombobox({
                             >
                                 <CustomAvatar firstName={first} lastName={last} className="h-5 w-5 text-[9px]" />
                                 <span className="truncate">{p.name || p.id}</span>
-                                <span className="ml-auto text-xs text-muted-foreground font-mono shrink-0">{p.id}</span>
                             </button>
                         );
                     })}
@@ -111,14 +108,14 @@ export function EventEditorDialog({
     existingEvent,
     existingEventIndex,
     currentEvents,
+    initialEventType,
 }: EventEditorDialogProps) {
     const isEdit = existingEventIndex !== undefined && existingEvent !== undefined;
 
     const [eventType, setEventType] = useState<EventType>(
-        (existingEvent?.type as EventType) ?? 'birth'
+        (existingEvent?.type as EventType) ?? initialEventType ?? 'birth'
     );
     const [date, setDate] = useState((existingEvent?.date as string) ?? '');
-    const [sortDate, setSortDate] = useState((existingEvent?.sort_date as string) ?? '');
     const [location, setLocation] = useState((existingEvent?.location as string) ?? '');
     const [description, setDescription] = useState((existingEvent?.description as string) ?? '');
     const [partnerId, setPartnerId] = useState((existingEvent?.partner_id as string) ?? '');
@@ -127,23 +124,16 @@ export function EventEditorDialog({
     );
     const [cause, setCause] = useState((existingEvent?.cause as string) ?? '');
     const [title, setTitle] = useState((existingEvent?.title as string) ?? '');
-    const [organization, setOrganization] = useState(
-        (existingEvent?.organization as string) ?? ''
-    );
-    const [institution, setInstitution] = useState(
-        (existingEvent?.institution as string) ?? ''
-    );
+    const [organization, setOrganization] = useState((existingEvent?.organization as string) ?? '');
+    const [institution, setInstitution] = useState((existingEvent?.institution as string) ?? '');
     const [degree, setDegree] = useState((existingEvent?.degree as string) ?? '');
-    const [householdId, setHouseholdId] = useState(
-        (existingEvent?.household_id as string) ?? ''
-    );
+    const [householdId, setHouseholdId] = useState((existingEvent?.household_id as string) ?? '');
 
     // Reset when dialog opens with new event data
     useEffect(() => {
         if (isOpen) {
-            setEventType((existingEvent?.type as EventType) ?? 'birth');
+            setEventType((existingEvent?.type as EventType) ?? initialEventType ?? 'birth');
             setDate((existingEvent?.date as string) ?? '');
-            setSortDate((existingEvent?.sort_date as string) ?? '');
             setLocation((existingEvent?.location as string) ?? '');
             setDescription((existingEvent?.description as string) ?? '');
             setPartnerId((existingEvent?.partner_id as string) ?? '');
@@ -155,14 +145,17 @@ export function EventEditorDialog({
             setDegree((existingEvent?.degree as string) ?? '');
             setHouseholdId((existingEvent?.household_id as string) ?? '');
         }
-    }, [isOpen, existingEvent]);
+    }, [isOpen, existingEvent, initialEventType]);
 
     const updatePerson = useUpdatePerson();
 
     const buildEvent = useCallback((): Record<string, unknown> => {
         const base: Record<string, unknown> = { type: eventType };
-        if (date) base.date = date;
-        if (sortDate) base.sort_date = sortDate;
+        if (date) {
+            base.date = date;
+            const iso = parseToISO(date);
+            if (iso) base.sort_date = iso;
+        }
         if (location) base.location = location;
         if (description) base.description = description;
 
@@ -194,7 +187,7 @@ export function EventEditorDialog({
         }
         return base;
     }, [
-        eventType, date, sortDate, location, description,
+        eventType, date, location, description,
         partnerId, marriageStatus, cause, title, organization,
         institution, degree, householdId,
     ]);
@@ -222,13 +215,8 @@ export function EventEditorDialog({
         updatePerson.mutate(
             { id: personId, updates: { events: updatedEvents } },
             {
-                onSuccess: () => {
-                    toast.success(isEdit ? 'Event updated.' : 'Event added.');
-                    onClose();
-                },
-                onError: () => {
-                    toast.error('Failed to save event.');
-                },
+                onSuccess: () => { toast.success(isEdit ? 'Event updated.' : 'Event added.'); onClose(); },
+                onError: () => toast.error('Failed to save event.'),
             }
         );
     };
@@ -264,26 +252,14 @@ export function EventEditorDialog({
                         </div>
                     </div>
 
-                    {/* Common fields */}
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                            <label className="text-xs font-medium">Date</label>
-                            <Input
-                                placeholder="e.g. 15 Mar 1920"
-                                value={date}
-                                onChange={(e) => setDate(e.target.value)}
-                                className="h-8 text-sm"
-                            />
-                        </div>
-                        <div className="space-y-1">
-                            <label className="text-xs font-medium">Sort Date (ISO)</label>
-                            <Input
-                                placeholder="yyyy-mm-dd"
-                                value={sortDate}
-                                onChange={(e) => setSortDate(e.target.value)}
-                                className="h-8 text-sm"
-                            />
-                        </div>
+                    {/* Date — single smart input */}
+                    <div className="space-y-1">
+                        <label className="text-xs font-medium">Date</label>
+                        <SmartDateInput
+                            value={date}
+                            onChange={(val) => setDate(val)}
+                            placeholder="e.g. 15 Jun 1920 or 1920 or abt 1920"
+                        />
                     </div>
 
                     <div className="space-y-1">
@@ -416,9 +392,7 @@ export function EventEditorDialog({
                 </div>
 
                 <DialogFooter>
-                    <Button variant="outline" onClick={onClose} size="sm">
-                        Cancel
-                    </Button>
+                    <Button variant="outline" onClick={onClose} size="sm">Cancel</Button>
                     <Button onClick={handleSave} size="sm" disabled={updatePerson.isPending}>
                         {updatePerson.isPending ? 'Saving…' : isEdit ? 'Update' : 'Add Event'}
                     </Button>

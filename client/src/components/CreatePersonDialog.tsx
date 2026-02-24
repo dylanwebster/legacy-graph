@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useCreatePerson } from '@/api/hooks';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -18,13 +18,23 @@ interface CreatePersonDialogProps {
     isOpen: boolean;
     onClose: () => void;
     onCreated?: (id: string) => void;
+    initialFirstName?: string;
+    initialLastName?: string;
 }
 
-export function CreatePersonDialog({ isOpen, onClose, onCreated }: CreatePersonDialogProps) {
-    const [firstName, setFirstName] = useState('');
-    const [lastName, setLastName] = useState('');
-    const [sex, setSex] = useState<'M' | 'F' | 'I' | 'U'>('U');
+export function CreatePersonDialog({ isOpen, onClose, onCreated, initialFirstName = '', initialLastName = '' }: CreatePersonDialogProps) {
+    const [firstName, setFirstName] = useState(initialFirstName);
+    const [lastName, setLastName] = useState(initialLastName);
+    const [sex, setSex] = useState<'M' | 'F' | 'I' | 'U'>('M');
     const createPerson = useCreatePerson();
+
+    useEffect(() => {
+        if (isOpen) {
+            setFirstName(initialFirstName);
+            setLastName(initialLastName);
+            setSex('M');
+        }
+    }, [isOpen, initialFirstName, initialLastName]);
 
     const handleCreate = () => {
         if (!firstName.trim() && !lastName.trim()) {
@@ -41,7 +51,7 @@ export function CreatePersonDialog({ isOpen, onClose, onCreated }: CreatePersonD
                     toast.success('Person created.');
                     setFirstName('');
                     setLastName('');
-                    setSex('U');
+                    setSex('M');
                     onCreated?.(data.id);
                     onClose();
                 },
