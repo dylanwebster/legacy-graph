@@ -73,19 +73,6 @@ export const useUpdatePerson = () => {
                 body: JSON.stringify(updates)
             });
         },
-        onMutate: async ({ id, updates }) => {
-            await queryClient.cancelQueries({ queryKey: ['person', id] });
-            const previousPersons = queryClient.getQueriesData({ queryKey: ['person', id] });
-            queryClient.setQueriesData({ queryKey: ['person', id] }, (old: any) =>
-                old ? { ...old, ...updates } : old
-            );
-            return { previousPersons };
-        },
-        onError: (_err, _newPerson, context) => {
-            (context?.previousPersons as [unknown, any][] | undefined)?.forEach(([key, data]) => {
-                queryClient.setQueryData(key as any, data);
-            });
-        },
         onSettled: (_data, _error, variables) => {
             queryClient.invalidateQueries({ queryKey: ['person', variables.id] });
             queryClient.invalidateQueries({ queryKey: ['people'] });

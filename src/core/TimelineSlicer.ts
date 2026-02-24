@@ -64,13 +64,14 @@ export function sliceTimeline(graph: Graph, personId: string, options?: Timeline
 
     // 1. Collect Person Events — separate dated (for ordered placement) from undated (appended at end)
     for (const event of person.events) {
-        if (!event.sort_date) {
-            // Events without a parseable sort_date are still shown, placed at the end
+        const sd = effectiveSortDate(event);
+        if (!sd) {
+            // Events without a parseable date are still shown, placed at the end
             undated.push({ type: event.type, sort_date: '', data: event });
         } else {
             sortable.push({
-                sort_date: event.sort_date,
-                item: { type: event.type, sort_date: event.sort_date, data: event }
+                sort_date: sd,
+                item: { type: event.type, sort_date: sd, data: event }
             });
         }
     }
@@ -147,4 +148,24 @@ export function sliceTimeline(graph: Graph, personId: string, options?: Timeline
 function extractYear(sortDate: string): number | null {
     const match = sortDate.match(/^(\d{4})/);
     return match ? parseInt(match[1], 10) : null;
+}
+
+/**
+ * Derive a sortable ISO date from an event, using sort_date if present, otherwise
+ * attempting to parse the date field. Returns null if no sortable date can be derived.
+ *
+ * Handles:
+ *   sort_date: "1950-06-15"  → "1950-06-15"  (verbatim)
+ *   date: "1950-06-15"       → "1950-06-15"  (already ISO)
+ *   date: "1950-06"          → "1950-06-01"  (partial ISO → first of month)
+ *   date: "1950"             → "1950-01-01"  (bare year → first of year)
+ */
+function effectiveSortDate(event: LegacyEvent): string | null {
+    if (event.sort_date) return event.sort_date;
+    const d = event.date as string | undefined;
+    if (!d) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+    if (/^\d{4}-\d{2}$/.test(d)) return `${d}-01`;
+    if (/^\d{4}$/.test(d)) return `${d}-01-01`;
+    return null;
 }

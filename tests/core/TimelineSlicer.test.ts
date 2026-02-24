@@ -235,4 +235,59 @@ describe('TimelineSlicer', () => {
         expect(timeline).toHaveLength(1);
         expect(timeline[0].type).toBe('generic');
     });
+
+    // --- Derive sort_date from date field ---
+
+    it('should sort events with ISO date but no sort_date chronologically', () => {
+        const person = makePerson('N_iso', {
+            events: [
+                // Inserted out of order — no sort_date, but date is ISO
+                { id: 'e2', type: 'death', date: '1980-03-15', assets: [] } as any,
+                { id: 'e1', type: 'birth', date: '1920-06-01', assets: [] } as any,
+            ]
+        });
+        graph.addNode('N_iso', { type: 'person', data: person });
+
+        const timeline = sliceTimeline(graph, 'N_iso');
+        const nonGapItems = timeline.filter(i => i.type !== 'gap');
+        expect(nonGapItems).toHaveLength(2);
+        expect(nonGapItems[0].type).toBe('birth');  // 1920 first
+        expect(nonGapItems[1].type).toBe('death');  // 1980 second
+    });
+
+    it('should sort events with bare-year date but no sort_date chronologically', () => {
+        const person = makePerson('N_year', {
+            events: [
+                { id: 'e3', type: 'occupation', date: '1945', assets: [] } as any,
+                { id: 'e1', type: 'birth', date: '1900', assets: [] } as any,
+                { id: 'e2', type: 'marriage', date: '1925', partner_id: 'N_x', status: 'married', assets: [] } as any,
+            ]
+        });
+        graph.addNode('N_year', { type: 'person', data: person });
+
+        const timeline = sliceTimeline(graph, 'N_year');
+        const nonGapItems = timeline.filter(i => i.type !== 'gap');
+        expect(nonGapItems).toHaveLength(3);
+        expect(nonGapItems[0].type).toBe('birth');
+        expect(nonGapItems[1].type).toBe('marriage');
+        expect(nonGapItems[2].type).toBe('occupation');
+    });
+
+    it('should put events with unparseable date at the end, after sorted events', () => {
+        const person = makePerson('N_mixed', {
+            events: [
+                { id: 'e3', type: 'generic', date: 'unknown time', assets: [] } as any,
+                { id: 'e1', type: 'birth', date: '1900', assets: [] } as any,
+                { id: 'e2', type: 'death', date: '1980', assets: [] } as any,
+            ]
+        });
+        graph.addNode('N_mixed', { type: 'person', data: person });
+
+        const timeline = sliceTimeline(graph, 'N_mixed');
+        const nonGapItems = timeline.filter(i => i.type !== 'gap');
+        expect(nonGapItems).toHaveLength(3);
+        expect(nonGapItems[0].type).toBe('birth');
+        expect(nonGapItems[1].type).toBe('death');
+        expect(nonGapItems[2].type).toBe('generic'); // unparseable — at end
+    });
 });

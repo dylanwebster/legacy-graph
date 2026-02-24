@@ -15,7 +15,7 @@ import {
     ResizablePanelGroup,
 } from '@/components/ui/resizable';
 import {
-    Calendar, MapPin, Heart, Skull, GraduationCap, Briefcase, Church,
+    Calendar, MapPin, Heart, Sunset, Leaf, GraduationCap, Briefcase, Church,
     Ship, ScrollText, FileText, Plus, ChevronRight, Image, BookOpen, Code,
     Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2,
 } from 'lucide-react';
@@ -30,7 +30,7 @@ export const Route = createLazyFileRoute('/people/$id')({
 
 const EVENT_ICONS: Record<string, typeof Calendar> = {
     birth: Calendar,
-    death: Skull,
+    death: Sunset,
     marriage: Heart,
     divorce: Heart,
     education: GraduationCap,
@@ -41,7 +41,7 @@ const EVENT_ICONS: Record<string, typeof Calendar> = {
     religious: Church,
     census: FileText,
     baptism: Church,
-    burial: Skull,
+    burial: Leaf,
     generic: Calendar,
     custom: Calendar,
 };
@@ -449,7 +449,7 @@ function PersonDetail() {
                                     onClick={() => openEventDialog('death', events.findIndex((e) => e.type === 'death'))}
                                     title="Edit death event"
                                 >
-                                    <Skull className="h-4 w-4 shrink-0" />
+                                    <Sunset className="h-4 w-4 shrink-0" />
                                     <span>d. {deathDate}</span>
                                     <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                                 </button>
@@ -459,7 +459,7 @@ function PersonDetail() {
                                     onClick={() => openEventDialog('death')}
                                     title="Add death event"
                                 >
-                                    <Skull className="h-4 w-4 shrink-0" />
+                                    <Sunset className="h-4 w-4 shrink-0" />
                                     <span>Add death date</span>
                                     <Plus className="h-3 w-3" />
                                 </button>
