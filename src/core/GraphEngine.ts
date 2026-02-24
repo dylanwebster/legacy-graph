@@ -16,6 +16,7 @@ import yaml from 'js-yaml';
 import { PersonSchema, Person, SlimPerson, toSlimPerson, PersonEntry } from '../schemas/PersonSchema';
 import { StorySchema } from '../schemas/StorySchema';
 import { computeAllRelationships, invalidateComputed } from './GraphLogic';
+import { generatePersonId } from '../utils/idGenerator';
 import matter from 'gray-matter';
 import { remark } from 'remark';
 import { visit } from 'unist-util-visit';
@@ -644,7 +645,37 @@ export class GraphEngine extends EventEmitter {
 
         try {
             const content = await fs.readFile(filePath, 'utf8');
-            const raw = yaml.load(content);
+            const raw = yaml.load(content) as Record<string, unknown>;
+
+            // Auto-ID: if the file has no id (e.g. user dropped a handwritten YAML),
+            // generate one, fill in required metadata, write the file back, and rename it.
+            if (!raw || typeof raw !== 'object' || !raw.id) {
+                const now = new Date().toISOString();
+                if (!raw.version) raw.version = '5.0';
+                if (!raw.created) raw.created = now;
+                if (!raw.last_modified) raw.last_modified = now;
+                if (!raw.relationships) raw.relationships = { parents: [] };
+                if (!raw.tags) raw.tags = [];
+                if (!raw.events) raw.events = [];
+                if (!raw.assets) raw.assets = [];
+
+                const newId = generatePersonId(raw as any);
+                raw.id = newId;
+
+                const newFilename = `${newId}.yaml`;
+                const newFilePath = path.join(path.dirname(filePath), newFilename);
+
+                // Register both paths before any writes so the watcher ignores them
+                this.registerSelfWrite(filePath);
+                this.registerSelfWrite(newFilePath);
+
+                await fs.writeFile(filePath, yaml.dump(raw));
+                await fs.rename(filePath, newFilePath);
+                filePath = newFilePath;
+
+                console.log(`[GraphEngine] Auto-ID: assigned ${newId} and renamed to ${newFilename}`);
+            }
+
             const newPerson = PersonSchema.parse(raw);
             const slim = toSlimPerson(newPerson);
 

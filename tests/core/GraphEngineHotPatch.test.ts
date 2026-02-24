@@ -4,6 +4,12 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { GraphEngine } from '../../src/core/GraphEngine';
 
+// Helper to write a YAML file without an id (simulates dropping a user file)
+async function writePersonNoId(filename: string, first: string, last: string, sex = 'M') {
+    const content = `names:\n  - first: "${first}"\n    last: "${last}"\n    primary: true\nsex: "${sex}"\n`;
+    await fs.writeFile(path.join(PEOPLE_DIR, filename), content);
+}
+
 const TEMP_DIR = path.join(__dirname, 'temp_hotpatch');
 const PEOPLE_DIR = path.join(TEMP_DIR, 'people');
 const STORIES_DIR = path.join(TEMP_DIR, 'stories');
@@ -74,6 +80,55 @@ describe('GraphEngine Hot-Patching', () => {
         await (engine as any).handleFileRemove(filePath);
 
         expect(engine.getGraph().hasNode('N_DEL')).toBe(false);
+    });
+
+    it('should auto-assign a human-readable ID to a dropped YAML file missing an id', async () => {
+        const droppedPath = path.join(PEOPLE_DIR, 'jane.yaml');
+        await writePersonNoId('jane.yaml', 'Jane', 'Austen');
+
+        await (engine as any).handleFileUpdate(droppedPath);
+
+        // A node with a human-readable N_ ID should appear in the graph
+        const graph = engine.getGraph();
+        const nodeIds = [...graph.nodeEntries()]
+            .filter(({ attributes }) => attributes.type === 'person')
+            .map(({ node }) => node);
+        const janeNode = nodeIds.find(id => id.startsWith('N_jane'));
+        expect(janeNode).toBeDefined();
+        expect(graph.getNodeAttributes(janeNode!).data.names[0].first).toBe('Jane');
+    });
+
+    it('should write the generated id back into the YAML file', async () => {
+        const droppedPath = path.join(PEOPLE_DIR, 'bach.yaml');
+        await writePersonNoId('bach.yaml', 'Johann', 'Bach');
+
+        await (engine as any).handleFileUpdate(droppedPath);
+
+        // Find the renamed file (original path is gone, new N_* path exists)
+        const files = await fs.readdir(PEOPLE_DIR);
+        const renamedFile = files.find(f => f.startsWith('N_johann'));
+        expect(renamedFile).toBeDefined();
+
+        // The written YAML should contain the generated id
+        const content = await fs.readFile(path.join(PEOPLE_DIR, renamedFile!), 'utf8');
+        expect(content).toContain('id:');
+        expect(content).toMatch(/id: N_/);
+    });
+
+    it('should rename the file to match the generated id', async () => {
+        const droppedPath = path.join(PEOPLE_DIR, 'mozart.yaml');
+        await writePersonNoId('mozart.yaml', 'Wolfgang', 'Mozart');
+
+        await (engine as any).handleFileUpdate(droppedPath);
+
+        // Original filename should be gone
+        const files = await fs.readdir(PEOPLE_DIR);
+        expect(files).not.toContain('mozart.yaml');
+
+        // A file starting with N_wolfgang should exist
+        const renamed = files.find(f => f.startsWith('N_wolfgang'));
+        expect(renamed).toBeDefined();
+        expect(renamed).toMatch(/\.yaml$/);
     });
 
     it('should update edges when parent reference changes', async () => {
