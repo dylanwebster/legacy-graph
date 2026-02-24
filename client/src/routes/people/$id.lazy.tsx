@@ -1,9 +1,17 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
-import { usePerson, useUpdatePerson } from '@/api/hooks';
+import { usePerson, useUpdatePerson, useDeleteAsset } from '@/api/hooks';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { PersonChip } from '@/components/PersonChip';
 import { EventEditorDialog } from '@/components/EventEditorDialog';
 import { RelationshipEditorDialog } from '@/components/RelationshipEditorDialog';
+import {
+    Dialog as ConfirmDialog,
+    DialogContent as ConfirmDialogContent,
+    DialogHeader as ConfirmDialogHeader,
+    DialogTitle as ConfirmDialogTitle,
+    DialogDescription as ConfirmDialogDescription,
+    DialogFooter as ConfirmDialogFooter,
+} from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -21,6 +29,8 @@ import {
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -77,7 +87,9 @@ function PersonDetail() {
 
     // Asset panel state
     const [lightboxAsset, setLightboxAsset] = useState<string | null>(null);
+    const [deleteConfirmAsset, setDeleteConfirmAsset] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const deleteAssetMutation = useDeleteAsset();
 
     // Timeline virtualizer
     const timelineParentRef = useRef<HTMLDivElement>(null);
@@ -283,12 +295,17 @@ function PersonDetail() {
         );
     };
 
-    // Delete an asset
+    // Delete an asset — open confirmation dialog
     const handleDeleteAsset = (filename: string) => {
-        const currentAssets = (person.assets ?? []) as string[];
-        const updated = currentAssets.filter((a) => a !== filename);
-        updatePerson.mutate(
-            { id, updates: { assets: updated } },
+        setDeleteConfirmAsset(filename);
+    };
+
+    const handleConfirmDeleteAsset = () => {
+        if (!deleteConfirmAsset) return;
+        const filename = deleteConfirmAsset;
+        setDeleteConfirmAsset(null);
+        deleteAssetMutation.mutate(
+            { personId: id, filename },
             {
                 onSuccess: () => {
                     toast.success('Asset deleted.');
@@ -678,13 +695,11 @@ function PersonDetail() {
                                     rows={12}
                                     className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] resize-none font-mono"
                                 />
-                            ) : person.scrapbook_md ? (
-                                <div className="prose prose-sm dark:prose-invert max-w-none">
-                                    <pre className="whitespace-pre-wrap font-sans text-sm">{person.scrapbook_md}</pre>
-                                </div>
                             ) : (
-                                <div className="p-8 text-center text-muted-foreground text-sm">
-                                    No notebook entries. Click Edit to add notes.
+                                <div className="prose prose-sm prose-invert max-w-none">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {person.scrapbook_md || '*No notebook entries. Click Edit to add notes.*'}
+                                    </ReactMarkdown>
                                 </div>
                             )}
                         </TabsContent>
@@ -772,7 +787,26 @@ function PersonDetail() {
                 currentChildIds={childIds}
                 allSpouses={computed.allSpouses ?? []}
                 currentEvents={events}
+                siblings={computed.siblings ?? []}
             />
+
+            {/* Asset delete confirmation */}
+            <ConfirmDialog open={!!deleteConfirmAsset} onOpenChange={(o) => !o && setDeleteConfirmAsset(null)}>
+                <ConfirmDialogContent className="max-w-sm">
+                    <ConfirmDialogHeader>
+                        <ConfirmDialogTitle>Delete Asset</ConfirmDialogTitle>
+                        <ConfirmDialogDescription>
+                            Delete <span className="font-mono text-xs">{deleteConfirmAsset}</span> permanently? This cannot be undone.
+                        </ConfirmDialogDescription>
+                    </ConfirmDialogHeader>
+                    <ConfirmDialogFooter>
+                        <Button variant="outline" size="sm" onClick={() => setDeleteConfirmAsset(null)}>Cancel</Button>
+                        <Button variant="destructive" size="sm" onClick={handleConfirmDeleteAsset} disabled={deleteAssetMutation.isPending}>
+                            {deleteAssetMutation.isPending ? 'Deleting…' : 'Delete'}
+                        </Button>
+                    </ConfirmDialogFooter>
+                </ConfirmDialogContent>
+            </ConfirmDialog>
         </>
     );
 }
@@ -810,6 +844,7 @@ function VirtualizedTimeline({
             {rowVirtualizer.getVirtualItems().map((virtualItem) => {
                 const item = timeline[virtualItem.index];
                 const isGap = item.type === 'gap';
+                const isUnknownDateHeader = item.type === 'unknown_date_header';
                 // Timeline items: { type, sort_date, data: LegacyEvent } for events.
                 // Actual fields (date, location, description) are nested in 'data'.
                 const details = (item.data as Record<string, unknown>) ?? item;
@@ -829,7 +864,13 @@ function VirtualizedTimeline({
                         }}
                         className="pb-3"
                     >
-                        {isGap ? (
+                        {isUnknownDateHeader ? (
+                            <div className="flex items-center gap-2 py-2 px-3">
+                                <div className="h-px flex-1 bg-border/50" />
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">Undated Events</span>
+                                <div className="h-px flex-1 bg-border/50" />
+                            </div>
+                        ) : isGap ? (
                             <div className="flex items-center gap-2 py-2 px-3">
                                 <div className="h-px flex-1 bg-border" />
                                 <span className="text-xs text-muted-foreground whitespace-nowrap">

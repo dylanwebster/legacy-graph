@@ -1,6 +1,7 @@
 import { Person } from '../../schemas/PersonSchema';
 import * as crypto from 'crypto';
 import { parseDate } from '../../utils/dateParser';
+import { generatePersonId } from '../../utils/idGenerator';
 
 // --- Custom GEDCOM Parser Types ---
 
@@ -103,12 +104,10 @@ export class GedcomReader {
         // Pass 1: INDI records -> Persons
         roots.filter(n => n.tag === 'INDI').forEach(node => {
             if (!node.xref_id) return;
-            const newId = `N_${crypto.randomUUID()}`;
-            idMap.set(node.xref_id, newId);
 
             const p: Person = {
                 version: "5.0",
-                id: newId,
+                id: '', // filled after mapIndi so we have name + events
                 created: new Date().toISOString(),
                 last_modified: new Date().toISOString(),
                 names: [],
@@ -120,8 +119,12 @@ export class GedcomReader {
                 scrapbook_md: "",
                 _gedcom: {}
             };
-            
+
             this.mapIndi(node, p);
+
+            const newId = generatePersonId(p);
+            p.id = newId;
+            idMap.set(node.xref_id, newId);
             people.push(p);
         });
 

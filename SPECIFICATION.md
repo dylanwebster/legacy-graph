@@ -95,12 +95,29 @@ All data ingestion must pass strict Zod schemas. This ensures data integrity bef
 
 ### **3.1 Person Schema (`/people/*.yaml`)**
 
-**File Naming**: `N_[nanoid].yaml` (e.g., `N_7x9aZ2.yaml`).
+**File Naming**: `[id].yaml` — the filename always mirrors the record's `id` field.
+
+**ID Format**: Human-readable, globally unique. Structure: `N_[first]-[last]-[birthyear]-[place]-[nanoid8]`
+
+- Example: `N_Johann-Bach-1685-Eisenach-7x9aZ2Kp.yaml`
+- Components derived from the person's primary name, birth event year, and birth event location at creation time.
+- Slugified: lowercase, spaces → hyphens, diacritics stripped (NFD normalization), non-alphanumeric removed. Variable prefix truncated to 24 chars.
+- Components are optional — if unavailable, omitted. Minimum: `N_[nanoid8]`.
+- The 8-character nanoid suffix guarantees global uniqueness even when two people share identical name and birth details.
+- Old `N_[nanoid]`-format IDs remain valid (no forced migration).
+
+**Auto-ID for Externally Dropped Files**: When the file watcher detects a new `.yaml` file missing the `id` field:
+1. Parse and validate the file against a relaxed `PersonSchema` (allowing absent `id`).
+2. Generate a new human-readable ID from available name + birth data.
+3. Write the `id` field into the YAML in-place (at the top of the document).
+4. Rename the file to `[new-id].yaml`.
+5. Register both the old and new file paths in the write-origin set to suppress redundant hot-patch events.
+6. Proceed with normal hot-patch processing for the renamed file.
 
 | Field           | Type          | Description                                          |
 | :-------------- | :------------ | :--------------------------------------------------- |
 | `version`       | Literal "5.0" | Schema version for migration safety.                 |
-| `id`            | String        | Unique ID, prefix `N_` + NanoID.                     |
+| `id`            | String        | Human-readable unique ID. Format: `N_[first]-[last]-[birthyear]-[place]-[nanoid8]`. |
 | `created`       | ISO-8601      | Timestamp of creation.                               |
 | `last_modified` | ISO-8601      | Timestamp of last edit.                              |
 | `names`         | Array         | List of name objects.                                |
@@ -140,7 +157,7 @@ Events are typed objects acting as state reducers. They determine the "current s
 - `id`: String (NanoID).
 - `date`: String (Fuzzy, e.g., "Bet. 1900 and 1910").
 - `sort_date`: String (ISO-8601 strict: `YYYY-MM-DD`). Used for chronological ordering.
-- `location`: String (Optional).
+- `location`: Place Object (Optional). See Section 3.4. Backward-compatible: bare strings are auto-coerced to `{ name: string }` at parse time.
 - `description`: String (Markdown supported, Optional).
 - `assets`: Array<String> (Filenames).
 
@@ -171,6 +188,40 @@ To avoid scanning thousands of binaries on boot, metadata is cached.
   - `date_taken`: ISO-8601.
   - `location`: String.
   - `type`: `image | video | pdf`.
+
+### **3.4 Place Schema & Geo-tagging**
+
+Event locations are structured objects rather than freeform strings, enabling map visualization, validated place names, and historical name resolution.
+
+**Place Object** (Zod schema in `src/schemas/EventSchema.ts`):
+
+```typescript
+{
+  name: string;            // Display name (user's original input or modern equivalent)
+  historicalName?: string; // Original historical name if name was resolved to modern form
+  lat?: number;            // WGS84 latitude (-90 to +90)
+  lng?: number;            // WGS84 longitude (-180 to +180)
+  countryCode?: string;    // ISO 3166-1 alpha-2 (e.g., "DE", "GB")
+  resolvedAt?: string;     // ISO-8601 timestamp of last successful geocode resolution
+}
+```
+
+**Backward Compatibility**: During hydration, bare string `location` fields are transparently coerced to `{ name: locationString }` in memory. No YAML rewrite is performed — migration is lossless and silent.
+
+**Geocoding Service** (`src/core/GeocodingService.ts`):
+
+- **Provider**: Nominatim (OpenStreetMap) — free, no API key required, supports historical names.
+- **Endpoint**: `https://nominatim.openstreetmap.org/search?q={name}&format=jsonv2&addressdetails=1&limit=1`.
+- **Historical Names**: Nominatim covers major name changes (e.g., "Königsberg" → "Kaliningrad"). The user's original input is preserved in `historicalName`; `name` holds the modern resolved form.
+- **Caching**: Results cached in `/_meta/.geocode-cache.json` (keyed by normalized place name) to avoid redundant API calls across sessions.
+- **Rate Limiting**: Nominatim requires ≤1 request/second. `GeocodingService` enforces this via an internal queue with a 1-second minimum interval.
+- **Fallback**: If geocoding fails (network error, unknown place), the Place object is stored with only `name` populated. Unresolved places are eligible for retry on next access.
+- **`resolve(name: string): Promise<Place>`**: Primary public method. Returns cached result if available, otherwise queues an HTTP request.
+
+**New API Endpoints**:
+
+- `GET /api/places/search?q=...` — Returns top 5 geocoded Place candidates for a query string. Used for type-ahead autocomplete in the Event Editor location field.
+- `POST /api/places/resolve` — Body: `{ name: string }`. Resolves and caches a specific place. Returns the Place object.
 
 ---
 
@@ -266,10 +317,13 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 - **Input**: Person ID, optional pagination params (`limit`, `offset`).
 - **Process**:
   1.  **Collection**: Merge Person Events + Story Mentions (Stories mentioning this person).
-  2.  **Sorting**: Strict Sort by `sort_date`.
-  3.  **Gap Detection**: Iterate sorted list. If `Item[i+1].year - Item[i].year > 10`, insert a `Gap` object: `{ type: 'gap', years: diff }`.
-  4.  **Pagination**: Apply `offset` and `limit` to the final sorted array (after gap insertion). Return `totalCount` alongside the page slice.
-- **Output**: `{ items: Array<Event | Story | Gap>, totalCount: number, offset: number, limit: number }`.
+  2.  **Partition**: Split items into `datedItems` (have `sort_date`) and `undatedItems` (no `sort_date`).
+  3.  **Sort dated items**: Strict sort by `sort_date` ascending.
+  4.  **Gap Detection**: Iterate sorted dated list. If `Item[i+1].year - Item[i].year > 10`, insert a `Gap` object: `{ type: 'gap', years: diff }`.
+  5.  **Assemble**: If any undated items exist, prepend `{ type: 'unknown_date_header' }` followed by all undated items before the dated+gap stream. This ensures undated events are visible at the top, not lost at the bottom.
+  6.  **Pagination**: Apply `offset` and `limit` to the final combined array. Return `totalCount` alongside the page slice.
+- **Output**: `{ items: Array<Event | Story | Gap | UnknownDateHeader>, totalCount: number, offset: number, limit: number }`.
+- **`UnknownDateHeader`**: `{ type: 'unknown_date_header' }` — rendered as a section divider "Undated Events" in the UI.
 
 ### **4.3 GEDCOM Engine**
 
@@ -312,10 +366,21 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 - `PUT /people/:id/media`: Upload asset.
   - _Multipart_: File data.
   - _Effect_: Saves to `/assets`, updates Person YAML `assets` array, invalidates `_computed` for the person.
+- `DELETE /people/:id/media/:filename`: Delete asset.
+  - _Effect_: Verifies person exists and filename is in `assets[]`. Deletes binary from `/assets/[filename]` (and thumbnail from cache if present). Removes filename from Person YAML `assets[]`, runs `applyWriteSideEffects()`. Returns `204 No Content`.
+  - _404_: Person not found, or filename not in person's `assets[]` array.
 - `GET /assets/*`: Static Asset Delivery.
   - _Effect_: Serves files from the `/assets` directory. Uses HTTP Range requests for optimal media streaming (MP4) and injects strong caching headers (`Cache-Control: max-age=31536000, immutable`) powered by ETag/mtime comparisons to prevent Node event loop blocking.
 
 ### **5.2 Search & Discovery**
+
+- `GET /places/search`:
+  - **Query**: `?q=string`.
+  - **Returns**: Array of up to 5 geocoded `Place` candidates for type-ahead autocomplete. Each: `{ name, historicalName?, lat, lng, countryCode }`.
+  - **Engine**: Proxies to `GeocodingService.search()` with caching.
+- `POST /places/resolve`:
+  - **Body**: `{ name: string }`.
+  - **Returns**: Resolved `Place` object (geocoded if possible, `{ name }` fallback).
 
 - `GET /search`:
   - **Query**: `?q=string&limit=50&offset=0`.
@@ -360,7 +425,7 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 ### **6.1 Architecture & Tooling**
 
 - **Location**: `client/` directory within the monorepo. Separate Vite config, built independently. Production build output served by Fastify via `@fastify/static`.
-- **Framework**: Vite + React 18 + TypeScript.
+- **Framework**: Vite + React 19 + TypeScript.
 - **Routing**: TanStack Router (file-based routes).
 - **Data Fetching**: TanStack Query — **all** API calls go through Query hooks with optimistic update wrappers from day one. Mutations use `onMutate` → optimistic cache update, `onError` → rollback, `onSettled` → invalidate.
 - **UI State**: Zustand for UI-local state (sidebar collapsed, active panel, modal visibility, active tab). Keeps component tree clean; avoids prop-drilling and excessive Context providers.
@@ -498,7 +563,7 @@ A dense, 3-column layout. The most critical view in the application.
 - **Name**: Primary name displayed prominently. **Click-to-edit** — inline text field, saves via `PUT /people/:id` with optimistic update. Other names shown below in muted text.
 - **Vital Dates**: Birth–Death date range. Click-to-edit.
 - **Sex**: Badge indicator (M/F/I/U).
-- **Relationship Sections** (from `_computed`): Collapsible groups for Parents, Spouses, Children, Siblings. Each person rendered as a `PersonChip`:
+- **Relationship Sections** (from `_computed`): Collapsible groups for **Parents**, **Spouses**, **Children**, **Siblings**. Each person rendered as a `PersonChip`:
   - **Hover**: `HoverCard` shows mini bio preview — avatar, name, birth–death dates, relationship type.
   - **Click**: Navigate to `/people/:id` for that person.
 - **Tags**: Inline editable tag list with add/remove.
@@ -509,6 +574,7 @@ The integrated feed of life events, stories, and gaps. **Virtualized** — only 
 
 - **Data Source**: `GET /people/:id?timeline_limit=50&timeline_offset=0`. Uses TanStack Query `useInfiniteQuery` for infinite-scroll pagination.
 - **Item Types**:
+  - `UnknownDateHeader`: Section divider rendered at the very top of the feed when any undated items exist. Styled as "Undated Events" label. Only rendered once.
   - `EventCard`: Displays event type icon, date (fuzzy `date` + sort-date), location, description excerpt. Expandable for full detail.
   - `StoryCard`: Title, excerpt, mentioned persons chips.
   - `GapIndicator`: Visual break showing year gap.
@@ -519,8 +585,8 @@ The integrated feed of life events, stories, and gaps. **Virtualized** — only 
 
 Tabbed panel with three tabs:
 
-1. **Assets**: Grid of thumbnails (from `/assets/` static delivery). Click to expand/lightbox. Drag-and-drop upload via `PUT /people/:id/media`.
-2. **Notebook**: Rendered Markdown view of `scrapbook_md` (lazy-loaded per spec 2.3B). Click to switch to edit mode — embedded Markdown editor (Phase 4: basic `<textarea>` with preview; Phase 5.1: Tiptap rich editor). Saves via `PUT /people/:id` with optimistic update.
+1. **Assets**: Grid of thumbnails (from `/assets/` static delivery). Click to expand/lightbox. Drag-and-drop upload via `PUT /people/:id/media`. Each thumbnail has a **delete button (×)** — clicking opens a confirmation dialog ("Delete this file permanently? This cannot be undone."). On confirm, calls `DELETE /api/people/:id/media/:filename`; asset removed from YAML and binary deleted from disk.
+2. **Notebook**: Rendered Markdown view of `scrapbook_md` (lazy-loaded per spec 2.3B). In view mode, renders Markdown to HTML via `react-markdown` + `remark-gfm`, styled with Tailwind `prose` class. Click to switch to edit mode — plain `<textarea>` (Phase 4) / Tiptap rich editor (Phase 5.1). Saves via `PUT /people/:id` with optimistic update.
 3. **Raw YAML**: Read-only syntax-highlighted view of the source YAML file. Useful for power users and debugging.
 
 #### **6.5.5 Event Editor**
@@ -530,7 +596,7 @@ Full modal-based event editor for creating and editing all 11 event types. This 
 - **Trigger**: "Add Event" button or clicking an existing event card.
 - **Layout**: Modal (`Dialog`) with:
   - **Event Type Selector**: Dropdown with all 11 types. Selecting a type dynamically shows/hides type-specific fields (e.g., `partner_id` for marriage, `cause` for death, `institution`/`degree` for education).
-  - **Common Fields**: `date` (free text, fuzzy), `sort_date` (date picker enforcing `YYYY-MM-DD`), `location` (text input with place autocomplete from place map), `description` (Markdown textarea), `assets` (file selector).
+  - **Common Fields**: `date` (free text, fuzzy — validated in real-time by `DateParser`; parsed ISO preview shown below field; **Save disabled** if non-empty and unparseable), `sort_date` (ISO `YYYY-MM-DD` — **Save disabled** if non-empty and invalid), `location` (type-ahead input querying `GET /api/places/search`, shows resolved coordinates when a candidate is selected), `description` (Markdown textarea), `assets` (file selector).
   - **Type-Specific Fields**: Rendered conditionally based on selected event type (see spec Section 3.2).
   - **Partner Selection** (marriage/divorce): Searchable person selector that queries the graph — type-ahead with `PersonChip` results.
 - **Validation**: Client-side Zod validation mirroring the backend `EventSchema`. Show field-level errors immediately.
@@ -541,8 +607,10 @@ Full modal-based event editor for creating and editing all 11 event types. This 
 For editing parent relationships (the only stored relationships per spec Section 3.1).
 
 - **Location**: Section within the Identity Panel, or accessible via "Edit Relationships" button.
+- **Tabs**: Parents | Children | Spouses | **Siblings**.
 - **Add Parent**: Searchable person selector (same component as partner selection). Select relationship type (biological/adopted/step/foster).
 - **Remove Parent**: Confirm dialog before removing.
+- **Siblings tab**: Siblings are derived from shared parents (`_computed.siblings`) — they cannot be stored directly. The Siblings tab displays current siblings as read-only `PersonChip` links. To link a new sibling, the user picks a person via search, then selects which of the current person's parents to assign to that sibling (effectively adding a `PUT /people/[siblingId]` with a new parent entry). A tooltip explains that sibling removal is done by managing the shared parent relationship.
 - **Save**: `PUT /people/:id` with updated `relationships.parents` array. Backend handles edge reconciliation and `_computed` invalidation.
 
 ### **6.6 People Browse Page**
@@ -673,7 +741,19 @@ This spec defines _what_ to build. `progress.md` tracks _how far_ and _what's ne
 
 ### **9.3 E2E Tests (Playwright)**
 
-*   **CUJ: Import Flow**: Upload GEDCOM -> Wait for Hydration -> Verify Node Count.
-*   **CUJ: Holy Grail**: Navigate to Person -> Edit Note -> Save -> Verify Persistence.
-*   **CUJ: Time Tunnel**: Load view -> Scroll -> Verify Camera Z position changes.
+*   **CUJ: Import Flow**: Upload GEDCOM -> Wait for Hydration -> Verify Node Count. ✅ Complete.
+*   **CUJ: Holy Grail (Import → View → Edit → Persist)**: Upload GEDCOM → navigate to person → edit name → reload → assert persisted. ✅ Complete.
+*   **CUJ: Search Navigation**: Cmd+K → type query → click result → assert navigation. ✅ Complete.
+*   **CUJ: Responsive Layout**: Mobile viewport → hamburger → expand sidebar. Desktop → sidebar visible. ✅ Complete.
+*   **CUJ: Time Tunnel**: Load view → Scroll → Verify Camera Z position changes. (Phase 5.2 — not started)
+
+### **9.4 New Unit Tests Required (Phases 3.11–3.15)**
+
+*   **ID Generator**: `generatePersonId()` correctness for name slugification, missing fields, diacritics, uniqueness, file-name collision fallback.
+*   **Auto-ID Watcher**: Dropping YAML without `id` triggers generation, YAML rewrite, and file rename.
+*   **GeocodingService**: Known city returns lat/lng; cache hit skips HTTP; rate limiter fires; fallback on failure; historical name preservation.
+*   **Place Schema**: String location coerces to `{ name }` on parse; full Place object round-trips; invalid Place rejected.
+*   **DateParser Audit**: All fuzzy modifier cases (`BET`, `BEF`, `AFT`, `ABT`, `EST`, `CAL`, year-only, month-year).
+*   **Asset Deletion API**: `DELETE /people/:id/media/:filename` — 204, file gone, YAML updated; 404 for missing person; 404 for filename not in assets.
+*   **Timeline Slicer (undated)**: Undated events appear before dated events; `unknown_date_header` item present; dated events retain correct order.
 

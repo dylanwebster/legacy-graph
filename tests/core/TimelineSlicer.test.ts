@@ -204,7 +204,7 @@ describe('TimelineSlicer', () => {
 
     // --- Undated events (Phase 4 fix) ---
 
-    it('should include events without sort_date at the end of the timeline', () => {
+    it('should include events without sort_date at the TOP of the timeline with a header', () => {
         const person = makePerson('N_undated', {
             events: [
                 { id: 'e1', type: 'birth', date: '1900', sort_date: '1900-01-01', assets: [] } as any,
@@ -215,15 +215,14 @@ describe('TimelineSlicer', () => {
         graph.addNode('N_undated', { type: 'person', data: person });
 
         const timeline = sliceTimeline(graph, 'N_undated');
-        const nonGapItems = timeline.filter(item => item.type !== 'gap');
-        // All 3 events should appear; dated first, undated at end
-        expect(nonGapItems).toHaveLength(3);
-        expect(nonGapItems[0].type).toBe('birth');    // dated — sorted first
-        expect(nonGapItems[1].type).toBe('marriage'); // undated — appended
-        expect(nonGapItems[2].type).toBe('generic');  // undated — appended
+        // Should have: unknown_date_header, marriage, generic, birth (undated first, then dated)
+        expect(timeline[0].type).toBe('unknown_date_header'); // header separator
+        expect(timeline[1].type).toBe('marriage');            // undated — at top
+        expect(timeline[2].type).toBe('generic');             // undated — at top
+        expect(timeline[3].type).toBe('birth');               // dated — after undated section
     });
 
-    it('should return timeline for a person with only undated events', () => {
+    it('should return timeline for a person with only undated events (with header)', () => {
         const person = makePerson('N_nodates', {
             events: [
                 { id: 'e1', type: 'generic', date: 'sometime', sort_date: null, assets: [] } as any,
@@ -232,8 +231,10 @@ describe('TimelineSlicer', () => {
         graph.addNode('N_nodates', { type: 'person', data: person });
 
         const timeline = sliceTimeline(graph, 'N_nodates');
-        expect(timeline).toHaveLength(1);
-        expect(timeline[0].type).toBe('generic');
+        // Header + the undated event
+        expect(timeline).toHaveLength(2);
+        expect(timeline[0].type).toBe('unknown_date_header');
+        expect(timeline[1].type).toBe('generic');
     });
 
     // --- Derive sort_date from date field ---
@@ -273,7 +274,7 @@ describe('TimelineSlicer', () => {
         expect(nonGapItems[2].type).toBe('occupation');
     });
 
-    it('should put events with unparseable date at the end, after sorted events', () => {
+    it('should put events with unparseable date at the TOP, before sorted events', () => {
         const person = makePerson('N_mixed', {
             events: [
                 { id: 'e3', type: 'generic', date: 'unknown time', assets: [] } as any,
@@ -284,10 +285,12 @@ describe('TimelineSlicer', () => {
         graph.addNode('N_mixed', { type: 'person', data: person });
 
         const timeline = sliceTimeline(graph, 'N_mixed');
-        const nonGapItems = timeline.filter(i => i.type !== 'gap');
-        expect(nonGapItems).toHaveLength(3);
-        expect(nonGapItems[0].type).toBe('birth');
-        expect(nonGapItems[1].type).toBe('death');
-        expect(nonGapItems[2].type).toBe('generic'); // unparseable — at end
+        // Should be: header, generic (undated), birth, gap, death
+        expect(timeline[0].type).toBe('unknown_date_header');
+        expect(timeline[1].type).toBe('generic'); // unparseable — at top under header
+        const nonHeaderOrGap = timeline.filter(i => i.type !== 'unknown_date_header' && i.type !== 'gap');
+        expect(nonHeaderOrGap[0].type).toBe('generic');
+        expect(nonHeaderOrGap[1].type).toBe('birth');
+        expect(nonHeaderOrGap[2].type).toBe('death');
     });
 });

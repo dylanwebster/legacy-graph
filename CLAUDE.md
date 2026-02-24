@@ -8,7 +8,7 @@ Self-hosted genealogy platform. File-system-first, Git-versioned, in-memory grap
 
 ### Backend
 ```bash
-npm test          # Run all Vitest tests (199 passing, 0 skipped)
+npm test          # Run all Vitest tests (204 passing, 0 skipped)
 npm run build     # tsc --noEmit (type-check only)
 npm start         # tsx --env-file=.env src/index.ts
 ```
@@ -105,8 +105,8 @@ client/src/
 
 ## Data Model
 
-### Person file: `people/N_[nanoid].yaml`
-Schema version: `"5.0"`. Key fields: `id`, `version`, `names[]`, `sex` (M/F/I/U), `tags[]`, `relationships.parents[]` (upstream only — the only stored relationships), `events[]`, `assets[]`, `scrapbook_md` (stripped from memory), `_gedcom` (stripped from memory).
+### Person file: `people/[id].yaml`
+Schema version: `"5.0"`. Key fields: `id` (human-readable: `N_[first]-[last]-[birthyear]-[place]-[nanoid8]`), `version`, `names[]`, `sex` (M/F/I/U), `tags[]`, `relationships.parents[]` (upstream only — the only stored relationships), `events[]`, `assets[]`, `scrapbook_md` (stripped from memory), `_gedcom` (stripped from memory).
 
 ### Computed relationships (`_computed` — volatile, never persisted)
 ```typescript
@@ -145,6 +145,7 @@ Base URL: `/api`. Auth: JWT in HttpOnly cookie. Auth is optional — if `/_meta/
 | POST | `/people` | Create → writes YAML, runs `applyWriteSideEffects()` |
 | PUT | `/people/:id` | Update → diffs edges, runs `applyWriteSideEffects()` |
 | PUT | `/people/:id/media` | Multipart upload → `/assets/`, updates YAML |
+| DELETE | `/people/:id/media/:filename` | Delete asset — removes file from disk + YAML |
 | GET | `/assets/*` | Static delivery with HTTP Range + immutable cache headers |
 | GET | `/search` | `?q=&limit=50&offset=0` → `{ people, stories, places, totalCounts }` |
 | GET | `/stats` | Dashboard stats (total people, families, last modified) |
@@ -194,17 +195,23 @@ Base URL: `/api`. Auth: JWT in HttpOnly cookie. Auth is optional — if `/_meta/
 
 ## Implementation Status
 
-**Backend (Phases 1–3.10): Complete.** 199 tests, all passing.
+**Backend (Phases 1–3.10): Complete.** 204 tests, all passing.
 
-**Frontend (Phase 4): Substantially complete.** App shell, Command Palette, People Browse, Holy Grail Person Detail, Event/Relationship editors, Import, Settings, Search pages are all built.
+**Frontend (Phase 4): Substantially complete.** App shell, Command Palette, People Browse, Holy Grail Person Detail, Event/Relationship editors, Import, Settings, Search, Dashboard (stats), and E2E tests are all built.
 
-**Remaining work:**
-- `4.1` — Vite/TanStack Router/Tailwind v4 scaffolding steps not fully verified (some `[ ]` items in PROGRESS.md)
-- `4.8` — Playwright E2E tests not started (Import→View→Edit→Persist CUJ, Search Navigation CUJ, Responsive Layout CUJ)
+**Remaining work — in-progress features (Phase 3.11+):**
+- `3.11` — Human-readable IDs: `N_[first]-[last]-[birthyear]-[place]-[nanoid8]`; auto-ID + rename for dropped files without `id`
+- `3.12` — GEDCOM import is broken — investigate and fix
+- `3.13` — Fuzzy date parsing audit: ensure `1920→1920-01-01`, `Bet. 1900 and 1910→1905-06-01`, `Bef. 1850→1849-12-31` are correct
+- `3.14` — Asset deletion: `DELETE /people/:id/media/:filename` — delete from disk + YAML
+- `3.15` — Place/geo-tagging: structured `{ name, lat, lng, countryCode, historicalName }` + Nominatim geocoding; new `GET /api/places/search` endpoint
 - `4.9` — Force graph visualization (`react-force-graph-2d`) on Dashboard not built
+- `4.11` — Frontend date validation: block dialog submit when date cannot be parsed
+- `4.12` — Notebook markdown rendering: use `react-markdown` in view mode
+- `4.13` — Timeline "Unknown Date" section: undated events at top, not bottom
+- `4.14` — Sibling management in `RelationshipEditorDialog` (new Siblings tab)
+- `4.15` — Asset deletion confirmation dialog (frontend for Phase 3.14)
 - `5.1` — Tiptap rich story editor
 - `5.2` — 3D time tunnel (`react-three-fiber`)
 - `5.3` — Heap monitoring in `/system/status`
 - `6` — Docker, Electron, CI/CD
-
-**Next task**: Playwright E2E tests (Phase 4.8) — see `PROGRESS.md` for the three critical user journeys.

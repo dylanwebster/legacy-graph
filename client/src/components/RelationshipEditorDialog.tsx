@@ -27,6 +27,7 @@ interface RelationshipEditorDialogProps {
     currentChildIds: string[];
     allSpouses: Array<{ id: string; status: string; sortDate: string }>;
     currentEvents: Array<Record<string, unknown>>;
+    siblings?: string[];
 }
 
 function PersonSearchCombobox({
@@ -143,6 +144,7 @@ export function RelationshipEditorDialog({
     currentChildIds,
     allSpouses,
     currentEvents,
+    siblings = [],
 }: RelationshipEditorDialogProps) {
     const updatePerson = useUpdatePerson();
     const queryClient = useQueryClient();
@@ -161,6 +163,10 @@ export function RelationshipEditorDialog({
     const [newSpouseStatus, setNewSpouseStatus] = useState<typeof MARRIAGE_STATUSES[number]>('married');
     const [newSpouseDate, setNewSpouseDate] = useState('');
 
+    // --- Siblings state ---
+    const [newSiblingId, setNewSiblingId] = useState('');
+    const [sharedParentId, setSharedParentId] = useState('');
+
     // --- Create Person sub-dialog state ---
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
     const [createDialogName, setCreateDialogName] = useState('');
@@ -173,6 +179,8 @@ export function RelationshipEditorDialog({
             setNewChildId('');
             setNewSpouseId('');
             setNewSpouseDate('');
+            setNewSiblingId('');
+            setSharedParentId('');
         }
     }, [isOpen]);
 
@@ -333,6 +341,38 @@ export function RelationshipEditorDialog({
         }
     };
 
+    // ─── Siblings ───────────────────────────────────────────────────────────────
+
+    const handleAddSibling = async () => {
+        if (!newSiblingId) { toast.error('Please select a person.'); return; }
+        if (!sharedParentId) { toast.error('Please select a shared parent.'); return; }
+        if (siblings.includes(newSiblingId)) { toast.error('Already a sibling.'); return; }
+
+        setSaving(true);
+        try {
+            const sibling = await peopleApi.getPerson(newSiblingId);
+            const siblingParents = sibling.relationships?.parents ?? [];
+            if (siblingParents.some((p) => p.id === sharedParentId)) {
+                toast.error('That person already shares this parent.');
+                return;
+            }
+            const sharedParent = currentParents.find((p) => p.id === sharedParentId);
+            await updatePerson.mutateAsync({
+                id: newSiblingId,
+                updates: { relationships: { parents: [...siblingParents, { id: sharedParentId, type: sharedParent?.type ?? 'biological' }] } }
+            });
+            queryClient.invalidateQueries({ queryKey: ['person', personId] });
+            toast.success('Sibling added.');
+            setNewSiblingId('');
+            setSharedParentId('');
+            onClose();
+        } catch {
+            toast.error('Failed to add sibling.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
     const isSaving = updatePerson.isPending || saving;
     const currentParentIds = currentParents.map((p) => p.id);
     const currentSpouseIds = allSpouses.map((s) => s.id);
@@ -347,14 +387,17 @@ export function RelationshipEditorDialog({
 
                     <Tabs defaultValue="parents" className="mt-2">
                         <TabsList className="w-full">
-                            <TabsTrigger value="parents" className="flex-1">
+                            <TabsTrigger value="parents" className="flex-1 text-xs">
                                 Parents {currentParents.length > 0 && `(${currentParents.length})`}
                             </TabsTrigger>
-                            <TabsTrigger value="children" className="flex-1">
+                            <TabsTrigger value="children" className="flex-1 text-xs">
                                 Children {currentChildIds.length > 0 && `(${currentChildIds.length})`}
                             </TabsTrigger>
-                            <TabsTrigger value="spouses" className="flex-1">
+                            <TabsTrigger value="spouses" className="flex-1 text-xs">
                                 Spouses {allSpouses.length > 0 && `(${allSpouses.length})`}
+                            </TabsTrigger>
+                            <TabsTrigger value="siblings" className="flex-1 text-xs">
+                                Siblings {siblings.length > 0 && `(${siblings.length})`}
                             </TabsTrigger>
                         </TabsList>
 
@@ -488,9 +531,82 @@ export function RelationshipEditorDialog({
                             </div>
                             <DialogFooter>
                                 <Button variant="outline" onClick={onClose} size="sm">Cancel</Button>
-                                <Button onClick={handleAddSpouse} size="sm" disabled={isSaving || !newSpouseId}>
+                                <Button
+                                    onClick={handleAddSpouse}
+                                    size="sm"
+                                    disabled={isSaving || !newSpouseId || (!!newSpouseDate.trim() && parseToISO(newSpouseDate) === null)}
+                                    title={!!newSpouseDate.trim() && parseToISO(newSpouseDate) === null ? 'Fix the date before saving' : undefined}
+                                >
                                     {isSaving ? 'Saving…' : 'Add Spouse'}
                                 </Button>
+                            </DialogFooter>
+                        </TabsContent>
+
+                        {/* ── Siblings tab ── */}
+                        <TabsContent value="siblings" className="space-y-4 pt-4">
+                            {siblings.length > 0 && (
+                                <div className="space-y-1">
+                                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Current siblings</p>
+                                    {siblings.map((sibId) => (
+                                        <div key={sibId} className="flex items-center gap-2">
+                                            <div className="flex-1"><PersonChip id={sibId} /></div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            {currentParents.length > 0 ? (
+                                <div className="space-y-3 border-t border-border pt-3">
+                                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Add sibling</p>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium">Person</label>
+                                        <PersonSearchCombobox
+                                            onChange={setNewSiblingId}
+                                            excludeIds={[personId, ...siblings]}
+                                            onCreateNew={(name) => openCreateDialog(name, setNewSiblingId)}
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium">Shared parent</label>
+                                        <div className="flex gap-2 flex-wrap">
+                                            {currentParents.map((p) => (
+                                                <button
+                                                    key={p.id}
+                                                    type="button"
+                                                    onClick={() => setSharedParentId(p.id)}
+                                                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors truncate max-w-[140px] ${
+                                                        sharedParentId === p.id
+                                                            ? 'bg-primary text-primary-foreground'
+                                                            : 'bg-muted hover:bg-muted/80 text-muted-foreground'
+                                                    }`}
+                                                    title={p.id}
+                                                >
+                                                    {p.id.replace(/^N_/, '').split('-').slice(0, 2).join(' ')}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        To remove a sibling, manage the shared parent relationship on either person's page.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="border-t border-border pt-3">
+                                    <p className="text-xs text-muted-foreground">
+                                        Add parents to this person first, then you can link siblings via shared parents.
+                                    </p>
+                                </div>
+                            )}
+                            <DialogFooter>
+                                <Button variant="outline" onClick={onClose} size="sm">Close</Button>
+                                {currentParents.length > 0 && (
+                                    <Button
+                                        onClick={handleAddSibling}
+                                        size="sm"
+                                        disabled={isSaving || !newSiblingId || !sharedParentId}
+                                    >
+                                        {isSaving ? 'Saving…' : 'Add Sibling'}
+                                    </Button>
+                                )}
                             </DialogFooter>
                         </TabsContent>
                     </Tabs>

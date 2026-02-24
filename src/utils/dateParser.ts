@@ -3,15 +3,34 @@ export function parseDate(d: string): string | null {
 
     const clean = d.trim();
 
-    // Handle Range: BET 1900 AND 1910 -> 1900 (case-insensitive match)
-    const rangeMatch = clean.match(/BET\s+(.+)\s+AND/i);
+    // Handle Range: BET 1900 AND 1910 -> midpoint 1905-06-01
+    const rangeMatch = clean.match(/^BET\s+(.+?)\s+AND\s+(.+)$/i);
     if (rangeMatch) {
-        return parseDate(rangeMatch[1]);
+        const startParsed = parseDate(rangeMatch[1]);
+        const endParsed = parseDate(rangeMatch[2]);
+        if (startParsed && endParsed) {
+            const startYear = parseInt(startParsed.substring(0, 4), 10);
+            const endYear = parseInt(endParsed.substring(0, 4), 10);
+            const midYear = Math.floor((startYear + endYear) / 2);
+            return `${midYear}-06-01`;
+        }
+        return startParsed;
     }
 
-    // Handle Modifiers: ABT, EST, CAL, BEF, AFT -> Remove them (case-insensitive)
+    // Handle BEF modifier: BEF 1850 -> 1849-12-31
+    const befMatch = clean.match(/^BEF\s+(.+)$/i);
+    if (befMatch) {
+        const parsed = parseDate(befMatch[1]);
+        if (parsed) {
+            const year = parseInt(parsed.substring(0, 4), 10);
+            return `${year - 1}-12-31`;
+        }
+        return null;
+    }
+
+    // Handle Modifiers: ABT, EST, CAL, AFT, FROM, TO -> Remove them (case-insensitive)
     // "ABT 12 JAN 1990" -> "12 JAN 1990"
-    const datePart = clean.replace(/^(ABT|EST|CAL|BEF|AFT|FROM|TO)\s+/i, '').toUpperCase();
+    const datePart = clean.replace(/^(ABT|EST|CAL|AFT|FROM|TO)\s+/i, '').toUpperCase();
 
     const parts = datePart.split(' ');
 

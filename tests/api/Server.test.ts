@@ -295,6 +295,88 @@ describe('Fastify API Server', () => {
         });
     });
 
+    describe('DELETE /api/people/:id/media/:filename', () => {
+        const pngBuffer = Buffer.from([
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+            0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+            0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+            0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+            0x42, 0x60, 0x82
+        ]);
+
+        it('should delete asset file and return 204', async () => {
+            const createResponse = await request.post('/api/people').send({
+                names: [{ first: 'Delete', last: 'Asset', primary: true }],
+                sex: 'F'
+            });
+            const personId = createResponse.body.id;
+
+            const uploadResponse = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', pngBuffer, 'test.png');
+            const { filename } = uploadResponse.body;
+
+            const deleteResponse = await request.delete(`/api/people/${personId}/media/${filename}`);
+            expect(deleteResponse.status).toBe(204);
+        });
+
+        it('should remove file from disk after deletion', async () => {
+            const createResponse = await request.post('/api/people').send({
+                names: [{ first: 'Delete', last: 'Disk', primary: true }],
+                sex: 'M'
+            });
+            const personId = createResponse.body.id;
+
+            const uploadResponse = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', pngBuffer, 'test.png');
+            const { filename } = uploadResponse.body;
+
+            await request.delete(`/api/people/${personId}/media/${filename}`);
+
+            const assetPath = path.join('./tests/fixtures/data', 'assets', filename);
+            expect(fs.existsSync(assetPath)).toBe(false);
+        });
+
+        it('should remove filename from person assets array', async () => {
+            const createResponse = await request.post('/api/people').send({
+                names: [{ first: 'Delete', last: 'Yaml', primary: true }],
+                sex: 'M'
+            });
+            const personId = createResponse.body.id;
+
+            const uploadResponse = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', pngBuffer, 'test.png');
+            const { filename } = uploadResponse.body;
+
+            await request.delete(`/api/people/${personId}/media/${filename}`);
+
+            const getResponse = await request.get(`/api/people/${personId}`);
+            expect(getResponse.body.assets).not.toContain(filename);
+        });
+
+        it('should return 404 for non-existent person', async () => {
+            const response = await request.delete('/api/people/N_nonexistent/media/file.png');
+            expect(response.status).toBe(404);
+        });
+
+        it('should return 404 when filename not in person assets', async () => {
+            const createResponse = await request.post('/api/people').send({
+                names: [{ first: 'Delete', last: 'NotFound', primary: true }],
+                sex: 'U'
+            });
+            const personId = createResponse.body.id;
+
+            const response = await request.delete(`/api/people/${personId}/media/nonexistent.png`);
+            expect(response.status).toBe(404);
+        });
+    });
+
     describe('POST /api/import/gedcom', () => {
         it('should import GEDCOM and replace existing data', async () => {
             const gedcomContent = `0 HEAD

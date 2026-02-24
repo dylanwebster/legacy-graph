@@ -3,9 +3,9 @@
 > Single source of truth for implementation status. For the _what_ and _why_, see `SPECIFICATION.md`.
 > For the _how far_ and _what's next_, read this document.
 
-**Last Updated**: 2026-02-23
+**Last Updated**: 2026-02-24
 **Test Suite**: 204 passing, 0 skipped (204 total)
-**Overall Completion**: ~82% of full spec (backend complete, frontend substantially complete)
+**Overall Completion**: ~85% of full spec (backend complete, frontend substantially complete; new features planned in Phases 3.11–4.15)
 
 ---
 
@@ -24,7 +24,12 @@
 | **3.8** | Pre-Frontend Hardening (5 items) | ✅ Complete (all 5 items) |
 | **3.9** | More Backend Hardening (3 items) | ✅ Complete (all 3 items) |
 | **3.10** | Final Data Layer Hardening (2 items) | ✅ Complete |
-| **4** | Frontend (React UI) + E2E Tests | 🔧 Substantially complete (4.8, 4.9 remaining) |
+| **4** | Frontend (React UI) + E2E Tests | 🔧 Substantially complete (4.9 force graph remaining; 4.11–4.15 new) |
+| **3.11** | Human-Readable IDs + Auto-ID | ❌ Not started |
+| **3.12** | GEDCOM Import Fix | ❌ Not started (regression reported) |
+| **3.13** | Fuzzy Date Parsing Audit | ❌ Not started |
+| **3.14** | Asset Deletion API | ❌ Not started |
+| **3.15** | Place / Geo-tagging | ❌ Not started |
 | **5** | Immersion & Polish | ❌ Not started |
 | **6** | Distribution & Deployment | ❌ Not started |
 
@@ -609,7 +614,7 @@ Full-page search results linked from CmdK "View all" action.
 
 ## 3. Test Suite
 
-**Total**: 199 tests | **Passing**: 199 | **Skipped**: 0 | **Failing**: 0
+**Total**: 204 tests | **Passing**: 204 | **Skipped**: 0 | **Failing**: 0
 
 | Module | File | Count | Status |
 |:-------|:-----|:------|:-------|
@@ -648,6 +653,165 @@ Full-page search results linked from CmdK "View all" action.
 
 ---
 
+### Phase 3.11: Human-Readable IDs — NOT STARTED ❌
+
+> **Motivation**: Person files use opaque `N_7x9aZ2.yaml` names that are meaningless in a text editor. IDs should encode who the person is.
+
+**New ID format**: `N_[first]-[last]-[birthyear]-[place]-[nanoid8]`
+- Example: `N_Johann-Bach-1685-Eisenach-7x9aZ2Kp.yaml`
+- Components slugified: lowercase, spaces → hyphens, diacritics stripped, non-alphanumeric removed.
+- Variable prefix truncated to 24 chars. Minimum: `N_[nanoid8]` when no name data available.
+- 8-char nanoid suffix guarantees uniqueness.
+
+**Tasks**:
+- [ ] **`generatePersonId(person: Partial<Person>): string`** — new utility in `src/utils/idGenerator.ts`. Derives components from `names[0].first`, `names[0].last`, birth event year, birth event location. Slugifies, truncates, appends nanoid(8).
+- [ ] **Update `POST /people` and GEDCOM import** to use `generatePersonId()` instead of bare `nanoid()`.
+- [ ] **Auto-ID for externally dropped files**: In `GraphEngine.handleFileUpdate()`, if a parsed file is missing `id`, generate one, write it into the YAML in-place, rename the file to `[new-id].yaml`, register both old and new paths in the write-origin set, then proceed with normal hot-patch. PersonSchema must accept absent `id` in a relaxed parse step.
+- [ ] **Update `PersonSchema`** — relax `id` validation to allow generation; update regex/description to document new format.
+- [ ] **Migration note**: Existing `N_[nanoid].yaml` files remain valid — old nanoid-style IDs are still accepted. No forced migration. New IDs use the human-readable format going forward.
+- [ ] **TDD**: `tests/utils/IdGenerator.test.ts` — generates correct slug from name+birth, handles missing fields, handles diacritics, produces unique IDs, file-name collision fallback.
+- [ ] **TDD**: Add watcher test — dropping a YAML without `id` triggers generation + rename.
+
+---
+
+### Phase 3.12: GEDCOM Import Fix — NOT STARTED ❌
+
+> **Motivation**: GEDCOM import is reported broken. Investigate and fix.
+
+**Tasks**:
+- [ ] **Reproduce the failure**: Run a GEDCOM import with a known-good `.ged` file (e.g., `tests/e2e/fixtures/sample.ged`) and document the exact error.
+- [ ] **Root-cause analysis**: Check `src/core/gedcom/Import.ts` — likely candidates: ID generation clash, date parsing regression, FAM record handling, or YAML write path error after the Phase 3.11 ID format change.
+- [ ] **Fix and verify**: Implement fix. Ensure all 16 existing GEDCOM tests still pass. Add regression tests for the specific failure.
+- [ ] **E2E re-verification**: Re-run the Import→View→Edit CUJ Playwright test after fix.
+
+---
+
+### Phase 3.13: Fuzzy Date Parsing Audit — NOT STARTED ❌
+
+> **Motivation**: The spec requires `DateParser` to produce canonical sort values for approximate GEDCOM dates. Current implementation may not cover all cases.
+
+**Required behaviors**:
+- `"1920"` → sort date `1920-01-01`
+- `"Bet. 1900 and 1910"` → sort date `1905-06-01` (midpoint)
+- `"Bef. 1850"` → sort date `1849-12-31`
+- `"Aft. 1800"` → sort date `1800-01-01`
+- `"Abt. 1750"`, `"Est. 1750"`, `"Cal. 1750"` → sort date `1750-01-01`
+- `"Mar 1685"` → sort date `1685-03-01`
+- `"21 Mar 1685"` → sort date `1685-03-21`
+
+**Tasks**:
+- [ ] **Audit `src/utils/dateParser.ts`** against all required cases above.
+- [ ] **Add failing tests** for any missing cases in `tests/utils/DateParser.test.ts`.
+- [ ] **Fix `DateParser`** to pass all tests.
+- [ ] **Verify GEDCOM round-trip**: Ensure export preserves original fuzzy `date` string while using the computed `sort_date`.
+
+---
+
+### Phase 3.14: Asset Deletion API — NOT STARTED ❌
+
+> **Motivation**: Assets pile up on disk when users delete them from the UI — the API only removes the filename from YAML but does not delete the binary file.
+
+**Tasks**:
+- [ ] **`DELETE /api/people/:id/media/:filename`** in `src/api/routes/people.ts`:
+  - Verify person exists (404 if not).
+  - Verify asset filename is in person's `assets[]` array (404 if not).
+  - `fs.unlink` the file from `/assets/[filename]` (and thumbnail from cache if present).
+  - Remove filename from person's `assets[]` array and write updated YAML via `TransactionManager`.
+  - Run `applyWriteSideEffects()` for the person (re-index, recompute `_computed`).
+  - Return `204 No Content`.
+- [ ] **TDD**: `tests/api/Server.test.ts` — DELETE returns 204, file gone from disk, filename removed from YAML, 404 for missing person, 404 for filename not in assets array.
+
+---
+
+### Phase 3.15: Place / Geo-tagging — NOT STARTED ❌
+
+> **Motivation**: Event locations are unvalidated strings. Structured geo-data enables future map visualization, validated place names, and historical name resolution.
+
+**Place Object Schema** (`src/schemas/EventSchema.ts`):
+```typescript
+{
+  name: string;            // Display name (user's original input or modern equivalent)
+  historicalName?: string; // Original historical name if name was resolved to modern form
+  lat?: number;            // WGS84 latitude
+  lng?: number;            // WGS84 longitude
+  countryCode?: string;    // ISO 3166-1 alpha-2
+  resolvedAt?: string;     // ISO-8601 timestamp of last geocode resolution
+}
+```
+
+**Tasks**:
+- [ ] **Update `EventSchema`** — change `location` from `z.string().optional()` to `z.union([z.string(), PlaceSchema]).optional()`. Auto-coerce string → `{ name: string }` on parse for backward compatibility.
+- [ ] **`src/core/GeocodingService.ts`** — `resolve(name: string): Promise<Place>`. Uses Nominatim (`https://nominatim.openstreetmap.org/search?q=...&format=jsonv2&limit=1`). Cache results in `/_meta/.geocode-cache.json`. Queue enforces ≤1 req/sec. Graceful fallback: returns `{ name }` if lookup fails.
+- [ ] **`GET /api/places/search?q=...`** in `src/api/routes/search.ts` — returns top 5 Nominatim candidates for type-ahead autocomplete.
+- [ ] **BootLoader migration**: If `location` is a bare string during hydration, coerce to `{ name: locationString }`. No data written back — migration happens transparently in memory only.
+- [ ] **TDD**: `tests/core/GeocodingService.test.ts` — resolve known city returns lat/lng, cache hit skips HTTP, rate limiter fires, fallback on 404/network error, historical name preserved in `historicalName`.
+- [ ] **TDD**: Update `EventSchema.test.ts` — string location coerces to Place object, full Place object round-trips correctly.
+- [ ] **Frontend `4.15b`**: Update `EventEditorDialog` location field to type-ahead against `GET /api/places/search`, display resolved lat/lng confirmation.
+
+---
+
+### Phase 4.9: Dashboard Force Graph — NOT STARTED ❌
+
+- [ ] Install `react-force-graph-2d`.
+- [ ] Fetch all people from `GET /api/people` (paginated, all pages) to build node list.
+- [ ] Build edges from `_computed.children` relationships on each person.
+- [ ] Click node → navigate to `/people/:id`.
+- [ ] "Gravity Bands" deferred to Phase 5.
+
+---
+
+### Phase 4.11: Frontend Date Validation — NOT STARTED ❌
+
+> **Motivation**: The Event Editor allows saving events with unparseable date strings. Invalid dates produce no sort_date and fall into the "Unknown Date" section indefinitely.
+
+**Tasks**:
+- [ ] In `EventEditorDialog`, wire the `date` free-text field through the shared `DateParser` on every keystroke (debounced 300ms).
+- [ ] Display parsed ISO date preview below the field (already partially present — ensure it always shows or shows an error).
+- [ ] If `date` is non-empty and cannot be parsed, show a red validation message and **disable the Save button**.
+- [ ] `sort_date` field: if non-empty and not a valid `YYYY-MM-DD`, disable Save.
+- [ ] `SmartDateInput` component (if it exists) should encapsulate this logic.
+
+---
+
+### Phase 4.12: Notebook Markdown Rendering — NOT STARTED ❌
+
+> **Motivation**: The Notebook tab shows raw markdown text in view mode. It should render it as formatted HTML.
+
+**Tasks**:
+- [ ] Install `react-markdown` and `remark-gfm` in `client/`.
+- [ ] In the Notebook tab of the Context Panel, replace the raw text display with `<ReactMarkdown>` in view mode.
+- [ ] Edit mode remains a plain `<textarea>`.
+- [ ] Prose styling via Tailwind `prose` class (requires `@tailwindcss/typography` plugin).
+
+---
+
+### Phase 4.13: Timeline "Unknown Date" Section — NOT STARTED ❌
+
+> **Motivation**: Undated events currently appear at the bottom of the timeline — they are easy to miss. They should appear at the top under a clear "Undated Events" heading.
+
+**Backend tasks**:
+- [ ] Update `TimelineSlicer.ts`: segregate items with no `sort_date` into a separate list. Prepend `{ type: 'unknown_date_header' }` + undated items before the dated+gap stream in the output. Pagination applies to the combined array.
+- [ ] Update `TimelineItem` type union to include `UnknownDateHeader`.
+- [ ] Update `tests/core/TimelineSlicer.test.ts` — verify undated events appear first, dated events remain in order after them.
+
+**Frontend tasks**:
+- [ ] In the Timeline Feed renderer, handle `type === 'unknown_date_header'` as a styled section divider ("Undated Events").
+- [ ] Remove the previous logic that placed undated events at the bottom.
+
+---
+
+### Phase 4.14: Sibling Management — NOT STARTED ❌
+
+> **Motivation**: Siblings are visible in the Identity Panel but cannot be managed in the Relationship Editor.
+
+**Tasks**:
+- [ ] Add **Siblings tab** to `RelationshipEditorDialog`.
+- [ ] Read siblings from `_computed.siblings` for display (read-only, derived from shared parents).
+- [ ] "Add Sibling" UX: because siblings can only be linked via a shared parent, the tab shows a `PersonSearchCombobox` to pick a person, then prompts to select which of the current person's parents to assign to them (or create a new shared parent). Calls `PUT /people/[siblingId]` to add the selected parent.
+- [ ] Each listed sibling has a "View" link (navigates to their page). Explain via tooltip that sibling removal requires managing the shared parent relationship.
+
+---
+
 ## 4. Technical Decisions
 
 Decisions made during implementation that deviate from or elaborate on the spec.
@@ -680,4 +844,7 @@ Decisions made during implementation that deviate from or elaborate on the spec.
 | 24 | Responsive design mandatory | User decision: persistent sidebar collapses to icon-only on tablet, hamburger on mobile. Holy Grail panels stack on small screens |
 | 25 | Full event/relationship editors from Phase 4 | User decision: not just inline text editing — modal-based event editor for all 11 types with dynamic fields, searchable person selectors |
 | 26 | Hover preview cards (`HoverCard`) on person references | User decision: `PersonChip` components show avatar + vital dates on hover, click to navigate |
+| 27 | Human-readable IDs replace nanoid-only IDs (Phase 3.11) | User decision: file system is the database — IDs must be legible in a text editor. Random suffix preserves global uniqueness |
+| 28 | Nominatim (OpenStreetMap) for geocoding (Phase 3.15) | Free, no API key, handles historical place names. Rate limit 1 req/s enforced by GeocodingService queue |
+| 29 | Place field migrated from `string` to structured object (Phase 3.15) | Backward compat: string locations auto-migrated to `{ name }` at parse time |
 

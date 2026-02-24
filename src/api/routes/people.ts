@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { nanoid } from 'nanoid';
+import { generatePersonId } from '../../utils/idGenerator';
 import * as nodeFs from 'fs';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -155,7 +156,7 @@ export async function peopleRoutes(server: FastifyInstance) {
 
             const newPerson: Person = {
                 version: '5.0',
-                id: `N_${nanoid()}`,
+                id: generatePersonId({ names: body.names, events: body.events }),
                 created: new Date().toISOString(),
                 last_modified: new Date().toISOString(),
                 names: body.names,
@@ -324,5 +325,58 @@ export async function peopleRoutes(server: FastifyInstance) {
                 details: error.message
             });
         }
+    });
+
+    server.delete<{
+        Params: { id: string; filename: string }
+    }>('/api/people/:id/media/:filename', async (request, reply) => {
+        const { id, filename } = request.params;
+        const graph = graphEngine.getGraph();
+
+        if (!graph.hasNode(id)) {
+            return reply.status(404).send({
+                error: 'Person not found',
+                code: 'PERSON_NOT_FOUND'
+            });
+        }
+
+        const heavyFields = await graphEngine.loadHeavyFields(id);
+        const slimData = graph.getNodeAttributes(id).data as SlimPerson;
+        const fullPerson: Person = {
+            ...slimData,
+            scrapbook_md: heavyFields?.scrapbook_md ?? '',
+            _gedcom: heavyFields?._gedcom,
+        } as Person;
+
+        if (!fullPerson.assets.includes(filename)) {
+            return reply.status(404).send({
+                error: 'Asset not found',
+                code: 'ASSET_NOT_FOUND'
+            });
+        }
+
+        // Delete the file from disk (silent if already gone)
+        const assetPath = path.join(dataDir, 'assets', filename);
+        try {
+            await fs.unlink(assetPath);
+        } catch {
+            // File already gone — proceed
+        }
+
+        // Remove from assets array and persist
+        const oldSlim = graph.getNodeAttributes(id).data as SlimPerson;
+        fullPerson.assets = fullPerson.assets.filter(a => a !== filename);
+        fullPerson.last_modified = new Date().toISOString();
+
+        const relativePath = path.join('people', `${id}.yaml`);
+        const primaryName = fullPerson.names?.[0];
+        const label = primaryName ? `${primaryName.first} ${primaryName.last}` : id;
+        await txManager.writeFile(relativePath, yaml.dump(fullPerson), label);
+
+        const newSlim = toSlimPerson(fullPerson);
+        graph.setNodeAttribute(id, 'data', newSlim);
+        graphEngine.applyWriteSideEffects(id, oldSlim, newSlim, fullPerson.scrapbook_md || '');
+
+        return reply.status(204).send();
     });
 }

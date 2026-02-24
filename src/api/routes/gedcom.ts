@@ -8,12 +8,31 @@ import type { AppInstance } from '../types';
 export async function gedcomRoutes(server: FastifyInstance) {
     const { graphEngine, txManager, dataDir } = (server as AppInstance).appServices;
 
-    server.post<{
-        Body: { gedcom?: string }
-    }>('/api/import/gedcom', async (request, reply) => {
-        const { gedcom } = request.body;
+    server.post('/api/import/gedcom', async (request, reply) => {
+        let gedcomContent: string | undefined;
 
-        if (!gedcom) {
+        const contentType = request.headers['content-type'] || '';
+
+        if (contentType.includes('multipart/form-data')) {
+            // Frontend sends FormData with a 'file' field
+            const data = await request.file();
+            if (!data) {
+                return reply.status(400).send({
+                    error: 'File is required',
+                    code: 'MISSING_GEDCOM'
+                });
+            }
+            const chunks: Buffer[] = [];
+            for await (const chunk of data.file) {
+                chunks.push(chunk);
+            }
+            gedcomContent = Buffer.concat(chunks).toString('utf8');
+        } else {
+            // JSON body fallback: { gedcom: string }
+            gedcomContent = (request.body as { gedcom?: string })?.gedcom;
+        }
+
+        if (!gedcomContent) {
             return reply.status(400).send({
                 error: 'GEDCOM content is required',
                 code: 'MISSING_GEDCOM'
@@ -22,7 +41,7 @@ export async function gedcomRoutes(server: FastifyInstance) {
 
         try {
             const reader = new GedcomReader();
-            const result = await reader.parse(gedcom);
+            const result = await reader.parse(gedcomContent);
 
             if (result.people.length === 0) {
                 return reply.status(400).send({

@@ -393,7 +393,12 @@ export function EventEditorDialog({
 
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose} size="sm">Cancel</Button>
-                    <Button onClick={handleSave} size="sm" disabled={updatePerson.isPending}>
+                    <Button
+                        onClick={handleSave}
+                        size="sm"
+                        disabled={updatePerson.isPending || (!!date.trim() && parseToISO(date) === null)}
+                        title={!!date.trim() && parseToISO(date) === null ? 'Fix the date before saving' : undefined}
+                    >
                         {updatePerson.isPending ? 'Saving…' : isEdit ? 'Update' : 'Add Event'}
                     </Button>
                 </DialogFooter>

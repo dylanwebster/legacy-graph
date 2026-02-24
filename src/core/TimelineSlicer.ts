@@ -21,7 +21,11 @@ export interface TimelineGap {
     years: number;
 }
 
-export type TimelineItem = TimelineEvent | TimelineStory | TimelineGap;
+export interface TimelineUnknownDateHeader {
+    type: 'unknown_date_header';
+}
+
+export type TimelineItem = TimelineEvent | TimelineStory | TimelineGap | TimelineUnknownDateHeader;
 
 export interface TimelinePaginationOptions {
     limit?: number;
@@ -39,8 +43,8 @@ export interface PaginatedTimeline {
  * Pre-computes the "Integrated Feed" for the Person Detail page.
  *
  * 1. Collects all Person Events + Story Mentions
- * 2. Sorts by sort_date
- * 3. Inserts Gap objects when year difference > 10
+ * 2. Undated events appear at the TOP under an "unknown_date_header" separator
+ * 3. Dated events are sorted by sort_date with gap indicators (>10 year gaps)
  * 4. Optionally paginates with limit/offset
  *
  * When called without pagination options, returns a flat TimelineItem[] (backward compatible).
@@ -62,11 +66,11 @@ export function sliceTimeline(graph: Graph, personId: string, options?: Timeline
     const sortable: Array<{ sort_date: string; item: TimelineEvent | TimelineStory }> = [];
     const undated: Array<TimelineEvent> = [];
 
-    // 1. Collect Person Events — separate dated (for ordered placement) from undated (appended at end)
+    // 1. Collect Person Events — separate dated from undated
     for (const event of person.events) {
         const sd = effectiveSortDate(event);
         if (!sd) {
-            // Events without a parseable date are still shown, placed at the end
+            // Events without a parseable date go to the top "Undated Events" section
             undated.push({ type: event.type, sort_date: '', data: event });
         } else {
             sortable.push({
@@ -106,7 +110,7 @@ export function sliceTimeline(graph: Graph, personId: string, options?: Timeline
     sortable.sort((a, b) => a.sort_date.localeCompare(b.sort_date));
 
     // 4. Gap Detection — insert gaps when year difference > 10 (dated events only)
-    const allItems: TimelineItem[] = sortable.length > 0 ? [sortable[0].item] : [];
+    const datedItems: TimelineItem[] = sortable.length > 0 ? [sortable[0].item] : [];
 
     for (let i = 1; i < sortable.length; i++) {
         const prevYear = extractYear(sortable[i - 1].sort_date);
@@ -115,16 +119,23 @@ export function sliceTimeline(graph: Graph, personId: string, options?: Timeline
         if (prevYear !== null && currYear !== null) {
             const diff = currYear - prevYear;
             if (diff > 10) {
-                allItems.push({ type: 'gap', years: diff });
+                datedItems.push({ type: 'gap', years: diff });
             }
         }
 
-        allItems.push(sortable[i].item);
+        datedItems.push(sortable[i].item);
     }
 
-    // 5. Append undated events at the end (no gap detection — date is unknown)
-    for (const undatedEvent of undated) {
-        allItems.push(undatedEvent);
+    // 5. Prepend undated events at the top with a header separator
+    const allItems: TimelineItem[] = [];
+    if (undated.length > 0) {
+        allItems.push({ type: 'unknown_date_header' });
+        for (const undatedEvent of undated) {
+            allItems.push(undatedEvent);
+        }
+    }
+    for (const datedItem of datedItems) {
+        allItems.push(datedItem);
     }
 
     // 6. Apply pagination if options provided

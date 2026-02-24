@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { peopleApi } from './people';
 import type { CreatePersonInput } from './people';
-import { apiFetch } from './client';
+import { apiFetch, deleteAsset } from './client';
 
 export const usePeople = (params?: { limit?: number; offset?: number; sort?: string; order?: string }) => {
     return useQuery({
@@ -58,6 +58,18 @@ export const useCreatePerson = () => {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['people'] });
             queryClient.invalidateQueries({ queryKey: ['search'] });
+        },
+    });
+};
+
+export const useDeleteAsset = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ personId, filename }: { personId: string; filename: string }) =>
+            deleteAsset(personId, filename),
+        onSuccess: (_data, { personId }) => {
+            queryClient.invalidateQueries({ queryKey: ['person', personId] });
+            queryClient.invalidateQueries({ queryKey: ['people'] });
         },
     });
 };
