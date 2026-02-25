@@ -548,4 +548,119 @@ describe('Fastify API Server', () => {
             expect(response.status).toBe(400);
         });
     });
+
+    describe('POST /api/import/gedcom', () => {
+        const testDataDir = './tests/fixtures/data';
+        const peopleDir = path.join(testDataDir, 'people');
+        const FIXTURE_PERSON_ID = 'N_test-import-2000-fixture';
+        const FIXTURE_PERSON_YAML = `version: '5.0'
+id: ${FIXTURE_PERSON_ID}
+created: '2026-01-01T00:00:00.000Z'
+last_modified: '2026-01-01T00:00:00.000Z'
+names:
+  - first: Test
+    last: Import
+    primary: true
+events:
+  - id: fixture-birth-event
+    type: birth
+    date: 1 JAN 2000
+    sort_date: '2000-01-01'
+    location: ''
+    assets: []
+assets: []
+relationships:
+  parents: []
+sex: M
+tags:
+  - gedcom
+scrapbook_md: ''
+_gedcom: {}
+`;
+
+        beforeEach(async () => {
+            // Ensure a clean, known fixture state for each test in this block.
+            // Remove any stale files from previous test runs, then write the canonical fixture person.
+            // Then rebuild the graph so the in-memory state matches disk.
+            fs.mkdirSync(peopleDir, { recursive: true });
+            const allFiles = fs.readdirSync(peopleDir).filter(f => f.endsWith('.yaml'));
+            for (const f of allFiles) {
+                try { fs.unlinkSync(path.join(peopleDir, f)); } catch { /* ignore */ }
+            }
+            fs.writeFileSync(path.join(peopleDir, `${FIXTURE_PERSON_ID}.yaml`), FIXTURE_PERSON_YAML, 'utf8');
+            // Force re-hydration so graph matches disk
+            await request.post('/api/system/rebuild');
+        });
+
+        // Minimal valid GEDCOM with one person: first=Jane, last=Doe, born 1990
+        const JANE_GED = `0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Jane /Doe/
+1 SEX F
+1 BIRT
+2 DATE 15 JUN 1990
+0 TRLR`;
+
+        // Minimal valid GEDCOM with one person: first=Test, last=Import, born 2000
+        // Matches the fixture person N_test-import-2000-* already in tests/fixtures/data/people/
+        const DUPLICATE_GED = `0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Test /Import/
+1 SEX M
+1 BIRT
+2 DATE 1 JAN 2000
+0 TRLR`;
+
+        it('replace mode wipes existing people and writes imported ones', async () => {
+            const response = await request
+                .post('/api/import/gedcom')
+                .field('mode', 'replace')
+                .attach('file', Buffer.from(JANE_GED), { filename: 'test.ged', contentType: 'text/plain' });
+
+            expect(response.status).toBe(200);
+            expect(response.body.imported).toBe(1);
+            // The fixture person should be gone — verify Jane is the only person
+            const people = await request.get('/api/people');
+            expect(people.body.totalCount).toBe(1);
+            expect(people.body.people[0].names[0].first).toBe('Jane');
+        });
+
+        it('additive mode adds new people without removing existing ones', async () => {
+            const before = await request.get('/api/people');
+            const countBefore: number = before.body.totalCount;
+
+            const response = await request
+                .post('/api/import/gedcom')
+                .field('mode', 'additive')
+                .attach('file', Buffer.from(JANE_GED), { filename: 'test.ged', contentType: 'text/plain' });
+
+            expect(response.status).toBe(200);
+            expect(response.body.imported).toBe(1);
+            expect(response.body.skipped).toBe(0);
+
+            const after = await request.get('/api/people');
+            expect(after.body.totalCount).toBe(countBefore + 1);
+        });
+
+        it('additive mode skips duplicate matched by name + birth year', async () => {
+            const before = await request.get('/api/people');
+            const countBefore: number = before.body.totalCount;
+
+            const response = await request
+                .post('/api/import/gedcom')
+                .field('mode', 'additive')
+                .attach('file', Buffer.from(DUPLICATE_GED), { filename: 'dup.ged', contentType: 'text/plain' });
+
+            expect(response.status).toBe(200);
+            expect(response.body.imported).toBe(0);
+            expect(response.body.skipped).toBe(1);
+
+            const after = await request.get('/api/people');
+            expect(after.body.totalCount).toBe(countBefore);
+        });
+    });
 });
