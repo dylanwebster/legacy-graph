@@ -52,9 +52,10 @@ function PersonSearchCombobox({
 
     const { data: searchResults } = useSearch(debouncedQuery, { limit: 8 });
 
+    // Search API enriches results with `names: PersonName[]`, not `name: string`
     const people = (searchResults?.people ?? []).filter(
         (p: { id: string }) => !excludeIds.includes(p.id)
-    ) as Array<{ id: string; name: string }>;
+    ) as Array<{ id: string; names?: Array<{ first?: string; given?: string; last?: string; surname?: string }> }>;
 
     const handleSelect = (id: string, name?: string) => {
         onChange(id);
@@ -78,18 +79,19 @@ function PersonSearchCombobox({
             {showDropdownPanel && (
                 <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-md max-h-48 overflow-auto">
                     {people.map((p) => {
-                        const parts = p.name.split(' ');
-                        const first = parts[0] ?? '';
-                        const last = parts.slice(1).join(' ') ?? '';
+                        const primaryName = p.names?.[0];
+                        const first = primaryName?.first || primaryName?.given || '';
+                        const last = primaryName?.last || primaryName?.surname || '';
+                        const displayName = `${first} ${last}`.trim() || p.id;
                         return (
                             <button
                                 key={p.id}
                                 type="button"
                                 className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 text-left"
-                                onMouseDown={() => handleSelect(p.id, p.name)}
+                                onMouseDown={() => handleSelect(p.id, displayName)}
                             >
                                 <CustomAvatar firstName={first} lastName={last} className="h-5 w-5 text-[9px]" />
-                                <span className="truncate">{p.name || p.id}</span>
+                                <span className="truncate">{displayName}</span>
                             </button>
                         );
                     })}

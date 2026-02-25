@@ -29,6 +29,7 @@ lsof -ti :3000 | xargs kill
 
 ## Rules
 
+You must always abide by these rules:
 - Always use Context7 MCP when I need public library/API documentation, code generation, setup or configuration steps without me having to explicitly ask.
 - Always use the frontend-design skill when doing frontend design work.
 
@@ -104,9 +105,10 @@ client/src/
 
 1. **TDD is mandatory** — write a failing test before writing implementation code.
 2. **Spec-first** — `SPECIFICATION.md` is authoritative. Discrepancies between spec and code are critical bugs.
-3. **Slim Nodes** — `scrapbook_md` and `_gedcom` are stripped from the in-memory graph. Lazy-loaded from disk on `GET /people/:id`. This keeps ~100MB+ of idle text out of the V8 heap at 50K nodes.
-4. **Self-write dedup** — API writes register the file path in a write-origin set (`GraphEngine`). The file watcher skips hot-patching for self-written files. External edits (VS Code, `git checkout`) pass through normally.
-5. **Debounced commits** — `TransactionManager` batches writes into a single `isomorphic-git` commit every 5 seconds. No child processes for git.
+3. **Keep track of full progress** — `PROGRESS.md` must be updated with the full implementation progress and remaining steps.
+4. **Slim Nodes** — `scrapbook_md` and `_gedcom` are stripped from the in-memory graph. Lazy-loaded from disk on `GET /people/:id`. This keeps ~100MB+ of idle text out of the V8 heap at 50K nodes.
+5. **Self-write dedup** — API writes register the file path in a write-origin set (`GraphEngine`). The file watcher skips hot-patching for self-written files. External edits (VS Code, `git checkout`) pass through normally.
+6. **Debounced commits** — `TransactionManager` batches writes into a single `isomorphic-git` commit every 5 seconds. No child processes for git.
 
 ---
 
@@ -198,25 +200,3 @@ Base URL: `/api`. Auth: JWT in HttpOnly cookie. Auth is optional — if `/_meta/
 - `768–1279px`: Icon-only sidebar
 - `<768px`: Hamburger overlay; Holy Grail panels stack vertically
 
----
-
-## Implementation Status
-
-**Backend (Phases 1–3.14): Complete.** 223 tests, all passing.
-
-**Frontend (Phases 4.1–4.15): Substantially complete.** App shell, Command Palette, People Browse, Holy Grail Person Detail, Event/Relationship editors (all 11 types + 4-tab relationship editor with siblings), Import, Settings, Search, Dashboard (stats), E2E tests (3 CUJs), Notebook markdown rendering, Timeline "Undated Events" section, and asset delete flow.
-
-**Remaining work (in priority order):**
-- `4.16` — Avatar & asset image quality: images warped in identity panel; people list missing primary photo; asset delete doesn't immediately revert avatar to initials
-- `4.17` — Dark mode + light/dark toggle: `prose-invert` bug in Notebook broken in light mode; needs polished two-theme CSS + TopBar toggle
-- `4.18` — People list search only filters current page (client-side); must be server-side against full dataset
-- `4.19` — GEDCOM spouse import: FAM records with HUSB+WIFE but no MARR tag silently drop both spouses
-- `4.20` — Timeline virtualizer: hard browser reload causes timeline to disappear (flex height race condition in virtualizer)
-- `4.21` — Sibling management: can only assign one shared parent at a time; should allow selecting both via checkboxes
-- `4.22` — Date input validation: `parseToISO()` catch-all `\b(\d{4})\b` regex accepts invalid strings like "15 Jeune 1776"
-- `4.9` — Force graph visualization (`react-force-graph-2d`) on Dashboard (stats panel complete; graph not built)
-- `3.15` — Place geo-tagging: structured `{ name, lat, lng, countryCode, historicalName }` + Nominatim geocoding; new `GET /api/places/search` endpoint — schema-breaking backend change
-- `5.1` — Tiptap rich story editor
-- `5.2` — 3D time tunnel (`react-three-fiber`)
-- `5.3` — Heap monitoring in `/system/status`
-- `6` — Docker, Electron, CI/CD

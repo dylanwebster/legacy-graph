@@ -93,14 +93,17 @@ function PersonDetail() {
 
     // Timeline virtualizer
     const timelineParentRef = useRef<HTMLDivElement>(null);
-    // Force VirtualizedTimeline to remount after the first paint so the virtualizer
-    // re-measures the scroll container with its final flex-resolved height.
-    // This fixes a race condition on hard browser reload where useLayoutEffect
-    // (which measures the container) runs before the browser has painted the flex layout.
+    // Force VirtualizedTimeline to remount once after person data first loads so the
+    // virtualizer re-measures the scroll container with its fully-resolved flex height.
+    // Using [] fires too early (during the loading skeleton) when there is no cached data,
+    // so the 0→1 key transition is exhausted before VirtualizedTimeline ever mounts.
     const [timelineKey, setTimelineKey] = useState(0);
+    const timelineVirtualizerInited = useRef(false);
     useEffect(() => {
+        if (!person || timelineVirtualizerInited.current) return;
+        timelineVirtualizerInited.current = true;
         setTimelineKey(1);
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [person]);
 
     // Reset all editing state when navigating to a different person
     useEffect(() => {
