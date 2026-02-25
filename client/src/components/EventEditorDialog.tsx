@@ -44,8 +44,8 @@ function PersonSearchCombobox({
     }, [query]);
 
     const { data: searchResults } = useSearch(debouncedQuery, { limit: 8 });
-    // Search API enriches results with `names: PersonName[]`, not `name: string`
-    const people = (searchResults?.people ?? []) as Array<{ id: string; names?: Array<{ first?: string; given?: string; last?: string; surname?: string }> }>;
+    // Search API enriches results with `names: PersonName[]` and `birthDate`, not `name: string`
+    const people = (searchResults?.people ?? []) as Array<{ id: string; names?: Array<{ first?: string; given?: string; last?: string; surname?: string }>; birthDate?: string }>;
 
     const handleSelect = (id: string, displayName?: string) => {
         onChange(id);
@@ -78,7 +78,10 @@ function PersonSearchCombobox({
                                 onMouseDown={() => handleSelect(p.id, displayName)}
                             >
                                 <CustomAvatar firstName={first} lastName={last} className="h-5 w-5 text-[9px]" />
-                                <span className="truncate">{displayName}</span>
+                                <span className="truncate flex-1">{displayName}</span>
+                                {!!p.birthDate && (
+                                    <span className="text-xs text-muted-foreground shrink-0">b. {p.birthDate}</span>
+                                )}
                             </button>
                         );
                     })}

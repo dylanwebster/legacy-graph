@@ -35,15 +35,23 @@ function PersonSearchCombobox({
     placeholder = 'Search people...',
     excludeIds = [],
     onCreateNew,
+    forcedQuery = '',
 }: {
     onChange: (id: string) => void;
     placeholder?: string;
     excludeIds?: string[];
     onCreateNew?: (name: string) => void;
+    /** When set by parent (e.g. after creating a new person), overrides the input text. */
+    forcedQuery?: string;
 }) {
     const [query, setQuery] = useState('');
     const [debouncedQuery, setDebouncedQuery] = useState('');
     const [showDropdown, setShowDropdown] = useState(false);
+
+    // Sync input text when parent drives a selection (e.g. after creating a new person)
+    useEffect(() => {
+        setQuery(forcedQuery);
+    }, [forcedQuery]);
 
     useEffect(() => {
         const t = setTimeout(() => setDebouncedQuery(query), 300);
@@ -52,10 +60,10 @@ function PersonSearchCombobox({
 
     const { data: searchResults } = useSearch(debouncedQuery, { limit: 8 });
 
-    // Search API enriches results with `names: PersonName[]`, not `name: string`
+    // Search API enriches results with `names: PersonName[]` and `birthDate`, not `name: string`
     const people = (searchResults?.people ?? []).filter(
         (p: { id: string }) => !excludeIds.includes(p.id)
-    ) as Array<{ id: string; names?: Array<{ first?: string; given?: string; last?: string; surname?: string }> }>;
+    ) as Array<{ id: string; names?: Array<{ first?: string; given?: string; last?: string; surname?: string }>; birthDate?: string }>;
 
     const handleSelect = (id: string, name?: string) => {
         onChange(id);
@@ -91,7 +99,10 @@ function PersonSearchCombobox({
                                 onMouseDown={() => handleSelect(p.id, displayName)}
                             >
                                 <CustomAvatar firstName={first} lastName={last} className="h-5 w-5 text-[9px]" />
-                                <span className="truncate">{displayName}</span>
+                                <span className="truncate flex-1">{displayName}</span>
+                                {!!p.birthDate && (
+                                    <span className="text-xs text-muted-foreground shrink-0">b. {p.birthDate}</span>
+                                )}
                             </button>
                         );
                     })}
@@ -154,25 +165,30 @@ export function RelationshipEditorDialog({
     // --- Parents state ---
     const [newParentId, setNewParentId] = useState('');
     const [newParentType, setNewParentType] = useState<typeof RELATIONSHIP_TYPES[number]>('biological');
+    const [parentForcedQuery, setParentForcedQuery] = useState('');
 
     // --- Children state ---
     const [newChildId, setNewChildId] = useState('');
     const [newChildType, setNewChildType] = useState<typeof RELATIONSHIP_TYPES[number]>('biological');
+    const [childForcedQuery, setChildForcedQuery] = useState('');
     const [saving, setSaving] = useState(false);
 
     // --- Spouses state ---
     const [newSpouseId, setNewSpouseId] = useState('');
     const [newSpouseStatus, setNewSpouseStatus] = useState<typeof MARRIAGE_STATUSES[number]>('married');
     const [newSpouseDate, setNewSpouseDate] = useState('');
+    const [spouseForcedQuery, setSpouseForcedQuery] = useState('');
 
     // --- Siblings state ---
     const [newSiblingId, setNewSiblingId] = useState('');
     const [selectedParentIds, setSelectedParentIds] = useState<Set<string>>(new Set());
+    const [siblingForcedQuery, setSiblingForcedQuery] = useState('');
 
     // --- Create Person sub-dialog state ---
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
     const [createDialogName, setCreateDialogName] = useState('');
     const [onPersonCreated, setOnPersonCreated] = useState<((id: string) => void) | null>(null);
+    const [pendingQuerySetter, setPendingQuerySetter] = useState<((name: string) => void) | null>(null);
 
     // Reset on open
     useEffect(() => {
@@ -183,19 +199,26 @@ export function RelationshipEditorDialog({
             setNewSpouseDate('');
             setNewSiblingId('');
             setSelectedParentIds(new Set());
+            setParentForcedQuery('');
+            setChildForcedQuery('');
+            setSpouseForcedQuery('');
+            setSiblingForcedQuery('');
         }
     }, [isOpen]);
 
     // ─── Create person sub-dialog ────────────────────────────────────────────────
 
-    const openCreateDialog = (name: string, onCreated: (id: string) => void) => {
+    const openCreateDialog = (name: string, onCreated: (id: string) => void, setQueryFn: (name: string) => void) => {
         setCreateDialogName(name);
         setOnPersonCreated(() => onCreated);
+        setPendingQuerySetter(() => setQueryFn);
         setCreateDialogOpen(true);
     };
 
     const handlePersonCreated = (id: string) => {
         onPersonCreated?.(id);
+        // Populate the combobox input with the created person's name
+        pendingQuerySetter?.(createDialogName);
         setCreateDialogOpen(false);
     };
 
@@ -439,7 +462,8 @@ export function RelationshipEditorDialog({
                                     <PersonSearchCombobox
                                         onChange={setNewParentId}
                                         excludeIds={[personId, ...currentParentIds]}
-                                        onCreateNew={(name) => openCreateDialog(name, setNewParentId)}
+                                        onCreateNew={(name) => openCreateDialog(name, setNewParentId, setParentForcedQuery)}
+                                        forcedQuery={parentForcedQuery}
                                     />
                                 </div>
                                 <div className="space-y-1">
@@ -481,7 +505,8 @@ export function RelationshipEditorDialog({
                                     <PersonSearchCombobox
                                         onChange={setNewChildId}
                                         excludeIds={[personId, ...currentChildIds]}
-                                        onCreateNew={(name) => openCreateDialog(name, setNewChildId)}
+                                        onCreateNew={(name) => openCreateDialog(name, setNewChildId, setChildForcedQuery)}
+                                        forcedQuery={childForcedQuery}
                                     />
                                 </div>
                                 <div className="space-y-1">
@@ -524,7 +549,8 @@ export function RelationshipEditorDialog({
                                     <PersonSearchCombobox
                                         onChange={setNewSpouseId}
                                         excludeIds={[personId, ...currentSpouseIds]}
-                                        onCreateNew={(name) => openCreateDialog(name, setNewSpouseId)}
+                                        onCreateNew={(name) => openCreateDialog(name, setNewSpouseId, setSpouseForcedQuery)}
+                                        forcedQuery={spouseForcedQuery}
                                     />
                                 </div>
                                 <div className="space-y-1">
@@ -573,7 +599,8 @@ export function RelationshipEditorDialog({
                                         <PersonSearchCombobox
                                             onChange={setNewSiblingId}
                                             excludeIds={[personId, ...siblings]}
-                                            onCreateNew={(name) => openCreateDialog(name, setNewSiblingId)}
+                                            onCreateNew={(name) => openCreateDialog(name, setNewSiblingId, setSiblingForcedQuery)}
+                                            forcedQuery={siblingForcedQuery}
                                         />
                                     </div>
                                     <div className="space-y-1">
