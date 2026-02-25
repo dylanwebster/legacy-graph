@@ -58,6 +58,13 @@ export async function gedcomRoutes(server: FastifyInstance) {
             });
         }
 
+        if (mode !== 'replace' && mode !== 'additive') {
+            return reply.status(400).send({
+                error: 'Invalid mode. Must be "replace" or "additive".',
+                code: 'INVALID_MODE'
+            });
+        }
+
         try {
             const reader = new GedcomReader();
             const result = await reader.parse(gedcomContent);

@@ -662,5 +662,15 @@ _gedcom: {}
             const after = await request.get('/api/people');
             expect(after.body.totalCount).toBe(countBefore);
         });
+
+        it('rejects unknown mode with 400', async () => {
+            const response = await request
+                .post('/api/import/gedcom')
+                .field('mode', 'nuke')
+                .attach('file', Buffer.from(JANE_GED), { filename: 'test.ged', contentType: 'text/plain' });
+
+            expect(response.status).toBe(400);
+            expect(response.body.code).toBe('INVALID_MODE');
+        });
     });
 });
