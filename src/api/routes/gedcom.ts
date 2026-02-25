@@ -78,6 +78,9 @@ export async function gedcomRoutes(server: FastifyInstance) {
 
             const peopleDir = path.join(dataDir, 'people');
 
+            let peopleToWrite: Person[];
+            let skipped = 0;
+
             if (mode === 'additive') {
                 // Build dedup set from existing people
                 const existingFiles = await fs.readdir(peopleDir).catch(() => [] as string[]);
@@ -92,7 +95,6 @@ export async function gedcomRoutes(server: FastifyInstance) {
                     } catch { /* skip unparseable files */ }
                 }
 
-                let skipped = 0;
                 const toWrite: Person[] = [];
                 for (const person of result.people) {
                     const key = buildDedupKey(person);
@@ -103,50 +105,41 @@ export async function gedcomRoutes(server: FastifyInstance) {
                     }
                 }
 
-                await fs.mkdir(peopleDir, { recursive: true });
-                for (const person of toWrite) {
-                    const relativePath = path.join('people', `${person.id}.yaml`);
-                    const primaryName = person.names?.[0];
-                    const label = primaryName ? `${primaryName.first} ${primaryName.last}` : person.id;
-                    await txManager.writeFile(relativePath, yaml.dump(person), label);
-                }
-
-                await txManager.flush();
-                await graphEngine.hydrate();
-
-                return {
-                    imported: toWrite.length,
-                    skipped,
-                    warnings: result.warnings
-                };
+                peopleToWrite = toWrite;
             } else {
-                // Replace mode: wipe and rewrite
-                try {
-                    const files = await fs.readdir(peopleDir);
-                    await Promise.all(
-                        files
-                            .filter(f => f.endsWith('.yaml'))
-                            .map(f => fs.unlink(path.join(peopleDir, f)))
-                    );
-                } catch {
-                    await fs.mkdir(peopleDir, { recursive: true });
-                }
+                // Replace mode: wipe existing YAML files, then rewrite
+                const existingYamls = await fs.readdir(peopleDir).catch((err: NodeJS.ErrnoException) => {
+                    if (err.code === 'ENOENT') return [] as string[];
+                    throw err;
+                });
+                await fs.mkdir(peopleDir, { recursive: true });
+                await Promise.all(
+                    existingYamls
+                        .filter(f => f.endsWith('.yaml'))
+                        .map(f => fs.unlink(path.join(peopleDir, f)))
+                );
 
-                for (const person of result.people) {
-                    const relativePath = path.join('people', `${person.id}.yaml`);
-                    const primaryName = person.names?.[0];
-                    const label = primaryName ? `${primaryName.first} ${primaryName.last}` : person.id;
-                    await txManager.writeFile(relativePath, yaml.dump(person), label);
-                }
-
-                await txManager.flush();
-                await graphEngine.hydrate();
-
-                return {
-                    imported: result.people.length,
-                    warnings: result.warnings
-                };
+                peopleToWrite = result.people;
             }
+
+            // Single write/flush/hydrate block
+            await fs.mkdir(peopleDir, { recursive: true });
+            for (const person of peopleToWrite) {
+                const relativePath = path.join('people', `${person.id}.yaml`);
+                const primaryName = person.names?.[0];
+                const label = primaryName ? `${primaryName.first} ${primaryName.last}` : person.id;
+                await txManager.writeFile(relativePath, yaml.dump(person), label);
+            }
+
+            await txManager.flush();
+            await graphEngine.hydrate();
+
+            const response: Record<string, unknown> = {
+                imported: peopleToWrite.length,
+                warnings: result.warnings,
+            };
+            if (mode === 'additive') response.skipped = skipped;
+            return response;
         } catch (error: any) {
             console.error('[API] GEDCOM import error:', error);
             return reply.status(400).send({
