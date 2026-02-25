@@ -3,7 +3,7 @@
 > Single source of truth for implementation status. See `SPECIFICATION.md` for the full technical spec.
 
 **Last Updated**: 2026-02-25
-**Test Suite**: 228 passing, 0 skipped (31 files)
+**Test Suite**: 232 passing, 0 skipped (31 files)
 **Overall Completion**: ~95%
 
 ---
@@ -26,7 +26,7 @@ All backend phases (1–3.14) and all frontend phases (4.1–4.22, except 4.9 fo
 | 3.9 | More Backend Hardening: file watcher circuit breaker, graceful shutdown flush, static asset delivery |
 | 3.10 | Final Data Layer Hardening: cache/worker handoff stripping, debounced search index persistence |
 | 3.11 | Human-Readable IDs: `N_[first]-[last]-[birthyear]-[place]-[nanoid8]` |
-| 3.12 | GEDCOM Import: accepts multipart FormData (file field) from frontend |
+| 3.12 | GEDCOM Import: accepts multipart FormData (file field) from frontend; replace/additive modes with name+birthyear dedup |
 | 3.13 | Fuzzy Date Parsing: BET midpoint, BEF prior year, month-only, day+month formats |
 | 3.14 | Asset Deletion API: `DELETE /people/:id/media/:filename` → 204 |
 | 4.1–4.8 | Frontend Foundation: App shell, Hydration overlay, Command Palette, People Browse, Person Detail (Holy Grail 3-column), Event & Relationship Editors, Import page, Settings page |
@@ -99,13 +99,13 @@ Standalone frontend feature. No backend changes needed.
 
 1. **Docker**: Multi-stage `Dockerfile` — build frontend (`npm run build` in `client/`), copy `client/dist/` into backend, serve via `@fastify/static`.
 2. **Electron**: Desktop wrapper with `nodeIntegration` for local file-system access; bundle backend + frontend.
-3. **CI/CD**: GitHub Action on PRs — `npm test` (Vitest, all 228+) + `npm run test:e2e` (Playwright, 3 CUJs).
+3. **CI/CD**: GitHub Action on PRs — `npm test` (Vitest, all 232+) + `npm run test:e2e` (Playwright, 3 CUJs).
 
 ---
 
 ## Test Suite
 
-228 passing | 0 skipped | 31 files
+232 passing | 0 skipped | 31 files
 
 | Module | File | Count |
 |:-------|:-----|:------|
