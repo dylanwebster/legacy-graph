@@ -25,6 +25,26 @@ npm run build     # Production build → client/dist/
 lsof -ti :3000 | xargs kill
 ```
 
+### Synthetic Test Data
+```bash
+# Generate 200 people across 5 generations into ./data (default)
+npm run generate:synthetic-data
+
+# Custom output directory, count, and seed
+npx tsx scripts/generateSyntheticData.ts --output ./my-data --count 500 --generations 6 --seed 99
+
+# Append without wiping existing synthetic files
+npx tsx scripts/generateSyntheticData.ts --keep-existing
+
+# Clean up all synthetic files manually (safe — only removes N_SYN_* people and synthetic-family-*.md stories)
+find ./data/people -name 'N_SYN_*.yaml' -delete
+find ./data/stories -name 'synthetic-family-*.md' -delete
+```
+
+**Notes:**
+- Synthetic IDs use the format `N_SYN_00001` (not the production `N_[first]-[last]-[year]-[nanoid8]` format). The `N_SYN_` prefix is intentional — it's what `--clean-synthetic` (default) uses to identify and delete only generated files.
+- Generated files are tagged `synthetic` and `generation-N` for easy filtering.
+
 ---
 
 ## Rules
