@@ -49,6 +49,7 @@ export async function peopleRoutes(server: FastifyInstance) {
                     deathDate: p.events?.find((e: any) => e.type === 'death')?.date,
                     tags: p.tags,
                     assetCount: p.assets?.length || 0,
+                    primaryAsset: p.assets?.[0],
                     last_modified: p.last_modified
                 });
             }

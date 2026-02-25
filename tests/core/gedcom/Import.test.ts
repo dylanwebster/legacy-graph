@@ -76,6 +76,64 @@ describe('GedcomReader', () => {
         }
     });
 
+    it('should link spouses when FAM has HUSB+WIFE but no MARR record', async () => {
+        const NO_MARR_GEDCOM = `
+0 HEAD
+1 SOUR LegacyGraph
+0 @I1@ INDI
+1 NAME Hans /Gruber/
+1 SEX M
+0 @I2@ INDI
+1 NAME Ingrid /Braun/
+1 SEX F
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+0 TRLR
+`;
+        const reader = new GedcomReader();
+        const result = await reader.parse(NO_MARR_GEDCOM);
+
+        expect(result.people).toHaveLength(2);
+
+        const hans = result.people.find(p => p.names[0].last === 'Gruber');
+        const ingrid = result.people.find(p => p.names[0].last === 'Braun');
+        expect(hans).toBeDefined();
+        expect(ingrid).toBeDefined();
+
+        if (hans && ingrid) {
+            const hansMar = hans.events.find(e => e.type === 'marriage');
+            expect(hansMar).toBeDefined();
+            expect(hansMar?.partner_id).toBe(ingrid.id);
+            expect(hansMar?.date).toBe('');
+
+            const ingridMar = ingrid.events.find(e => e.type === 'marriage');
+            expect(ingridMar).toBeDefined();
+            expect(ingridMar?.partner_id).toBe(hans.id);
+            expect(ingridMar?.date).toBe('');
+        }
+    });
+
+    it('should NOT create a marriage event when FAM has only HUSB (no WIFE)', async () => {
+        const HUSB_ONLY_GEDCOM = `
+0 HEAD
+1 SOUR LegacyGraph
+0 @I1@ INDI
+1 NAME Solo /Man/
+1 SEX M
+0 @F1@ FAM
+1 HUSB @I1@
+0 TRLR
+`;
+        const reader = new GedcomReader();
+        const result = await reader.parse(HUSB_ONLY_GEDCOM);
+
+        expect(result.people).toHaveLength(1);
+        const soloMan = result.people[0];
+        const marriageEvent = soloMan.events.find(e => e.type === 'marriage');
+        expect(marriageEvent).toBeUndefined();
+    });
+
     it('should parse GEDCOM 7.0 structures', async () => {
         // GEDCOM 7.0 uses the same Lineage-Linked syntax but enforces UTF-8 and strict tagging.
         // This test verifies our parser regex handles standard 7.0 records.

@@ -93,6 +93,14 @@ function PersonDetail() {
 
     // Timeline virtualizer
     const timelineParentRef = useRef<HTMLDivElement>(null);
+    // Force VirtualizedTimeline to remount after the first paint so the virtualizer
+    // re-measures the scroll container with its final flex-resolved height.
+    // This fixes a race condition on hard browser reload where useLayoutEffect
+    // (which measures the container) runs before the browser has painted the flex layout.
+    const [timelineKey, setTimelineKey] = useState(0);
+    useEffect(() => {
+        setTimelineKey(1);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Reset all editing state when navigating to a different person
     useEffect(() => {
@@ -566,6 +574,7 @@ function PersonDetail() {
                         </div>
                         <div ref={timelineParentRef} className="flex-1 overflow-y-auto">
                             <VirtualizedTimeline
+                                key={timelineKey}
                                 timeline={timeline as Array<Record<string, unknown>>}
                                 parentRef={timelineParentRef}
                                 onEditEvent={openEditEvent}
@@ -696,7 +705,7 @@ function PersonDetail() {
                                     className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] resize-none font-mono"
                                 />
                             ) : (
-                                <div className="prose prose-sm prose-invert max-w-none">
+                                <div className="prose prose-sm dark:prose-invert max-w-none">
                                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                         {person.scrapbook_md || '*No notebook entries. Click Edit to add notes.*'}
                                     </ReactMarkdown>

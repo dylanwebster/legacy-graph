@@ -35,7 +35,40 @@ export async function searchRoutes(server: FastifyInstance) {
 
         try {
             const results = await graphEngine.searchService.search(q, { limit, offset });
-            return results;
+
+            // Enrich person results with slim person data from the graph
+            const graph = graphEngine.getGraph();
+            const enrichedPeople = results.people.map((p) => {
+                const nodeAttrs = graph.hasNode(p.id) ? graph.getNodeAttributes(p.id) : null;
+                const slim = nodeAttrs?.data as any;
+                if (!slim) {
+                    return {
+                        id: p.id,
+                        names: [{ first: p.name }],
+                        sex: 'U',
+                        tags: [] as string[],
+                        assetCount: 0,
+                        primaryAsset: undefined as string | undefined,
+                        last_modified: ''
+                    };
+                }
+                return {
+                    id: slim.id,
+                    names: slim.names,
+                    sex: slim.sex,
+                    birthDate: slim.events?.find((e: any) => e.type === 'birth')?.date as string | undefined,
+                    deathDate: slim.events?.find((e: any) => e.type === 'death')?.date as string | undefined,
+                    tags: slim.tags ?? [],
+                    assetCount: slim.assets?.length ?? 0,
+                    primaryAsset: slim.assets?.[0] as string | undefined,
+                    last_modified: slim.last_modified ?? ''
+                };
+            });
+
+            return {
+                ...results,
+                people: enrichedPeople
+            };
         } catch (error: any) {
             console.error('[API] Search error:', error);
             return reply.status(500).send({

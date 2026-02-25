@@ -21,7 +21,7 @@ export const Route = createRootRoute({
                     <TopBar />
 
                     {/* Page Content */}
-                    <main className="flex-1 overflow-hidden bg-muted/20">
+                    <main className="flex-1 h-full overflow-hidden bg-muted/20">
                         <Outlet />
                     </main>
                 </div>

@@ -16,6 +16,7 @@ export interface SlimPersonSummary {
     deathDate?: string;
     tags: string[];
     assetCount: number;
+    primaryAsset?: string;
     last_modified: string;
 }
 

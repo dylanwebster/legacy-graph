@@ -165,7 +165,7 @@ export function RelationshipEditorDialog({
 
     // --- Siblings state ---
     const [newSiblingId, setNewSiblingId] = useState('');
-    const [sharedParentId, setSharedParentId] = useState('');
+    const [selectedParentIds, setSelectedParentIds] = useState<Set<string>>(new Set());
 
     // --- Create Person sub-dialog state ---
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -180,7 +180,7 @@ export function RelationshipEditorDialog({
             setNewSpouseId('');
             setNewSpouseDate('');
             setNewSiblingId('');
-            setSharedParentId('');
+            setSelectedParentIds(new Set());
         }
     }, [isOpen]);
 
@@ -345,26 +345,35 @@ export function RelationshipEditorDialog({
 
     const handleAddSibling = async () => {
         if (!newSiblingId) { toast.error('Please select a person.'); return; }
-        if (!sharedParentId) { toast.error('Please select a shared parent.'); return; }
+        if (selectedParentIds.size === 0) { toast.error('Please select at least one shared parent.'); return; }
         if (siblings.includes(newSiblingId)) { toast.error('Already a sibling.'); return; }
 
         setSaving(true);
         try {
             const sibling = await peopleApi.getPerson(newSiblingId);
             const siblingParents = sibling.relationships?.parents ?? [];
-            if (siblingParents.some((p) => p.id === sharedParentId)) {
-                toast.error('That person already shares this parent.');
+
+            // Add all selected parents that the sibling doesn't already have
+            const parentsToAdd = Array.from(selectedParentIds)
+                .filter((pid) => !siblingParents.some((p) => p.id === pid))
+                .map((pid) => {
+                    const parentEntry = currentParents.find((p) => p.id === pid);
+                    return { id: pid, type: parentEntry?.type ?? 'biological' };
+                });
+
+            if (parentsToAdd.length === 0) {
+                toast.error('That person already shares all selected parents.');
                 return;
             }
-            const sharedParent = currentParents.find((p) => p.id === sharedParentId);
+
             await updatePerson.mutateAsync({
                 id: newSiblingId,
-                updates: { relationships: { parents: [...siblingParents, { id: sharedParentId, type: sharedParent?.type ?? 'biological' }] } }
+                updates: { relationships: { parents: [...siblingParents, ...parentsToAdd] } }
             });
             queryClient.invalidateQueries({ queryKey: ['person', personId] });
             toast.success('Sibling added.');
             setNewSiblingId('');
-            setSharedParentId('');
+            setSelectedParentIds(new Set());
             onClose();
         } catch {
             toast.error('Failed to add sibling.');
@@ -566,23 +575,30 @@ export function RelationshipEditorDialog({
                                         />
                                     </div>
                                     <div className="space-y-1">
-                                        <label className="text-xs font-medium">Shared parent</label>
-                                        <div className="flex gap-2 flex-wrap">
-                                            {currentParents.map((p) => (
-                                                <button
-                                                    key={p.id}
-                                                    type="button"
-                                                    onClick={() => setSharedParentId(p.id)}
-                                                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors truncate max-w-[140px] ${
-                                                        sharedParentId === p.id
-                                                            ? 'bg-primary text-primary-foreground'
-                                                            : 'bg-muted hover:bg-muted/80 text-muted-foreground'
-                                                    }`}
-                                                    title={p.id}
-                                                >
-                                                    {p.id.replace(/^N_/, '').split('-').slice(0, 2).join(' ')}
-                                                </button>
-                                            ))}
+                                        <label className="text-xs font-medium">Shared parents</label>
+                                        <div className="space-y-1.5">
+                                            {currentParents.map((p) => {
+                                                const label = p.id.replace(/^N_/, '').split('-').slice(0, 2).join(' ') || p.id;
+                                                const checked = selectedParentIds.has(p.id);
+                                                return (
+                                                    <label key={p.id} className="flex items-center gap-2 cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={checked}
+                                                            onChange={(e) => {
+                                                                setSelectedParentIds((prev) => {
+                                                                    const next = new Set(prev);
+                                                                    if (e.target.checked) next.add(p.id);
+                                                                    else next.delete(p.id);
+                                                                    return next;
+                                                                });
+                                                            }}
+                                                            className="rounded border-border h-3.5 w-3.5"
+                                                        />
+                                                        <span className="text-xs truncate max-w-[180px]" title={p.id}>{label}</span>
+                                                    </label>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                     <p className="text-xs text-muted-foreground">
@@ -602,7 +618,7 @@ export function RelationshipEditorDialog({
                                     <Button
                                         onClick={handleAddSibling}
                                         size="sm"
-                                        disabled={isSaving || !newSiblingId || !sharedParentId}
+                                        disabled={isSaving || !newSiblingId || selectedParentIds.size === 0}
                                     >
                                         {isSaving ? 'Saving…' : 'Add Sibling'}
                                     </Button>

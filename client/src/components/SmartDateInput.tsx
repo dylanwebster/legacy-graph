@@ -20,6 +20,7 @@ const MONTHS: Record<string, number> = {
  *   "Jun 1900"         → "1900-06-01"
  *   "abt 1900"         → "1900-01-01"
  *   "circa 1900"       → "1900-01-01"
+ *   "15 Jeune 1776"    → null  (unrecognized word — strict token matching)
  */
 export function parseToISO(input: string): string | null {
     const s = input.trim();
@@ -55,9 +56,11 @@ export function parseToISO(input: string): string | null {
     // Bare year "1900"
     if (/^\d{4}$/.test(s)) return `${s}-01-01`;
 
-    // Year with qualifiers: "abt 1900", "circa 1900", "~1900", "c. 1900", "ca 1900"
-    const yearInText = s.match(/\b(\d{4})\b/);
-    if (yearInText) return `${yearInText[1]}-01-01`;
+    // Year with recognized qualifiers only — explicit whitelist to prevent false positives.
+    // Accepts: abt, about, circa, ca, c., ~, est, cal, bef, aft, bet, from + YYYY.
+    // Rejects strings with unrecognized words like "15 Jeune 1776" or "Foo Bar 1900".
+    const fuzzy = s.match(/^(?:abt\.?|about|circa|ca\.?|c\.|~|est\.?|cal\.?|bef\.?|aft\.?|bet\.?|from)\s*(\d{4})$/i);
+    if (fuzzy) return `${fuzzy[1]}-01-01`;
 
     return null;
 }

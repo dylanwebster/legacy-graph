@@ -331,11 +331,12 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
   - **Import**: Stream Read -> Parse 5.5.1/7.0 -> Map Tags to Legacy Schemas -> Write YAMLs.
   - **Robustness Rules**:
     - **Date Parsing**: **MUST** use the shared `DateParser` utility (`src/utils/DateParser.ts`). Supports standard formats (`DD MMM YYYY`, `MMM YYYY`, `YYYY`) and modifiers (`ABT`, `EST`, `CAL`, `BEF`, `AFT`, `BET`, `FROM`/`TO`). Invalid dates fallback to standard ISO default.
-    - **Relationships**: Must fully reconstruct parent-child links.
+    - **Relationships**: Must fully reconstruct parent-child links AND spouse links.
       - Iterate `FAM` records.
       - Map `HUSB` -> Father, `WIFE` -> Mother.
       - Iterate `CHIL` children.
       - Update Child's `relationships.parents` array with Father and Mother IDs.
+      - **Spouse Linking**: When a `FAM` record contains both `HUSB` and `WIFE`, marriage events **must** be created on both persons regardless of whether a `MARR` sub-record is present. If no marriage date/place is available, create the event with `date: ""` and `sort_date: ""`. Never silently drop a spouse relationship because the marriage record lacks date information.
   - **Export**: Walk Graph -> Serialize to strict GEDCOM format.
   - **Loss Prevention**: Unhandled tags go into `Person._gedcom`.
 
@@ -438,7 +439,7 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 
 #### **6.2.1 Theme**
 
-- **Dark Mode default** (high contrast). Light mode toggle deferred to Phase 5.
+- **Dark and Light Mode**: Dark mode is the default (high contrast, Slate/Zinc/Neutral base palette). A **light/dark toggle** must be present in the TopBar (or Settings page). Both themes must be visually polished and consistent — not just a color inversion. Theme preference is persisted in `localStorage`. All color tokens are CSS custom properties (e.g., `--background`, `--foreground`, `--muted`, etc.) scoped to `[data-theme="dark"]` and `[data-theme="light"]` selectors on `<html>`. Switching themes requires only toggling the `data-theme` attribute.
 - **Design Language**: Clean, professional, data-dense. Think VS Code meets Grafana — no decoration for its own sake, no heritage textures. Every pixel serves information.
 
 #### **6.2.2 App Shell**
@@ -502,7 +503,7 @@ Import and customize these shadcn/ui primitives:
 
 | Component | Description |
 |:----------|:------------|
-| `Avatar` | Person photo (from first `assets` entry via `/assets/`) or generated initials. Circular, multiple sizes (sm/md/lg). |
+| `Avatar` | Person photo (from first `assets` entry via `/assets/`) or generated initials. Circular, multiple sizes (sm/md/lg). Uses `object-cover` to fill the circle, cropping non-square images proportionally — never stretching or distorting. |
 | `PersonChip` | Compact inline reference to a person: Avatar + Name + relationship type badge. Click → navigate to `/people/:id`. Hover → `HoverCard` with mini bio preview (name, dates, photo). |
 | `EventCard` | Timeline item for a life event. Shows event type icon, date, location, description. Expand for details. Click to edit (inline or modal). |
 | `StoryCard` | Timeline item for a story mention. Shows title, excerpt, mentioned persons. Click → expand/navigate. |
@@ -573,6 +574,7 @@ A dense, 3-column layout. The most critical view in the application.
 The integrated feed of life events, stories, and gaps. **Virtualized** — only visible items rendered via `@tanstack/react-virtual`.
 
 - **Data Source**: `GET /people/:id?timeline_limit=50&timeline_offset=0`. Uses TanStack Query `useInfiniteQuery` for infinite-scroll pagination.
+- **Virtualization reliability**: The virtualizer scroll container must have a deterministic, non-zero height on first render. The container must use explicit height (`h-full` on a flex-stretched panel, with the panel group having `h-full` from the route root) rather than relying on post-paint layout resolution. The virtualizer must observe the container for resize events so that if the initial height is 0, it recalculates automatically when the container reaches its final height. Timeline data must render correctly on both fresh in-app navigation and hard browser reloads.
 - **Item Types**:
   - `UnknownDateHeader`: Section divider rendered at the very top of the feed when any undated items exist. Styled as "Undated Events" label. Only rendered once.
   - `EventCard`: Displays event type icon, date (fuzzy `date` + sort-date), location, description excerpt. Expandable for full detail.
@@ -585,8 +587,8 @@ The integrated feed of life events, stories, and gaps. **Virtualized** — only 
 
 Tabbed panel with three tabs:
 
-1. **Assets**: Grid of thumbnails (from `/assets/` static delivery). Click to expand/lightbox. Drag-and-drop upload via `PUT /people/:id/media`. Each thumbnail has a **delete button (×)** — clicking opens a confirmation dialog ("Delete this file permanently? This cannot be undone."). On confirm, calls `DELETE /api/people/:id/media/:filename`; asset removed from YAML and binary deleted from disk.
-2. **Notebook**: Rendered Markdown view of `scrapbook_md` (lazy-loaded per spec 2.3B). In view mode, renders Markdown to HTML via `react-markdown` + `remark-gfm`, styled with Tailwind `prose` class. Click to switch to edit mode — plain `<textarea>` (Phase 4) / Tiptap rich editor (Phase 5.1). Saves via `PUT /people/:id` with optimistic update.
+1. **Assets**: Grid of thumbnails (from `/assets/` static delivery). Click to expand/lightbox. Drag-and-drop upload via `PUT /people/:id/media`. Each thumbnail uses `object-cover` within a square aspect-ratio container (crops to square). Lightbox/full-size view uses `object-contain` to show the full image without cropping. Each thumbnail has a **delete button (×)** — clicking opens a confirmation dialog ("Delete this file permanently? This cannot be undone."). On confirm, calls `DELETE /api/people/:id/media/:filename`; asset removed from YAML and binary deleted from disk. **Optimistic update**: on confirm, immediately remove the asset from the local React Query cache before the API response (reverts on error). If the deleted asset was the primary photo, the avatar in the Identity Panel must immediately fall back to generated initials — no page reload required.
+2. **Notebook**: Rendered Markdown view of `scrapbook_md` (lazy-loaded per spec 2.3B). In view mode, renders Markdown to HTML via `react-markdown` + `remark-gfm`, styled with Tailwind `prose` class. **Theme-aware prose**: use `prose-invert` only when dark mode is active; do not use it in light mode (it would make text invisible on a light background). Click to switch to edit mode — plain `<textarea>` (Phase 4) / Tiptap rich editor (Phase 5.1). Saves via `PUT /people/:id` with optimistic update.
 3. **Raw YAML**: Read-only syntax-highlighted view of the source YAML file. Useful for power users and debugging.
 
 #### **6.5.5 Event Editor**
@@ -596,7 +598,7 @@ Full modal-based event editor for creating and editing all 11 event types. This 
 - **Trigger**: "Add Event" button or clicking an existing event card.
 - **Layout**: Modal (`Dialog`) with:
   - **Event Type Selector**: Dropdown with all 11 types. Selecting a type dynamically shows/hides type-specific fields (e.g., `partner_id` for marriage, `cause` for death, `institution`/`degree` for education).
-  - **Common Fields**: `date` (free text, fuzzy — validated in real-time by `DateParser`; parsed ISO preview shown below field; **Save disabled** if non-empty and unparseable), `sort_date` (ISO `YYYY-MM-DD` — **Save disabled** if non-empty and invalid), `location` (type-ahead input querying `GET /api/places/search`, shows resolved coordinates when a candidate is selected), `description` (Markdown textarea), `assets` (file selector).
+  - **Common Fields**: `date` (free text, fuzzy — validated in real-time by the frontend `parseToISO()` function; parsed ISO preview shown below field; **Save disabled** if non-empty and unparseable; **strict token matching** — unrecognized word tokens cause validation failure even if a 4-digit year is present in the string, e.g., "15 Jeune 1776" must fail validation because "Jeune" is not a recognized month abbreviation and must not silently fall back to "1776-01-01"), `sort_date` (ISO `YYYY-MM-DD` — **Save disabled** if non-empty and invalid), `location` (type-ahead input querying `GET /api/places/search`, shows resolved coordinates when a candidate is selected), `description` (Markdown textarea), `assets` (file selector).
   - **Type-Specific Fields**: Rendered conditionally based on selected event type (see spec Section 3.2).
   - **Partner Selection** (marriage/divorce): Searchable person selector that queries the graph — type-ahead with `PersonChip` results.
 - **Validation**: Client-side Zod validation mirroring the backend `EventSchema`. Show field-level errors immediately.
@@ -610,7 +612,7 @@ For editing parent relationships (the only stored relationships per spec Section
 - **Tabs**: Parents | Children | Spouses | **Siblings**.
 - **Add Parent**: Searchable person selector (same component as partner selection). Select relationship type (biological/adopted/step/foster).
 - **Remove Parent**: Confirm dialog before removing.
-- **Siblings tab**: Siblings are derived from shared parents (`_computed.siblings`) — they cannot be stored directly. The Siblings tab displays current siblings as read-only `PersonChip` links. To link a new sibling, the user picks a person via search, then selects which of the current person's parents to assign to that sibling (effectively adding a `PUT /people/[siblingId]` with a new parent entry). A tooltip explains that sibling removal is done by managing the shared parent relationship.
+- **Siblings tab**: Siblings are derived from shared parents (`_computed.siblings`) — they cannot be stored directly. The Siblings tab displays current siblings as read-only `PersonChip` links. To link a new sibling, the user picks a person via search, then selects **one or more** of the current person's parents to assign to that sibling (each shown as a `PersonChip` with a checkbox; all checked parents are added simultaneously). Calls `PUT /people/[siblingId]` once with the full updated parents array. If the current person has no parents, the tab shows a hint to add parents first before linking siblings. A tooltip explains that sibling removal is done by managing the shared parent relationship.
 - **Save**: `PUT /people/:id` with updated `relationships.parents` array. Backend handles edge reconciliation and `_computed` invalidation.
 
 ### **6.6 People Browse Page**
@@ -619,7 +621,8 @@ Searchable, sortable table/list of all people in the graph. Entry point from the
 
 - **Data Source**: Requires a new `GET /api/people` list endpoint (see Section 6.10 below). Returns paginated slim person summaries.
 - **Layout**: Dense table with columns: Avatar, Name, Birth Date, Death Date, Tags, # Events. Sortable by any column.
-- **Search**: Inline filter bar at top (uses same search endpoint, but rendered as a table rather than CmdK dropdown).
+- **Avatar column**: Displays the person's primary photo (first `assets` entry, provided as `primaryAsset` in `SlimPersonSummary`) if available, otherwise generated initials. Requires `primaryAsset?: string` field added to `SlimPersonSummary` by the `GET /api/people` endpoint.
+- **Search**: Server-side search using `GET /api/search?q=...` — not client-side filtering. The inline filter queries the full dataset, not just the current page. Typing resets pagination to offset 0.
 - **Click Row**: Navigate to `/people/:id`.
 - **Bulk Actions** (Phase 5+): Multi-select for tagging, exporting.
 - **Virtualization**: Table body uses `@tanstack/react-virtual` for large datasets.
@@ -662,7 +665,7 @@ These constraints are non-negotiable for any data-dense genealogy UI:
 
 The following backend additions are needed to support the frontend views:
 
-- **`GET /api/people`**: Paginated list of all people (slim summaries). Query params: `?limit=50&offset=0&sort=last_modified&order=desc`. Returns `{ people: SlimPersonSummary[], totalCount: number }`. Each summary: `{ id, names, sex, birthDate?, deathDate?, tags, assetCount }`.
+- **`GET /api/people`**: Paginated list of all people (slim summaries). Query params: `?limit=50&offset=0&sort=last_modified&order=desc`. Returns `{ people: SlimPersonSummary[], totalCount: number }`. Each summary: `{ id, names, sex, birthDate?, deathDate?, tags, assetCount, primaryAsset? }`. `primaryAsset` is the first entry from `assets[]`, used for photo display on the People Browse page.
 - **`GET /api/stats`** (or extend `GET /system/status`): Dashboard stats — total people, total families (marriage event count), last modified timestamp.
 
 ---
@@ -700,9 +703,9 @@ The `TransactionManager` uses `isomorphic-git` (pure JavaScript, in-process) for
 
 ## **8. Implementation Roadmap**
 
-Implementation status, phase-by-phase progress, and the detailed task backlog are tracked in **`progress.md`**.
+Implementation status, phase-by-phase progress, and the detailed task backlog are tracked in **`PROGRESS.md`**.
 
-This spec defines _what_ to build. `progress.md` tracks _how far_ and _what's next_.
+This spec defines _what_ to build. `PROGRESS.md` tracks _how far_ and _what's next_.
 
 ---
 

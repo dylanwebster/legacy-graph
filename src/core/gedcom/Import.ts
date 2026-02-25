@@ -136,11 +136,11 @@ export class GedcomReader {
             const fatherId = husbRef ? idMap.get(husbRef) : undefined;
             const motherId = wifeRef ? idMap.get(wifeRef) : undefined;
 
-            // 2a. Marriage Event
+            // 2a. Marriage Event — create even when no MARR record exists (use empty date)
             const marrNode = node.children.find(c => c.tag === 'MARR');
-            if (marrNode && fatherId && motherId) {
-                const date = this.getChildValue(marrNode, 'DATE') || "";
-                const place = this.getChildValue(marrNode, 'PLAC') || "";
+            if (fatherId && motherId) {
+                const date = marrNode ? (this.getChildValue(marrNode, 'DATE') || "") : "";
+                const place = marrNode ? (this.getChildValue(marrNode, 'PLAC') || "") : "";
                 const sortDate = parseDate(date);
 
                 // Add to Husband

@@ -67,6 +67,26 @@ export const useDeleteAsset = () => {
     return useMutation({
         mutationFn: ({ personId, filename }: { personId: string; filename: string }) =>
             deleteAsset(personId, filename),
+        onMutate: async ({ personId, filename }) => {
+            await queryClient.cancelQueries({ queryKey: ['person', personId] });
+            const previousData = queryClient.getQueriesData({ queryKey: ['person', personId] });
+            queryClient.setQueriesData(
+                { queryKey: ['person', personId] },
+                (old: any) => {
+                    if (!old) return old;
+                    return { ...old, assets: (old.assets as string[]).filter((a) => a !== filename) };
+                }
+            );
+            return { previousData };
+        },
+        onError: (_err, { personId }, context) => {
+            if (context?.previousData) {
+                for (const [queryKey, data] of context.previousData) {
+                    queryClient.setQueryData(queryKey, data);
+                }
+            }
+            queryClient.invalidateQueries({ queryKey: ['person', personId] });
+        },
         onSuccess: (_data, { personId }) => {
             queryClient.invalidateQueries({ queryKey: ['person', personId] });
             queryClient.invalidateQueries({ queryKey: ['people'] });

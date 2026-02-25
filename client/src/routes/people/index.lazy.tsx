@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
-import { usePeople } from '@/api/hooks';
+import { usePeople, useSearch } from '@/api/hooks';
 import type { SlimPersonSummary } from '@/api/people';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { CreatePersonDialog } from '@/components/CreatePersonDialog';
@@ -25,25 +25,46 @@ function PeopleBrowse() {
     const [sort, setSort] = useState<SortField>('last_modified');
     const [order, setOrder] = useState<SortOrder>('desc');
     const [filter, setFilter] = useState('');
+    const [debouncedFilter, setDebouncedFilter] = useState('');
     const [createOpen, setCreateOpen] = useState(false);
     const navigate = useNavigate();
 
-    const { data, isLoading, isError } = usePeople({ limit: PAGE_SIZE, offset, sort, order });
+    // Debounce the filter input (300ms)
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedFilter(filter);
+            setOffset(0);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [filter]);
+
+    const isSearchMode = !!debouncedFilter;
+
+    const { data: peopleData, isLoading: peopleLoading, isError: peopleError } = usePeople(
+        isSearchMode ? undefined : { limit: PAGE_SIZE, offset, sort, order }
+    );
+    const { data: searchData, isLoading: searchLoading, isError: searchError } = useSearch(
+        debouncedFilter,
+        { limit: PAGE_SIZE, offset: 0 }
+    );
 
     const parentRef = useRef<HTMLDivElement>(null);
 
-    const people = data?.people ?? [];
-    const totalCount = data?.totalCount ?? 0;
+    const isLoading = isSearchMode ? searchLoading : peopleLoading;
+    const isError = isSearchMode ? searchError : peopleError;
 
-    const filtered = filter
-        ? people.filter((p) => {
-            const nameStr = p.names?.map((n) => `${n.first || n.given || ''} ${n.last || n.surname || ''}`).join(' ').toLowerCase() ?? '';
-            return nameStr.includes(filter.toLowerCase());
-        })
-        : people;
+    const people: SlimPersonSummary[] = isSearchMode
+        ? ((searchData as any)?.people ?? []) as SlimPersonSummary[]
+        : (peopleData?.people ?? []);
+
+    const searchTotalCount: number = isSearchMode
+        ? ((searchData as any)?.totalCounts?.people ?? 0)
+        : 0;
+
+    const totalCount = isSearchMode ? searchTotalCount : (peopleData?.totalCount ?? 0);
 
     const rowVirtualizer = useVirtualizer({
-        count: filtered.length,
+        count: people.length,
         getScrollElement: () => parentRef.current,
         estimateSize: () => 56,
         overscan: 10,
@@ -79,7 +100,10 @@ function PeopleBrowse() {
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight">People</h1>
                     <p className="text-sm text-muted-foreground mt-1">
-                        {totalCount > 0 ? `${totalCount} people in the graph` : 'Browse all people'}
+                        {isSearchMode
+                            ? `${totalCount} result${totalCount === 1 ? '' : 's'} for "${debouncedFilter}"`
+                            : totalCount > 0 ? `${totalCount} people in the graph` : 'Browse all people'
+                        }
                     </p>
                 </div>
                 <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
@@ -97,7 +121,7 @@ function PeopleBrowse() {
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                        placeholder="Filter by name..."
+                        placeholder="Search all people..."
                         value={filter}
                         onChange={(e) => setFilter(e.target.value)}
                         className="pl-9 bg-muted/30"
@@ -138,14 +162,14 @@ function PeopleBrowse() {
                     <div className="p-8 text-center text-muted-foreground">
                         Failed to load people. Is the backend running?
                     </div>
-                ) : filtered.length === 0 ? (
+                ) : people.length === 0 ? (
                     <div className="p-8 text-center text-muted-foreground">
-                        {filter ? `No people matching "${filter}"` : 'No people found in the graph'}
+                        {isSearchMode ? `No people matching "${debouncedFilter}"` : 'No people found in the graph'}
                     </div>
                 ) : (
                     <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
                         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                            const person: SlimPersonSummary = filtered[virtualRow.index];
+                            const person: SlimPersonSummary = people[virtualRow.index];
                             const primaryName = person.names?.[0];
                             const firstName = primaryName?.first || primaryName?.given || '';
                             const lastName = primaryName?.last || primaryName?.surname || '';
@@ -170,6 +194,7 @@ function PeopleBrowse() {
                                     <CustomAvatar
                                         firstName={firstName}
                                         lastName={lastName}
+                                        photoFilename={person.primaryAsset}
                                         className="h-8 w-8"
                                     />
                                     <span className="font-medium text-sm truncate">{displayName}</span>
@@ -201,7 +226,7 @@ function PeopleBrowse() {
                 )}
             </div>
 
-            {totalPages > 1 && (
+            {!isSearchMode && totalPages > 1 && (
                 <div className="flex items-center justify-between px-4 lg:px-6 py-3 border-t border-border">
                     <span className="text-sm text-muted-foreground">
                         Page {currentPage} of {totalPages}
