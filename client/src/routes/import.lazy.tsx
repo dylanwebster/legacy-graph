@@ -1,5 +1,5 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,11 @@ export const Route = createLazyFileRoute('/import')({
     component: ImportPage,
 });
 
+const MODE_DESCRIPTIONS = {
+    replace: 'All existing people will be permanently deleted and replaced with records from this file. Git history is preserved, so you can revert if needed.',
+    additive: 'People from this file will be added to your existing data. Duplicates are detected by matching first name, last name, and birth year — matched records will be skipped to preserve any hand-crafted edits. Name or date discrepancies may still result in duplicates.',
+} as const;
+
 function ImportPage() {
     const [file, setFile] = useState<File | null>(null);
     const [uploading, setUploading] = useState(false);
@@ -27,6 +32,7 @@ function ImportPage() {
     const [error, setError] = useState<string | null>(null);
     const [mode, setMode] = useState<'replace' | 'additive'>('replace');
     const [importResult, setImportResult] = useState<{ imported: number; skipped?: number } | null>(null);
+    const evtSourceRef = useRef<EventSource | null>(null);
     const navigate = useNavigate();
 
     const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -65,6 +71,7 @@ function ImportPage() {
 
             // Listen to hydration stream for progress
             const evtSource = new EventSource('/api/system/hydration/stream');
+            evtSourceRef.current = evtSource;
 
             evtSource.addEventListener('progress', (e) => {
                 try {
@@ -75,6 +82,7 @@ function ImportPage() {
 
             evtSource.addEventListener('complete', () => {
                 evtSource.close();
+                evtSourceRef.current = null;
                 setUploading(false);
                 if (mode === 'additive') {
                     setImportResult({ imported: result.imported, skipped: result.skipped });
@@ -85,6 +93,7 @@ function ImportPage() {
 
             evtSource.addEventListener('error', () => {
                 evtSource.close();
+                evtSourceRef.current = null;
                 setUploading(false);
                 setError('Import completed but hydration stream disconnected.');
             });
@@ -93,6 +102,12 @@ function ImportPage() {
             setError(err instanceof Error ? err.message : 'Upload failed');
         }
     }, [file, mode, navigate]);
+
+    useEffect(() => {
+        return () => {
+            evtSourceRef.current?.close();
+        };
+    }, []);
 
     return (
         <div className="flex flex-col items-center justify-center h-full p-6">
@@ -111,7 +126,7 @@ function ImportPage() {
                 >
                     <Upload className="h-10 w-10 text-muted-foreground" />
                     <div className="text-center">
-                        <p className="text-sm font-medium">{file ? file.name : 'Click to select or drag a .ged file'}</p>
+                        <p className="text-sm font-medium">{file ? file.name : 'Click to select a .ged file'}</p>
                         {file && (
                             <p className="text-xs text-muted-foreground mt-1">
                                 {(file.size / 1024).toFixed(1)} KB
@@ -129,8 +144,10 @@ function ImportPage() {
 
                 {/* Mode selector */}
                 <div className="space-y-3">
-                    <p className="text-sm font-medium">Import mode</p>
-                    <RadioGroup value={mode} onValueChange={(v) => setMode(v as 'replace' | 'additive')} className="space-y-2">
+                    <p id="import-mode-label" className="text-sm font-medium">Import mode</p>
+                    <RadioGroup value={mode} onValueChange={(v) => {
+                        if (v === 'replace' || v === 'additive') setMode(v);
+                    }} aria-labelledby="import-mode-label" className="space-y-2">
                         <div className="flex items-center space-x-2">
                             <RadioGroupItem value="replace" id="mode-replace" />
                             <Label htmlFor="mode-replace" className="cursor-pointer">Replace existing people</Label>
@@ -141,9 +158,7 @@ function ImportPage() {
                         </div>
                     </RadioGroup>
                     <p className="text-xs text-muted-foreground">
-                        {mode === 'replace'
-                            ? 'All existing people will be permanently deleted and replaced with records from this file. Git history is preserved, so you can revert if needed.'
-                            : 'People from this file will be added to your existing data. Duplicates are detected by matching first name, last name, and birth year — matched records will be skipped to preserve any hand-crafted edits. Name or date discrepancies may still result in duplicates.'}
+                        {MODE_DESCRIPTIONS[mode]}
                     </p>
                 </div>
 
@@ -212,9 +227,7 @@ function ImportPage() {
                                 {mode === 'replace' ? 'Destructive Action' : 'Add to Existing Data'}
                             </DialogTitle>
                             <DialogDescription>
-                                {mode === 'replace'
-                                    ? 'All existing people will be permanently deleted and replaced with records from this file. Git history is preserved, so you can revert if needed. Are you sure?'
-                                    : 'People from this file will be added to your existing data. Duplicates matched by name and birth year will be skipped. Name or date discrepancies may still result in duplicates. Continue?'}
+                                {MODE_DESCRIPTIONS[mode]}
                             </DialogDescription>
                         </DialogHeader>
                         <div className="flex justify-end gap-3 pt-4">
