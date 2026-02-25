@@ -8,7 +8,7 @@ Self-hosted genealogy platform. File-system-first, Git-versioned, in-memory grap
 
 ### Backend
 ```bash
-npm test          # Run all Vitest tests (223 passing, 0 skipped)
+npm test          # Run all Vitest tests (228 passing, 0 skipped)
 npm run build     # tsc --noEmit (type-check only)
 npm start         # tsx --env-file=.env src/index.ts
 ```
@@ -41,7 +41,7 @@ You must always abide by these rules:
 - **Head 1 (Persistence)**: Local file system — `people/*.yaml`, `stories/*.md`, `assets/*`, `_meta/*.yaml`. Human-readable. `.git` is the undo button.
 - **Head 2 (Runtime)**: Node.js (Fastify) + Graphology in-memory directed multigraph. Nuclear hydration on boot, hot-patching via `@parcel/watcher`.
 
-**Boot sequence**: Worker thread (`HydrationWorker.ts`) reads YAML, checks tiered binary cache (`_meta/.graph-cache.json`), validates with Zod, hands data to main thread. Main thread builds Graphology graph, computes `_computed` relationships, builds FlexSearch index (or loads persisted `_meta/.search-index.json`). Server is immediately available (returns 503 for data endpoints until hydration completes).
+**Boot sequence**: Worker thread hydrates from YAML (tiered binary cache → incremental parse → Zod validation) → main thread builds Graphology graph + `_computed` relationships + FlexSearch index. Server returns 503 on data endpoints until hydration completes.
 
 ---
 
@@ -168,20 +168,6 @@ Base URL: `/api`. Auth: JWT in HttpOnly cookie. Auth is optional — if `/_meta/
 
 ---
 
-## Key Technical Decisions
-
-- **`isomorphic-git`** — all git operations run in-process. No `simple-git`, no child-process spawning.
-- **`@parcel/watcher`** — native OS file watching (inotify on Linux). Replaced `chokidar`. No EMFILE limits.
-- **Worker threads** — hydration runs in a background worker. Main thread stays responsive immediately.
-- **`p-limit`** — concurrency cap during YAML parsing in `BootLoader`.
-- **`tsx/cjs`** — `execArgv` require hook in `HydrationWorker` to handle ESM-only packages (`p-limit`, `remark`) in CommonJS worker context.
-- **`bcryptjs`** — pure JS password hashing (no native compilation).
-- **Auth is optional** — graceful degradation when `/_meta/auth.yaml` is missing.
-- **Pagination mandatory** — search and timeline endpoints enforce `limit`/`offset`. Max `limit` = 200 for search.
-- **File watcher circuit breaker** — >50 events in 500ms triggers full background re-hydration (handles `git checkout` / bulk edits).
-
----
-
 ## Frontend Stack
 
 - **Framework**: React 19 + Vite 7 + TypeScript
@@ -194,9 +180,4 @@ Base URL: `/api`. Auth: JWT in HttpOnly cookie. Auth is optional — if `/_meta/
 - **Virtualization**: `@tanstack/react-virtual` — mandatory for Timeline Feed, People table, Search results
 - **Resizable panels**: `react-resizable-panels` — Holy Grail 3-column layout
 - **Dev proxy**: `/api` → `http://localhost:3000` (configured in `client/vite.config.ts`)
-
-### Responsive breakpoints
-- `≥1280px`: Full sidebar with labels
-- `768–1279px`: Icon-only sidebar
-- `<768px`: Hamburger overlay; Holy Grail panels stack vertically
 

@@ -1,963 +1,142 @@
 # LegacyGraph: Implementation Progress & Roadmap
 
-> Single source of truth for implementation status. For the _what_ and _why_, see `SPECIFICATION.md`.
-> For the _how far_ and _what's next_, read this document.
+> Single source of truth for implementation status. See `SPECIFICATION.md` for the full technical spec.
 
-**Last Updated**: 2026-02-24
-**Test Suite**: 228 passing, 0 skipped (228 total)
-**Overall Completion**: ~95% of full spec (backend complete through Phase 3.14, frontend bug fixes 4.16–4.22 complete; Phase 3.15 geo-tagging, Phase 4.9 force graph, and Phases 5–6 still pending)
-
----
-
-## 1. Phase Summary
-
-| Phase | Description | Status |
-|:------|:------------|:-------|
-| **1 & 2** | Core Logic (Schemas, Graph, BootLoader) | ✅ Complete |
-| **3.1** | Search Infrastructure | ✅ Complete |
-| **3.2** | GEDCOM Interchange | ✅ Complete |
-| **3.3** | Media Services | ✅ Complete |
-| **3.4** | API Server & Auth | ✅ Complete |
-| **3.5** | Backend Optimizations (7 items) | ✅ Complete (all 7 items) |
-| **3.6** | Production Hardening (3 items) | ✅ Complete (all 3 items) |
-| **3.7** | Data Layer Hardening (3 items) | ✅ Complete |
-| **3.8** | Pre-Frontend Hardening (5 items) | ✅ Complete (all 5 items) |
-| **3.9** | More Backend Hardening (3 items) | ✅ Complete (all 3 items) |
-| **3.10** | Final Data Layer Hardening (2 items) | ✅ Complete |
-| **4.1–4.15** | Frontend (React UI) + E2E Tests | ✅ Complete (4.9 force graph sub-item pending) |
-| **3.11** | Human-Readable IDs + Auto-ID | ✅ Complete |
-| **3.12** | GEDCOM Import Fix (Multipart FormData) | ✅ Complete |
-| **3.13** | Fuzzy Date Parsing Audit | ✅ Complete |
-| **3.14** | Asset Deletion API | ✅ Complete |
-| **3.15** | Place / Geo-tagging | ❌ Not started |
-| **4.16** | Avatar & Asset Image Quality Fixes | ✅ Complete |
-| **4.17** | Dark Mode + Light/Dark Toggle | ✅ Complete |
-| **4.18** | People List Server-Side Search | ✅ Complete |
-| **4.19** | GEDCOM Spouse Import Fix | ✅ Complete |
-| **4.20** | Timeline Virtualizer Reload Fix | ✅ Complete |
-| **4.21** | Sibling Dual-Parent Selection | ✅ Complete |
-| **4.22** | Strict Date Input Validation | ✅ Complete |
-| **5** | Immersion & Polish | ❌ Not started |
-| **6** | Distribution & Deployment | ❌ Not started |
+**Last Updated**: 2026-02-25
+**Test Suite**: 228 passing, 0 skipped (31 files)
+**Overall Completion**: ~95%
 
 ---
 
-## 2. Detailed Implementation Status
+## Completed
 
-### Phase 1 & 2: Core Logic — COMPLETE ✅
+All backend phases (1–3.14) and all frontend phases (4.1–4.22, except 4.9 force graph) are complete.
 
-All foundational modules are implemented and tested.
-
-| Module | File | Tests | Notes |
-|:-------|:-----|:------|:------|
-| BootLoader | `src/core/BootLoader.ts` | `tests/core/BootLoader.test.ts` ✅ (1) | YAML parsing via Zod, `p-limit` concurrency, asset integrity checks |
-| GraphEngine | `src/core/GraphEngine.ts` | `tests/core/GraphEngine.test.ts` ✅ (1) | Graphology directed multigraph, `hydrate()`, `startWatcher()` via @parcel/watcher |
-| GraphLogic | `src/core/GraphLogic.ts` | `tests/core/GraphLogic.test.ts` ✅ (2) | Henry VIII spouse algorithm, `getSiblings`, `getAggregatedAssets` |
-| PersonSchema | `src/schemas/PersonSchema.ts` | `tests/schemas/PersonSchema.test.ts` ✅ (3) | All v5.0 fields including `scrapbook_md`, `_gedcom` |
-| EventSchema | `src/schemas/EventSchema.ts` | `tests/schemas/EventSchema.test.ts` ✅ (2) | Discriminated union, all 11 event types |
-| StorySchema | `src/schemas/StorySchema.ts` | `tests/schemas/StorySchema.test.ts` ✅ (1) | Markdown frontmatter schema |
-| AssetSchema | `src/schemas/AssetSchema.ts` | `tests/schemas/AssetSchema.test.ts` ✅ (1) | Asset metadata schema |
-| SchemaExpansion | (cross-schema) | `tests/schemas/SchemaExpansion.test.ts` ✅ (6) | Validates `scrapbook_md`, `_gedcom`, all event type variants |
-| StoryLoader | `src/core/StoryLoader.ts` | `tests/core/StoryLoader.test.ts` ✅ (1) | Markdown + `@mention`/`[[wikilink]]` extraction |
-| TransactionManager | `src/core/TransactionManager.ts` | `tests/core/TransactionManager.test.ts` ✅ (1) | Mutex + isomorphic-git (in-process, debounced batching) |
-| DateParser | `src/utils/dateParser.ts` | `tests/utils/DateParser.test.ts` ✅ (4) | Shared GEDCOM date parsing utility |
-| Hot-Patching | (in GraphEngine) | `tests/core/GraphEngineHotPatch.test.ts` ✅ (4) | Add, change, unlink, edge updates |
-| Watcher | (in GraphEngine) | `tests/core/Watcher.test.ts` ✅ (5) | @parcel/watcher — add, change, delete, cleanup, migration verification |
-
-**Known deviations from spec** (resolved in Phase 3.5):
-- ~~Hot-patching uses "drop all outgoing edges and rebuild" rather than diff-based reconciliation (spec 4.1) → 3.5.4~~ **RESOLVED**
-- ~~`_computed` attributes are not populated during hydration (spec 4.1) → 3.5.2~~ **RESOLVED**
-- ~~TransactionManager is minimal (one commit per write, no debouncing) (spec 7.1) → 3.5.1~~ **RESOLVED**
-- ~~`isomorphic-git` migration deferred (still uses `simple-git`) → Elevated to Phase 3.6.1 (immediate, before frontend)~~
-
----
-
-### Phase 3.1: Search Infrastructure — COMPLETE ✅
-
-| Item | Status |
-|:-----|:-------|
-| FlexSearch Document index | ✅ Implemented |
-| Person indexing (names, nickname, bio, locations) | ✅ Working |
-| `rebuild(graph)` on hydration | ✅ Wired |
-| `indexPerson()` / `removePerson()` for hot-patching | ✅ Implemented |
-| **Story indexing** | ✅ Implemented (Phase 3.5.6) |
-| **Place search** | ✅ Implemented (Phase 3.5.6) |
-
-**File**: `src/core/SearchService.ts` | **Tests**: `tests/core/SearchService.test.ts` (10 passing)
+| Phase | Description |
+|:------|:------------|
+| 1 & 2 | Core Logic: Schemas, GraphEngine, BootLoader, GraphLogic, StoryLoader, TransactionManager, DateParser, HotPatch, Watcher |
+| 3.1 | Search Infrastructure: FlexSearch Document index — people, stories, places |
+| 3.2 | GEDCOM Interchange: Import + Export + RoundTrip + Robustness (16 tests) |
+| 3.3 | Media Services: Sharp → WebP thumbnails, mtime cache |
+| 3.4 | API Server & Auth: full CRUD, system, auth endpoints; optional JWT auth |
+| 3.5 | Backend Optimizations: debounced TransactionManager, `_computed` cache, tiered GraphCache, diff-based edge reconciliation, worker thread hydration, SearchService (stories+places), TimelineSlicer |
+| 3.6 | Production Hardening: isomorphic-git migration, @parcel/watcher migration, API pagination |
+| 3.7 | Data Layer Hardening: Slim Nodes, Search Index Persistence, Write-Event Deduplication |
+| 3.8 | Pre-Frontend Hardening: `applyWriteSideEffects()`, server decomposition to route plugins, SSE hydration stream, O(1) search tracking, story hot-watching |
+| 3.9 | More Backend Hardening: file watcher circuit breaker, graceful shutdown flush, static asset delivery |
+| 3.10 | Final Data Layer Hardening: cache/worker handoff stripping, debounced search index persistence |
+| 3.11 | Human-Readable IDs: `N_[first]-[last]-[birthyear]-[place]-[nanoid8]` |
+| 3.12 | GEDCOM Import: accepts multipart FormData (file field) from frontend |
+| 3.13 | Fuzzy Date Parsing: BET midpoint, BEF prior year, month-only, day+month formats |
+| 3.14 | Asset Deletion API: `DELETE /people/:id/media/:filename` → 204 |
+| 4.1–4.8 | Frontend Foundation: App shell, Hydration overlay, Command Palette, People Browse, Person Detail (Holy Grail 3-column), Event & Relationship Editors, Import page, Settings page |
+| 4.8 | E2E Tests (Playwright): 3 CUJs — import-view-edit, search-navigation, responsive-layout |
+| 4.10 | Search Results Page: `/search?q=` with categorized, paginated, virtualized results |
+| 4.11 | Frontend Date Validation: `SmartDateInput` + `parseToISO()`; disables Save on unparseable date |
+| 4.12 | Notebook Markdown Rendering: `react-markdown` + `remark-gfm` + `@tailwindcss/typography` |
+| 4.13 | Timeline "Unknown Date" Section: undated events prepended with header |
+| 4.14 | Sibling Management: Siblings tab in RelationshipEditorDialog |
+| 4.15 | Asset Deletion Frontend: `useDeleteAsset` + ConfirmDialog wired to DELETE endpoint |
+| 4.16 | Avatar & Asset Quality: `object-cover` on AvatarImage, `primaryAsset` in SlimPersonSummary, optimistic delete |
+| 4.17 | Dark/Light Mode: Sun/Moon toggle in TopBar, FOUC prevention, `dark:prose-invert` |
+| 4.18 | People List Server-Side Search: switches to `GET /api/search` when query active |
+| 4.19 | GEDCOM Spouse Import Fix: creates marriage events when FAM has HUSB+WIFE but no MARR |
+| 4.20 | Timeline Virtualizer Reload Fix: `h-full` layout chain + `timelineKey` remount |
+| 4.21 | Sibling Dual-Parent Selection: multi-select checkboxes for all current person's parents |
+| 4.22 | Strict Date Input Validation: explicit fuzzy-prefix regex replaces catch-all `\b(\d{4})\b` |
 
 ---
 
-### Phase 3.2: GEDCOM Interchange — COMPLETE ✅
+## Remaining Work
 
-| Item | Status |
-|:-----|:-------|
-| Custom GEDCOM parser | ✅ `src/core/gedcom/Import.ts` |
-| INDI → PersonSchema mapping | ✅ |
-| FAM → Marriage Event + Parent-Child links | ✅ |
-| `_gedcom` loss prevention | ✅ |
-| GEDCOM 5.5.1 Exporter | ✅ `src/core/gedcom/Export.ts` |
-| Round-trip verification | ✅ `tests/core/gedcom/RoundTrip.test.ts` |
-| Date parsing robustness | ✅ Shared `DateParser` utility |
+### Phase 3.15 — Place / Geo-tagging
 
-**Tests**: 16 passing across Import (3), Export (6), RoundTrip (2), Robustness (5) test files.
+Schema-breaking change. Complete backend before any frontend work.
 
----
-
-### Phase 3.3: Media Services — COMPLETE ✅
-
-| Item | Status |
-|:-----|:-------|
-| Thumbnail generation (Sharp) | ✅ `src/core/Thumbnailer.ts` |
-| WebP output, 80% quality | ✅ |
-| mtime-based cache invalidation | ✅ |
-| Unique cache filenames (MD5 hash) | ✅ |
-
-**Tests**: `tests/core/Thumbnailer.test.ts` (8 passing)
+1. **Schema** (`src/schemas/EventSchema.ts`): Add `PlaceSchema { name, historicalName?, lat?, lng?, countryCode?, resolvedAt? }`. Change `location` to `z.union([z.string(), PlaceSchema])` with auto-coerce of string → `{ name }`.
+2. **BootLoader migration**: During hydration, coerce bare string locations to `{ name }` in-memory — no file writes.
+3. **`GeocodingService`** (`src/core/GeocodingService.ts`): `resolve(name): Promise<Place>`. Nominatim REST API (`/search?q=...&format=jsonv2&limit=1`). Cache in `/_meta/.geocode-cache.json`. Rate limit ≤1 req/sec. Graceful fallback returns `{ name }` on any failure.
+4. **`GET /api/places/search?q=`** in `src/api/routes/search.ts`: Returns top 5 Nominatim candidates for type-ahead autocomplete.
+5. **TDD**: `tests/core/GeocodingService.test.ts` (resolve, cache hit, rate limit, fallback, historical name). Update `tests/schemas/EventSchema.test.ts` (string coerce, Place round-trip).
+6. **Frontend** (`EventEditorDialog`): Replace plain text location field with type-ahead against `GET /api/places/search`. Show lat/lng confirmation after resolution.
 
 ---
 
-### Phase 3.4: API Server & Authentication — COMPLETE ✅
+### Phase 4.9 — Dashboard Force Graph
 
-All CRUD, system, and auth endpoints are implemented and tested.
+Standalone frontend feature. No backend changes needed.
 
-| Endpoint | Status | Tests |
-|:---------|:-------|:------|
-| `GET /api/system/status` | ✅ | 1 |
-| `GET /api/search?q=` | ✅ | 2 |
-| `GET /api/people/:id` | ✅ | 2 |
-| `POST /api/people` | ✅ | 2 |
-| `PUT /api/people/:id` | ✅ | 2 |
-| `PUT /api/people/:id/media` | ✅ | 3 |
-| `POST /api/import/gedcom` | ✅ | 3 |
-| `POST /api/system/rebuild` | ✅ | 1 |
-| `POST /api/system/snapshot` | ✅ | 2 |
-| `POST /api/auth/login` | ✅ | 4 |
-| `POST /api/auth/logout` | ✅ | 1 |
-| Auth guard middleware | ✅ | 6 |
-
-**Files**: `src/server.ts`, `src/api/middleware/auth.ts`, `src/schemas/AuthSchema.ts`
-**Tests**: `tests/api/Server.test.ts` (21 tests) + `tests/api/Auth.test.ts` (11 tests) + `tests/schemas/AuthSchema.test.ts` (5 tests)
-
-**Authentication Architecture**:
-- Auth config stored in `/_meta/auth.yaml` (Zod-validated `AuthConfigSchema`)
-- Passwords stored as BCrypt hashes (`bcryptjs`)
-- JWT issued in HttpOnly cookie via `@fastify/cookie`
-- Fastify `onRequest` hook enforces auth guard on all routes except `POST /api/auth/login` and `GET /api/system/status`
-- Auth is **optional**: if `/_meta/auth.yaml` doesn't exist, all routes are public (graceful degradation)
-
-**Known limitations** (resolved in Phase 3.5):
-- ~~Write endpoints bypass TransactionManager — no git commits on write operations → 3.5.1~~ **RESOLVED**
-- ~~`GET /people/:id` returns empty `_computed` placeholder → 3.5.2~~ **RESOLVED**
-- ~~`POST /system/snapshot` doesn't flush pending commits before tagging → 3.5.1~~ **RESOLVED**
-- ~~`GET /system/status` returns hardcoded `hydrationState: "ready"` and `cacheAge: null` → 3.5.3~~ **RESOLVED**
+1. `npm install react-force-graph-2d` in `client/`.
+2. Fetch all people via paginated `GET /api/people` (loop until all pages loaded).
+3. Build edges from `_computed.children` on each person node.
+4. Render graph in `client/src/routes/index.lazy.tsx` below stats cards.
+5. Click node → navigate to `/people/$id`.
+6. "Gravity Bands" (position nodes by birth year) — deferred to Phase 5.
 
 ---
 
-### Phase 3.5: Backend Optimizations — COMPLETE ✅
-
-All seven performance-hardening items are implemented and tested.
-
-#### 3.5.1 TransactionManager Refactor — COMPLETE ✅ (except isomorphic-git migration)
-
-Refactored TransactionManager from minimal one-commit-per-write to production-grade debounced write layer.
-
-- [x] **Debounced Commit Queue**: `writeFile()` writes to disk immediately, queues for batched git commit. 5-second debounce timer (configurable). Commit message: `"Update N files: Label1, Label2, ..."` (truncated at 72 chars).
-- [x] **Flush on Demand**: `flush()` bypasses debounce, commits immediately. `destroy()` flushes + cleans up timers.
-- [x] **Track File**: `trackFile()` for files written by other means (binary uploads) that still need git staging.
-- [x] **Wire Snapshot Flush**: `POST /system/snapshot` flushes pending commits before creating git tag.
-- [x] **isomorphic-git Migration**: **Completed in Phase 3.6.1**. `simple-git` fully replaced with `isomorphic-git`.
-- [x] **Wire API Endpoints**: `POST /people`, `PUT /people/:id`, `PUT /people/:id/media`, `POST /import/gedcom` all route through TransactionManager.
-- [x] **TDD**: `tests/core/TransactionManager.test.ts` (7 tests) — Batching, flush-on-demand, file labels, truncation, sequential batches, empty flush safety.
-
-#### 3.5.2 Computed Relationship Cache (`_computed`) — COMPLETE ✅
-
-The spec's most architecturally significant remaining item. The API now returns real relationship data.
-
-- [x] **`computeRelationships(nodeId)`**: Implemented in `GraphLogic.ts`. Writes `currentSpouse`, `siblings`, `children`, `allSpouses` to the node's `_computed` attribute.
-- [x] **Helper functions**: `getChildren()`, `getAllSpouses()`, `computeAllRelationships()`, `invalidateComputed()`.
-- [x] **Hydration Integration**: `computeAllRelationships()` called at end of `GraphEngine.hydrate()`.
-- [x] **Invalidation**: `invalidateComputed()` called in hot-patch handler — recomputes changed node AND all immediate neighbors.
-- [x] **Wire to API**: `GET /people/:id` reads from `_computed` node attribute (O(1) lookup, no traversal at request time).
-- [x] **TDD**: 6 new tests in `tests/core/GraphLogic.test.ts` — children, siblings, currentSpouse, allSpouses, widowed detection, non-person nodes, computeAll.
-
-#### 3.5.3 Tiered Binary Cache — COMPLETE ✅
-
-Accelerate boot time for large datasets (10,000+ nodes). Implements the spec's Binary Cache model (Section 2.3A).
-
-- [x] **`src/core/GraphCache.ts`**: Standalone cache module with `load()`, `save()`, `invalidate()` static methods. Cache format: JSON blob at `/_meta/.graph-cache.json` with `spec_version` header and per-file `mtime` entries.
-- [x] **Serialize**: `GraphEngine.hydrate()` writes cache at end of every successful hydration (full or incremental). Stores validated Person data + `mtime` (epoch ms) per source YAML file.
-- [x] **Incremental Boot**: On startup, loads cache. If `spec_version` mismatches, cache is missing, or JSON is corrupt → full Nuclear Hydration. Otherwise compares `mtime` per YAML file on disk — re-parses only stale/new files, uses cached data for unchanged files.
-- [x] **Cache Write**: Serialized after every successful hydration. New files are added, deleted files are excluded automatically (disk glob drives inclusion).
-- [x] **`cacheAge` in Status API**: `GET /system/status` returns ISO-8601 timestamp of last cache write via `GraphEngine.cacheAge` getter.
-- [x] **`hydrationState` Tracking**: `GraphEngine.hydrationState` getter exposes `"loading"` during hydration, `"ready"` after. Wired into `GET /system/status`.
-- [x] **`forceFullRebuild`**: `hydrate({ forceFullRebuild: true })` bypasses cache entirely. Wired into `POST /system/rebuild`.
-- [x] **TDD**: `tests/core/GraphCache.test.ts` (11 tests) — Cache write after hydration, cache hit skips parsing, stale mtime selective re-parse, missing cache → full nuclear, version mismatch → full nuclear, corrupt cache → full nuclear, new files parsed, deleted files excluded, forceFullRebuild bypass, hydrationState tracking, cacheAge exposure.
-
-#### 3.5.4 Diff-Based Edge Reconciliation — COMPLETE ✅
-
-Replace the current "drop all edges and rebuild" hot-patching with precise edge diffing (spec Section 4.1).
-
-- [x] **Edge Diffing**: `reconcileEdges()` compares old vs. new `relationships.parents`. Computes set difference: removes edges for dropped parents, adds edges for new parents. Also handles relationship type changes (e.g., biological → adopted) via attribute update without edge removal.
-- [x] **Neighbor Cascade**: After reconciliation, `invalidateComputed()` recomputes `_computed` for the changed node AND all immediate neighbors. `SearchService.indexPerson()` updates the search index.
-- [x] **Mini-Hydration Fallback**: `fallbackRebuildEdges()` drops all outgoing `child_of` edges and rebuilds from scratch. Activated via try-catch if diff logic encounters an inconsistent state. Only touches `child_of` edges, preserving other edge types.
-- [x] **New Node Handling**: New nodes (no old state) use `addParentEdges()` directly — no diff needed.
-- [x] **TDD**: 4 new tests in `tests/core/GraphEngineHotPatch.test.ts` — Add parent adds exactly one edge, remove parent drops exactly one edge, incoming edges from other nodes preserved during reconciliation, relationship type change updates attribute without dropping edge.
-
-#### 3.5.5 Worker Thread Hydration — COMPLETE ✅
-
-Hydration runs in a background `worker_threads` Worker by default. The server starts immediately and remains responsive while data is loading. Applies to all dataset sizes (spec Section 2.3C).
-
-- [x] **Worker Script**: `src/core/HydrationWorker.ts` — Standalone module with `runHydrationWorker()` function + worker entry point (`if (!isMainThread)`). Runs BootLoader, StoryLoader, cache comparison, YAML parsing, and Zod validation inside the worker thread.
-- [x] **Cache-Aware**: Worker performs tiered cache comparison internally — reads existing cache, compares mtimes, re-parses only stale/new files. Saves updated cache after loading.
-- [x] **Handoff**: Worker serializes validated `PersonEntry[]` + `Story[]` + hydration stats via `postMessage` (structured clone). Main thread calls `buildGraphFromData()` — Graphology graph construction, edge building, search indexing, and `_computed` computation.
-- [x] **`hydrateInBackground()`**: New method on `GraphEngine`. Spawns worker, awaits result, builds graph. Falls back to inline `hydrate()` if the worker crashes.
-- [x] **503 Loading Gate**: Fastify `onRequest` hook returns 503 `HYDRATION_IN_PROGRESS` for all endpoints except `GET /system/status`, `POST /auth/login`, `POST /auth/logout` while `hydrationState === 'loading'`.
-- [x] **`awaitHydration` Config**: `ServerConfig.awaitHydration` (default `true`) controls whether `createServer` blocks until hydration completes. Set `false` for production immediate-availability.
-- [x] **ESM Interop**: Worker uses `tsx/cjs` as `execArgv` require hook to handle ESM-only packages (`p-limit`, `remark`) in the CommonJS worker context.
-- [x] **TDD**: `tests/core/HydrationWorker.test.ts` (10 tests) — Worker function people loading, cache usage on second run, story loading, forceFullRebuild flag, background hydration graph population, same-output-as-inline, hydrationState tracking, cache persistence, `_computed` population, search index building.
-
-#### 3.5.6 SearchService Improvements — COMPLETE ✅
-
-Full-text search now covers people, stories, and places with incremental hot-patch support.
-
-- [x] **Story Indexing**: `indexStory()` / `removeStory()` methods added. Story nodes wired into `rebuild()` — indexed by `title` and `content`. `search()` returns matching stories with title as display name. FlexSearch Document index with `store: true` for enriched results.
-- [x] **Place Search**: `placeMap` (Map<location, Set<personId>>) extracts unique locations from person events. `search()` performs case-insensitive substring match on locations, returns `PlaceResult[]` with `{ location, count }`. Places updated incrementally via `indexPerson()` / `removePerson()`.
-- [x] **Hot-Patch Wiring**: `indexPerson()` removes stale search entries before re-adding (prevents ghost matches on name change). `removePerson()` cleans up both search index and place map. Incremental updates already wired via `handleFileUpdate()` → `searchService.indexPerson()`.
-- [x] **API Wired**: `GET /api/search` now returns actual `places` array from search results (was hardcoded `[]`). `SearchResponse` type updated to include `PlaceResult[]`.
-- [x] **TDD**: 6 new tests in `tests/core/SearchService.test.ts` (10 total) — Story search by title, story search by content, place search, place count with multiple people, name change updates search index, person removal clears search + places.
-
-#### 3.5.7 Timeline Slicer — COMPLETE ✅
-
-Spec Section 4.2. Pre-computes the "Integrated Feed" for the Person Detail page.
-
-- [x] **`src/core/TimelineSlicer.ts`**: `sliceTimeline(graph, personId)` function implemented.
-  - Collects all Person Events + Story mentions (stories mentioning this person via graph edges).
-  - Sorts merged list by `sort_date`.
-  - Gap Detection: If `Item[i+1].year - Item[i].year > 10`, inserts a `Gap` object `{ type: 'gap', years: diff }`.
-  - Returns `Array<TimelineEvent | TimelineStory | TimelineGap>`.
-- [x] **Wire to API**: `GET /people/:id` includes `timeline` field from `sliceTimeline()` output.
-- [x] **TDD**: `tests/core/TimelineSlicer.test.ts` (7 tests) — Event sorting, story merge, gap insertion (>10yr), no gap (≤10yr), multiple gaps, empty person, non-existent person.
-
----
-
-### Phase 3.6: Production Hardening — COMPLETE ✅
-
-> **Context**: Architecture review identified three backend refinements that must be completed before beginning frontend work. These address scaling fragility (file watchers), write-path overhead (git subprocess spawning), and API payload bloat (missing pagination). All three items completed.
-
-#### 3.6.1 isomorphic-git Migration — COMPLETE ✅
-
-Replaced `simple-git` with `isomorphic-git` for all programmatic git operations. All git operations now run in-process — no child-process spawning. TransactionManager test execution dropped from ~4s to ~128ms.
-
-- [x] **Install `isomorphic-git`**: Added dependency, removed `simple-git` from `dependencies`.
-- [x] **Refactor `TransactionManager`**: Replaced all `simple-git` calls with `isomorphic-git` equivalents (`git.add`, `git.commit`). Author info read from git config with fallback to `LegacyGraph` default. All operations run in-process via Node.js `fs`.
-- [x] **Refactor Snapshot (`POST /system/snapshot`)**: Replaced `simple-git` tag creation with `isomorphic-git` `git.annotatedTag`. Replaced `checkIsRepo()` with `fs.access(.git)`. Replaced `git.log()` with `isomorphic-git` `git.log`.
-- [x] **Refactor Server bootstrap**: Removed `simpleGit` import. Initial commit logic uses `isomorphic-git` `git.add`/`git.commit`.
-- [x] **Update tests**: All `TransactionManager.test.ts` (8), `Server.test.ts` (21), and `Auth.test.ts` (11) tests migrated to use `isomorphic-git` for setup/verification. All 40 tests pass.
-- [x] **TDD**: Migration verification test added — asserts source code uses `isomorphic-git`, not `simple-git`. Test failed before migration, passes after.
-
-#### 3.6.2 @parcel/watcher Migration — COMPLETE ✅
-
-Replaced `chokidar` with `@parcel/watcher` for file system watching. Uses native OS APIs (FSEvents on macOS, inotify on Linux) via Rust/C++ bindings. EMFILE issue eliminated.
-
-- [x] **Install `@parcel/watcher`**: Added dependency, removed `chokidar` from `dependencies`.
-- [x] **Refactor `GraphEngine.startWatcher()`**: Now async. Uses `watcher.subscribe()` with event batching. Maps `create`/`update` → `handleFileUpdate()`, `delete` → `handleFileRemove()`. Filters for `.yaml` files and ignores dotfiles.
-- [x] **Subscription Cleanup**: Added `stopWatcher()` method that calls `subscription.unsubscribe()`. Safe to call multiple times (no-op if no active subscription).
-- [x] **Un-skip `Watcher.test.ts`**: Fully rewritten with 5 tests — file add detection, file change detection, file deletion detection, cleanup verification, and migration source verification. All passing. No more EMFILE errors.
-- [x] **TDD**: Migration verification test and 4 integration tests written before implementation. All initially failed, all pass after migration.
-
-#### 3.6.3 API Pagination — COMPLETE ✅
-
-Added `limit`/`offset` pagination to search and timeline endpoints. Prevents payload bloat for large datasets.
-
-- [x] **`SearchService` Pagination**: `search()` method accepts optional `{ limit, offset }` options. Returns `totalCounts` alongside paginated results. Default `limit=50`, max `200`. Pagination applied per-category (people, stories, places).
-- [x] **`TimelineSlicer` Pagination**: `sliceTimeline()` uses TypeScript function overloads — without options returns flat `TimelineItem[]` (backward-compatible), with options returns `PaginatedTimeline { items, totalCount, offset, limit }`. Pagination applied after gap insertion.
-- [x] **Wire API Endpoints**: `GET /api/search` accepts `?q=...&limit=50&offset=0`. `GET /api/people/:id` accepts `?timeline_limit=50&timeline_offset=0`. Both parse query params and pass to service layer.
-- [x] **Validation**: `limit > 200` → 400 error. Negative `offset` → 400 error. Non-numeric values → 400 error.
-- [x] **TDD**: 6 failing tests written before implementation — 3 SearchService (pagination, offset, backward compat) + 3 TimelineSlicer (pagination, offset beyond total, backward compat). All pass after implementation.
-
----
-
-### Phase 3.7: Data Layer Hardening — NOT STARTED ❌
-
-> **Context**: Architecture review identified three structural limits that will degrade performance at 50,000+ nodes. These must be resolved before the frontend consumes the API, ensuring the data layer is rock-solid under load.
-
-#### 3.7.1 Slim Node Strategy (Memory Budgeting) — COMPLETE ✅
-
-Strip `scrapbook_md` and `_gedcom` from the in-memory Graphology runtime. At 50K nodes with 2KB of markdown each, these fields consume ~100MB of V8 heap doing nothing until a detail page is opened. See spec Section 2.3B.
-
-- [x] **Define `SlimPerson` type**: `Omit<Person, 'scrapbook_md' | '_gedcom'>` in `PersonSchema.ts`. Utility `toSlimPerson()` strips heavy fields via destructuring.
-- [x] **Strip during hydration**: `buildGraphFromData()` calls `toSlimPerson()` before `graph.addNode()`. Inline search indexing with bio extracted before stripping (replaces `rebuild()` call).
-- [x] **Strip during hot-patch**: `handleFileUpdate()` calls `toSlimPerson()` before `graph.mergeNodeAttributes()`. Bio passed to `indexPerson()` from full Person data.
-- [x] **Reverse file map**: `reverseFileMap: Map<PersonID, FilePath>` maintained alongside `fileMap` for O(1) lazy-load lookups. `getFilePathForPerson()` public accessor.
-- [x] **Lazy load in API**: `loadHeavyFields(personId)` reads source YAML from disk, extracts `scrapbook_md` and `_gedcom`. `GET /api/people/:id` merges lazy-loaded fields into response. `PUT /people/:id/media` reconstructs full Person from slim + disk for YAML write.
-- [x] **Search indexing**: `SearchService.indexPerson()` accepts optional `bio` parameter. Falls back to `p.scrapbook_md` for backward compat with full Person objects (tests). Slim callers pass bio explicitly.
-- [x] **Server write handlers**: `POST /people`, `PUT /people/:id`, `PUT /people/:id/media` all store `toSlimPerson()` in graph.
-- [x] **TDD**: `tests/core/SlimNode.test.ts` (10 tests) — toSlimPerson utility, scrapbook_md absent after hydration, _gedcom absent after hydration, slim after hot-patch, file path lookup, unknown ID returns undefined, lazy-load round-trip, null for unknown ID, bio search after hydration, bio search after hot-patch.
-- [x] **Deferred**: Cache stripping (`GraphCache`) and worker handoff stripping (`HydrationWorker`) deferred to **Phase 3.10.1**.
-
-#### 3.7.2 Search Index Persistence — COMPLETE ✅
-
-FlexSearch indices are fully rebuilt on every boot. For 50K+ nodes, tokenizing and indexing is heavy CPU work even with the worker thread. FlexSearch supports export/import of compiled indices. See spec Section 2.3D.
-
-- [x] **`SearchService.exportIndex(filePath)`**: Serializes FlexSearch person/story indexes, place map, and tracked person/story IDs to `/_meta/.search-index.json`. Uses FlexSearch's native `export()` API. Includes `spec_version` header for cache invalidation.
-- [x] **`SearchService.importIndex(filePath)`**: Loads and validates cached index from disk. Returns `null` on missing file, corrupt JSON, or `spec_version` mismatch (triggers full rebuild). Restores FlexSearch indexes, place map, and tracked IDs.
-- [x] **Incremental boot integration**: `buildGraphFromData()` attempts `importIndex()` first. If successful, only entries with `wasParsed === true` (mtime changed) are re-indexed. Cached entries are skipped. Deleted people (in old index but not in current data) are removed from the imported index.
-- [x] **`wasParsed` flag on `PersonEntry`**: Added optional `wasParsed: boolean` to `PersonEntry` interface. Set `true` for YAML-parsed entries, `false` for cache-hit entries. Propagated through both inline hydration and worker thread paths.
-- [x] **Wire to hydration**: `exportIndex()` called after both `hydrate()` and `hydrateInBackground()` complete. Both inline and worker paths persist the search index.
-- [x] **Wire to `POST /system/rebuild`**: `forceFullRebuild` path ignores both graph cache and search index cache — full nuclear rebuild.
-- [x] **ID tracking**: `trackPerson()` / `untrackPerson()` / `trackStory()` maintain lists of indexed IDs for deletion detection on incremental boots.
-- [x] **TDD**: `tests/core/SearchPersistence.test.ts` (8 tests) — Index file written after hydration, identical search results from cache, incremental re-index of changed nodes, deleted people removed from search, missing index → full rebuild, corrupt index → full rebuild, version mismatch → full rebuild, forceFullRebuild writes fresh index.
-- [x] **Deferred**: Debounced hot-patch persistence (re-exporting index during live edits) deferred to **Phase 3.10.2**.
-
-#### 3.7.3 Write-Event Deduplication — COMPLETE ✅
-
-When the API writes a YAML file, the file watcher detects the change and triggers a redundant hot-patch for an update the engine already applied. See spec Section 4.1.
-
-- [x] **Self-write map on `GraphEngine`**: `Map<string, number>` maps absolute file paths to expiry timestamps. `registerSelfWrite(path, ttlMs?)`, `hasSelfWrite(path)`, `consumeSelfWrite(path)` — consume is single-use (removes entry on first check).
-- [x] **Watcher deduplication**: Both `handleFileUpdate()` and `handleFileRemove()` call `consumeSelfWrite()` first. If the path is present and not expired, the hot-patch is skipped entirely.
-- [x] **Wire `TransactionManager`**: New `onFileWritten` callback in `TransactionManagerOptions`. Called after `fs.writeFile()` completes in `writeFile()`. Registered in `server.ts` to call `graphEngine.registerSelfWrite()`.
-- [x] **Wire API handlers**: All writes go through `TransactionManager.writeFile()` → `onFileWritten` → `registerSelfWrite`. Covers `POST /people`, `PUT /people/:id`, `PUT /people/:id/media`, and `POST /import/gedcom`.
-- [x] **TTL cleanup**: Default TTL is 10 seconds. Configurable per call (useful for tests). Expired entries are lazily cleaned up on `hasSelfWrite()` and `consumeSelfWrite()` checks.
-- [x] **TDD**: `tests/core/WriteDedup.test.ts` (7 tests) — Register self-write, consume removes entry (single-use), unregistered returns false, skip hot-patch for self-written files, process external edits normally, skip handleFileRemove for self-written deletions, TTL expiration.
-
----
-
-### Phase 3.8: Pre-Frontend Hardening — COMPLETE ✅
-
-> **Context**: Architecture review identified five structural fixes that must be completed before beginning frontend work. These address API write-path consistency, server decomposition, hydration observability, search performance, and story hot-patching.
-
-#### 3.8.1 API Write Path Gap Fix — COMPLETE ✅
-
-API write handlers (`POST /people`, `PUT /people/:id`, `PUT /people/:id/media`) were adding/updating graph nodes but skipping edge reconciliation, `_computed` invalidation, and search indexing. Combined with self-write dedup (which suppresses the watcher), persons created/updated via the API were invisible to search and had no computed relationships until restart.
-
-- [x] **`applyWriteSideEffects()` on `GraphEngine`**: Public method encapsulating edge reconciliation, search indexing, and `_computed` invalidation. Called by both API handlers and `handleFileUpdate()` to eliminate duplication.
-- [x] **Wire `POST /people`**: After `graph.addNode()`, calls `applyWriteSideEffects(id, null, slim, bio)` — adds parent edges, indexes in search, computes relationships.
-- [x] **Wire `PUT /people/:id`**: Captures old slim data before update for edge reconciliation, calls `applyWriteSideEffects(id, oldSlim, newSlim, bio)`.
-- [x] **Wire `PUT /people/:id/media`**: Calls `invalidateComputed()` after updating assets.
-- [x] **Start watcher**: `startWatcher()` called after hydration completes in `createServer()`.
-- [x] **Stop watcher**: `stopWatcher()` called in the `onClose` hook.
-- [x] **Fix `require('fs')`**: Replaced inline `require('fs').createWriteStream` with `nodeFs.createWriteStream` (already imported).
-- [x] **TDD**: 4 new tests in `tests/api/Server.test.ts` — POST indexes person in search, POST with parents wires edges, PUT updates search index, PUT recomputes `_computed` for neighbors.
-
-#### 3.8.2 Decompose server.ts Into Route Plugins — COMPLETE ✅
-
-Refactored the 650-line monolithic `server.ts` into Fastify route plugins. Eliminated module-level singleton state.
-
-- [x] **`src/api/types.ts`**: Shared `AppServices` interface and `AppInstance` type for decorated Fastify instance.
-- [x] **`src/api/routes/system.ts`**: System status, rebuild, snapshot endpoints.
-- [x] **`src/api/routes/auth.ts`**: Login, logout endpoints.
-- [x] **`src/api/routes/search.ts`**: Search endpoint with pagination.
-- [x] **`src/api/routes/people.ts`**: CRUD + media upload endpoints with full write-path side effects.
-- [x] **`src/api/routes/gedcom.ts`**: GEDCOM import endpoint.
-- [x] **`server.decorate('appServices', ...)`**: State bound to Fastify instance lifecycle, not module globals.
-- [x] **`server.ts` reduced to ~95 lines**: Plugin registration, Fastify decorations, hooks, no route handlers.
-- [x] **All 36 API tests pass**: 25 `Server.test.ts` + 11 `Auth.test.ts` — zero behavior change.
-
-#### 3.8.3 SSE Hydration Stream — COMPLETE ✅
-
-Implemented `GET /system/hydration/stream` (spec Section 5.3). Server-Sent Events stream of hydration progress.
-
-- [x] **Worker progress events**: `HydrationWorker.ts` emits `{ type: 'progress', phase, loaded, total, percent }` via `parentPort.postMessage()` during file processing (every 50 files). Both full and incremental paths emit progress.
-- [x] **`GraphEngine` extends `EventEmitter`**: Relays worker progress as `hydration:progress` events, emits `hydration:complete` with `{ nodeCount, edgeCount, elapsedMs }` at end of both inline and background hydration.
-- [x] **SSE endpoint**: `GET /api/system/hydration/stream` in `src/api/routes/system.ts`. Returns `Content-Type: text/event-stream`. If already hydrated, sends `event: complete` immediately and closes. During loading, streams `event: progress` events then `event: complete`.
-- [x] **503 exempt**: Added to loading gate exempt list.
-- [x] **Auth exempt**: Added to `PUBLIC_ROUTES` in `src/api/middleware/auth.ts`.
-- [x] **TDD**: `tests/api/HydrationStream.test.ts` (4 tests) — content-type, complete event when ready, 503 exempt, auth exempt.
-
-#### 3.8.4 Search Performance Fix — COMPLETE ✅
-
-Converted `trackedPersonIds` and `trackedStoryIds` from `Array<string>` to `Set<string>`, eliminating O(n^2) tracking during hydration. Documented FlexSearch pagination scaling tradeoffs.
-
-- [x] **`trackedPersonIds` → `Set<string>`**: `trackPerson()`, `untrackPerson()` now O(1). Was O(n) per call via `Array.includes()`, making hydration O(n^2).
-- [x] **`trackedStoryIds` → `Set<string>`**: Same fix for story tracking.
-- [x] **`exportIndex()`**: Serializes Sets to arrays via `Array.from()` for JSON compatibility.
-- [x] **`importIndex()`**: Restores tracked IDs as `new Set()` from deserialized arrays.
-- [x] **Search scaling documented**: Comments in `search()` explain that FlexSearch's per-field `limit` produces inaccurate `totalCounts` after cross-field deduplication. Collect-and-slice is correct for exact counts. Two-pass strategy (un-enriched count + enriched page) documented as future optimization for 50K+ datasets.
-- [x] **Place search scaling documented**: O(n) where n = unique locations (bounded by location count, not people). FlexSearch indexing for places noted as future optimization.
-- [x] **TDD**: 3 new tests in `tests/core/SearchService.test.ts` — `trackedPersonIds` is Set, `trackedStoryIds` is Set, FlexSearch limit bounds engine output.
-
-#### 3.8.5 Story Watching — COMPLETE ✅
-
-Extended the file watcher to monitor `stories/` alongside `people/`. Story changes (create, edit, delete) now hot-patch the graph, search index, and timeline in real-time.
-
-- [x] **`startWatcher()` dual subscription**: Watches both `people/` (YAML) and `stories/` (Markdown) via separate `@parcel/watcher` subscriptions. Story watcher gracefully handles missing `stories/` directory.
-- [x] **`stopWatcher()` cleanup**: Unsubscribes both watcher subscriptions.
-- [x] **`parseSingleStory()`**: Private method on `GraphEngine` to parse a single markdown file — extracts frontmatter via `gray-matter`, validates with `StorySchema`, extracts `@N_xxx` and `[[N_xxx]]` mentions via remark AST walk.
-- [x] **`handleStoryUpdate()`**: Parses story, adds/updates graph node (type: 'story'), reconciles mentions edges (drop old, add new), indexes in search via `indexStory()`, invalidates `_computed` for mentioned persons (timeline changes).
-- [x] **`handleStoryRemove()`**: Drops story node + edges from graph, removes from search via `removeStory()`, invalidates `_computed` for previously-mentioned persons.
-- [x] **Self-write dedup**: Story handlers check `consumeSelfWrite()` to skip watcher-triggered events for API-initiated writes (future-proofed for Phase 5.1 story editor).
-- [x] **TDD**: 4 new tests in `tests/core/Watcher.test.ts` — story add creates node + edges, story update refreshes title, story remove drops node + edges, story indexed in search.
-
----
-
-### Phase 3.9: More Backend Hardening — COMPLETE ✅
-
-#### 3.9.1 File Watcher Circuit Breaker — COMPLETE ✅
-- [x] Implement sliding window in `startWatcher()`.
-- [x] Trigger background re-hydration if >50 events/500ms limits are hit.
-- [x] Add tests for burst resistance.
-
-#### 3.9.2 Graceful Shutdown Flush — COMPLETE ✅
-- [x] Handle `process.on('SIGINT')` and `process.on('SIGTERM')` in application bootstrapper.
-- [x] Wait for `server.close()` and `TransactionManager.destroy()`.
-
-#### 3.9.3 Static Asset Delivery Performance — COMPLETE ✅
-- [x] Add `@fastify/static` dependency.
-- [x] Expose `GET /assets/*` with HTTP Range requests support.
-- [x] Apply `maxAge: 31536000` and `immutable: true` Cache-Control policies.
-
----
-
-### Phase 3.10: Final Data Layer Hardening — COMPLETE ✅
-
-> **Context**: Two critical scaling optimizations deferred during Phase 3.7, now resolved.
-
-#### 3.10.1 Cache & Worker Handoff Stripping — COMPLETE ✅
-
-- [x] **HydrationWorker stripping**: `toSlimPerson()` called before `postMessage` in both full and incremental paths. Bio extracted explicitly from `data.scrapbook_md` before stripping.
-- [x] **GraphCache uses SlimPerson**: `CacheEntry.data` typed as `SlimPerson`. Cache only serializes slim data + bio.
-- [x] **Search indexing**: `buildGraphFromData()` uses `entry.bio` (passed explicitly from worker/cache) without lazy-loading.
-
-#### 3.10.2 Search Index Hot-Patch Persistence — COMPLETE ✅
-
-- [x] **Debounced persistence**: `SearchService.debouncePersist()` calls `exportIndex()` with 500ms debounce after `indexPerson()`, `removePerson()`, `indexStory()`, `removeStory()` mutations.
-- [x] **Persistence path**: `setPersistencePath()` configured during hydration in `GraphEngine`.
-- [x] **TDD**: `tests/core/SearchPersistence.test.ts` verifies index written after hot-patch mutations.
-
----
-
-### Phase 4: Frontend — SUBSTANTIALLY COMPLETE ✅
-
-Build the "VS Code for Genealogy" interface. See spec Section 6 for full UI specification.
-
-> **Technical Constraints (Mandatory)**: See spec Section 6.9. Virtualization, optimistic UI, hydration-aware shell, typed API client, and responsive design are non-negotiable.
->
-> **Execution Order Rationale**: TanStack Query must be wired immediately — its optimistic updates are mandatory to mask the slight latency of the debounced Git queue. The app shell must consume the SSE hydration stream before any data views are built. CmdK is built early because it drives all navigation and forces real search latency testing. E2E tests lock in the critical user journey as soon as the detail page can mutate and persist.
->
-> **Architecture Decisions**: React + Vite + TypeScript in a `client/` directory. shadcn/ui (Radix + Tailwind v4) for components. Zustand for UI state. TanStack Router + TanStack Query for routing and data. Lucide React for icons. See spec Section 6.1.
-
-#### 4.0 Backend API Additions (Frontend Prerequisites) — COMPLETE ✅
-
-The frontend requires two small backend additions before data views can be built (spec Section 6.10):
-
-- [x] `GET /api/people` — paginated list of all people (slim summaries). Query: `?limit=50&offset=0&sort=last_modified&order=desc`. Returns `{ people: SlimPersonSummary[], totalCount: number }`.
-- [x] `GET /api/stats` — dashboard stats (total people, total families, last modified). Could extend `GET /system/status`.
-- [x] TDD: Tests for both new endpoints in `tests/api/Server.test.ts`.
-
-#### 4.1 UI Foundation & Scaffolding
-
-Bootstrap the `client/` directory with all tooling.
-
-- [ ] `npx create-vite client --template react-ts` + TanStack Router + TanStack Query
-- [ ] Tailwind CSS v4 setup with dark mode palette (Slate/Zinc/Neutral)
-- [x] shadcn/ui initialization (`npx shadcn@latest init`)
-- [x] Typography: Google Fonts — `Inter` (UI), `Fira Code` (data), `Merriweather` (stories)
-- [x] Zustand store skeleton (`useUIStore`): sidebar state, active panel, modals
-- [x] Typed API client layer: `client/src/api/` with fetch wrappers for all backend endpoints
-- [x] TanStack Query hooks: `usePerson`, `usePeople`, `useSearch`, `useSystemStatus`, `useUpdatePerson` (with optimistic update boilerplate)
-- [x] Base shadcn/ui components imported: `Button`, `Input`, `Dialog`, `Command`, `Badge`, `Tabs`, `HoverCard`, `Resizable`, `Skeleton`, `Sonner`
-- [x] Custom `Avatar` component (photo from assets or generated initials)
-- [x] Vite dev proxy to backend (`/api` → `http://localhost:3000/api`)
-
-#### 4.2 App Shell & Hydration Awareness — COMPLETE ✅
-
-The structural frame — must work before any data views are built.
-
-- [x] **Persistent Left Sidebar**: VS Code activity bar pattern — Dashboard, People, Import, Settings. Icons + labels. Collapsible to icon-only.
-- [x] **Top Bar**: Breadcrumbs, Cmd+K search trigger, auth status.
-- [x] **Responsive behavior**: Full sidebar ≥1280px, icon-only 768–1279px, hamburger menu <768px.
-- [x] **Status indicator**: `StatusDot` in sidebar footer — green/amber/red based on `GET /system/status`.
-- [x] **`HydrationProgress` overlay**: Full-screen on boot. Connects to `GET /system/hydration/stream` SSE. Shows progress bar (phase, percent, node count). Fades out on `hydrationState === "ready"`. Handles 503 gracefully.
-- [x] **Error boundaries**: Global + per-route. Graceful API failure handling.
-- [x] **Route structure**: `/` (Dashboard), `/people` (Browse), `/people/:id` (Detail), `/import`, `/settings`, `/search?q=`.
-
-#### 4.3 Command Palette (CmdK) — COMPLETE ✅
-
-Build early — primary navigation tool. Forces real testing of paginated search.
-
-- [x] shadcn/ui `Command` component (wraps `cmdk`)
-- [x] Global hotkey: `Cmd+K` / `Ctrl+K` + search button in Top Bar
-- [x] Debounced input (300ms) queries `GET /api/search?q=...&limit=20`
-- [x] Categorized results: **People** (with Avatar), **Stories**, **Places**
-- [x] Keyboard navigation: ↑/↓ arrows, Enter to select, Escape to close
-- [x] On select: navigate to `/people/:id`, story detail, or place filter
-- [x] Footer: "View all results →" links to `/search?q=...` full page
-
-#### 4.4 People Browse Page — COMPLETE ✅
-
-Searchable, sortable table of all people. Simpler than the Holy Grail — good warm-up.
-
-- [x] Dense table: Avatar, Name, Birth Date, Death Date, Tags, # Events
-- [x] Sortable columns via API query params
-- [x] Inline search filter bar
-- [x] Click row → navigate to `/people/:id`
-- [x] Virtual scrolling via `@tanstack/react-virtual`
-- [x] Paginated via `GET /api/people?limit=50&offset=0`
-
-#### 4.5 The "Holy Grail" Person Detail Page — COMPLETE ✅
-
-The most critical view. 3-column resizable layout (spec Section 6.5).
-
-- [x] **Panel framework**: Integrate `react-resizable-panels` for the 3-column layout (22%/50%/28% default). Responsive: stacked below 768px.
-  - *Bug Fix*: Resolved issue where panels collapsed to 15-40px and handles were unresponsive by using percentage strings (e.g., `"50%"`) instead of numeric values (which default to `px` in v4.6.5) for `defaultSize`/`minSize`/`maxSize`, and changing the `<main>` container to `overflow-hidden`.
-  - *Bug Fix*: Events without `sort_date` were silently excluded from the timeline (`TimelineSlicer` skipped them). Fixed: undated events now appear at the end of the timeline. Added 2 new TDD tests.
-  - *Bug Fix*: Gap items from TimelineSlicer use `type: 'gap'` but frontend checked `type: '__gap__'`. Fixed.
-  - *Feature*: `e` keyboard shortcut on person page → enter name-edit mode.
-  - *Feature*: `EventEditorDialog` auto-populates Sort Date from Date when Date is already ISO format; adds hint "Required to appear on timeline".
-- [x] **Identity Panel** (left):
-  - Avatar (photo or initials)
-  - Display name, sex badge
-  - Vital dates derived from `events[]` (birth/death), read-only
-  - Relationship sections (Parents, Spouses, Children, Siblings) — `PersonChip` components with `HoverCard` previews
-  - Tags displayed as badges with inline add/remove
-  - Click-to-edit name (inline inputs, Enter to save, Escape to cancel, optimistic `PUT /people/:id`)
-  - Click-to-edit sex badge (button group M/F/I/U, auto-saves on selection)
-  - "Manage Parents" button opens `RelationshipEditorDialog`
-- [x] **Timeline Feed** (center):
-  - Virtualized via `@tanstack/react-virtual` (`useVirtualizer`)
-  - Events rendered with icon, type badge, date, location, description
-  - `GapIndicator` for `__gap__` items (— X years — divider)
-  - "+ Add Event" button → opens `EventEditorDialog`
-  - Click event card → opens `EventEditorDialog` pre-filled for edit
-- [x] **Context Panel** (right):
-  - Tabbed: Assets | Notebook | GEDCOM
-  - Assets: drag-drop upload zone + "Browse files" button (hidden file input) + thumbnail gallery with hover controls: zoom/lightbox, ⭐ set-as-primary; first asset shown with Primary badge and used as avatar
-  - Notebook: toggle edit mode → `<textarea>` for markdown editing → save via `PUT /people/:id`
-  - GEDCOM: shows `_gedcom` as JSON
-
-#### 4.6 Event & Relationship Editors — COMPLETE ✅
-
-Full modal-based editors for data entry (spec Sections 6.5.5, 6.5.6).
-
-- [x] **`EventEditorDialog`** (`client/src/components/EventEditorDialog.tsx`):
-  - Event type selector (all 11 types: birth, death, marriage, divorce, residence, census, baptism, burial, occupation, education, generic)
-  - Dynamic fields based on type: `partner_id` (marriage/divorce via `PersonSearchCombobox`), `status` (marriage), `cause` (death), `title`+`organization` (occupation), `institution`+`degree` (education), `household_id` (census), `title` (generic)
-  - Common fields: date, sort_date (ISO), location, description
-  - `PersonSearchCombobox` sub-component: debounced search (300ms) via `useSearch`, shows Avatar + name + nanoid
-  - Client-side required-field validation (mirrors EventSchema discriminants)
-  - Add mode: appends to events array; Edit mode: replaces at existing index
-  - Save via `useUpdatePerson` with optimistic update + rollback
-- [x] **`RelationshipEditorDialog`** (`client/src/components/RelationshipEditorDialog.tsx`):
-  - Tabbed: Parents / Children / Spouses — each with add + remove sections
-  - Add: `PersonSearchCombobox` (debounced search, no ID clutter in results) + relationship type selector
-  - Remove: lists current relationships via `PersonChip`, each with hover-reveal ×
-  - Save via `PUT /people/:id` (backend handles edge reconciliation)
-  - Child add/remove invalidates parent person query so UI refreshes without reload
-  - Spouse date: two separate fields (Date free-text + Sort Date ISO) to avoid schema validation error
-  - "Create '[name]'" option in every search combobox — opens `CreatePersonDialog` pre-filled, auto-selects new person on creation
-- [x] **`CreatePersonDialog`** (`client/src/components/CreatePersonDialog.tsx`):
-  - First name, last name, sex selector (M/F/I/U button group, defaults to Male)
-  - POST via `useCreatePerson` hook → `POST /api/people`
-  - Invalidates `['people']` and `['search']` queries on success
-  - `onCreated(id)` callback for use as person selector in other dialogs
-  - `initialFirstName` / `initialLastName` props for pre-population from relationship dialog
-- [x] **`PersonChip`** (`client/src/components/PersonChip.tsx`):
-  - Link wrapping `HoverCard` — loads person data lazily only when card opens
-  - HoverCard shows: avatar, full name, nanoid, birth/death dates, current spouse status
-
-#### 4.7 Import & Settings Pages — COMPLETE ✅
-
-Supporting pages (spec Section 6.8).
-
-- [x] **Import Page**: Drag-and-drop GEDCOM upload, destructive action warning, SSE progress bar, redirect to Dashboard on completion
-- [x] **Settings Page**: Live system status, Force Rebuild button (with SSE progress), Create Snapshot, auth management
-
-#### 4.8 E2E Tests (Playwright) — COMPLETE ✅
-
-Spec Section 9.3. Playwright wired, 3 CUJ test files implemented.
-
-- [x] **Playwright setup**: `playwright.config.ts` at root. `@playwright/test` added to `client/devDependencies`. `"test:e2e"` script in root `package.json`.
-- [x] **Global setup** (`tests/e2e/setup.ts`): Copies `tests/fixtures/data/` → `tests/fixtures/e2e-data/`, runs `git init` for TransactionManager. Backend launched with `DATA_DIR=./tests/fixtures/e2e-data`.
-- [x] **E2E fixture** (`tests/e2e/fixtures/sample.ged`): Minimal GEDCOM 5.5.1 with 2 people (Johann Bach + Maria Magdalena Bach) and 1 family/marriage event.
-- [x] **CUJ: Import → View → Edit → Persist** (`tests/e2e/import-view-edit.test.ts`): Upload sample.ged → confirm destructive dialog → wait for redirect → navigate to person → click-to-edit name → Enter to save → hard reload → assert name persists.
-- [x] **CUJ: Search Navigation** (`tests/e2e/search-navigation.test.ts`): Cmd+K → type "Bach" → click result → assert navigation to `/people/N_` → assert heading contains "bach". Also covers TopBar search button trigger.
-- [x] **CUJ: Responsive Layout** (`tests/e2e/responsive-layout.test.ts`): Mobile viewport (375×812) → hamburger visible, sidebar hidden → click hamburger → labels visible. Desktop (1440×900) → hamburger hidden, sidebar visible. Person detail → 3 resizable panels present.
-
-#### 4.9 Dashboard — COMPLETE ✅
-
-Landing page overview (spec Section 6.7).
-
-- [x] Stats cards: Total People, Total Families, Last Edited, System Status
-- [ ] Force graph visualization (`react-force-graph-2d`): nodes = people, edges = relationships. Click node → navigate to person.
-- [ ] "Gravity Bands" (Phase 5): position by birth year.
-
-#### 4.10 Search Results Page — COMPLETE ✅
-
-Full-page search results linked from CmdK "View all" action.
-
-- [x] Route: `/search?q=...`
-- [x] Categorized sections: People, Stories, Places
-- [x] Paginated via `GET /api/search?q=...&limit=50&offset=0`
-- [x] Virtualized results list
-
----
-
-### Phase 5: Immersion & Polish — NOT STARTED ❌
+### Phase 5 — Immersion & Polish
 
 #### 5.1 Rich Story Editor
-- [ ] Integrate `Tiptap` editor
-- [ ] `@Mention` extension (searches Graph for people)
-- [ ] `/Asset` extension (inserts image from `/assets`)
+1. `npm install @tiptap/react @tiptap/starter-kit` in `client/`.
+2. Replace Notebook `<textarea>` with Tiptap editor.
+3. `@Mention` extension: debounced `GET /api/search?q=` for people type-ahead, inserts `@N_xxx`.
+4. `/Asset` slash command: inserts image from `/assets` directory.
 
 #### 5.2 The 3D Time Tunnel
-- [ ] `react-three-fiber` setup
-- [ ] "Tunnel" geometry mapped to timeline events at Z-depth
-- [ ] Scroll-based camera movement
+1. `npm install three @react-three/fiber` in `client/`.
+2. Tunnel geometry: timeline events positioned at Z-depth proportional to date.
+3. Scroll-based camera movement along the tunnel axis.
+4. Accessible fallback: 2D list view when WebGL is unavailable.
 
 #### 5.3 Observability & Monitoring
-- [ ] Expose `heapUsedMB` from `process.memoryUsage()` in `GET /system/status` response
-- [ ] Add startup timing metrics (hydration duration, cache hit ratio, node/edge counts) to status endpoint
-- [ ] Log memory warnings if heap usage exceeds 75% of V8 limit
+1. Add `heapUsedMB`, `hydrationDurationMs`, `cacheHitRatio` to `GET /system/status` response (extend existing endpoint).
+2. Log memory warnings when V8 heap exceeds 75% of limit.
 
 ---
 
-### Phase 6: Distribution & Deployment — NOT STARTED ❌
+### Phase 6 — Distribution & Deployment
 
-- [ ] **Docker**: Multi-stage `Dockerfile` (Build Frontend → Serve Backend)
-- [ ] **Electron**: Desktop wrapper for local-file-system access
-- [ ] **CI/CD**: GitHub Action running Vitest + Playwright (from Phase 4.4) on PRs
-
----
-
-## 3. Test Suite
-
-**Total**: 223 tests | **Passing**: 223 | **Skipped**: 0 | **Failing**: 0
-
-| Module | File | Count | Status |
-|:-------|:-----|:------|:-------|
-| PersonSchema | `tests/schemas/PersonSchema.test.ts` | 3 | ✅ |
-| EventSchema | `tests/schemas/EventSchema.test.ts` | 2 | ✅ |
-| AssetSchema | `tests/schemas/AssetSchema.test.ts` | 1 | ✅ |
-| StorySchema | `tests/schemas/StorySchema.test.ts` | 1 | ✅ |
-| AuthSchema | `tests/schemas/AuthSchema.test.ts` | 5 | ✅ |
-| SchemaExpansion | `tests/schemas/SchemaExpansion.test.ts` | 6 | ✅ |
-| BootLoader | `tests/core/BootLoader.test.ts` | 1 | ✅ |
-| GraphEngine | `tests/core/GraphEngine.test.ts` | 1 | ✅ |
-| GraphCache | `tests/core/GraphCache.test.ts` | 11 | ✅ |
-| GraphLogic | `tests/core/GraphLogic.test.ts` | 8 | ✅ |
-| HotPatch | `tests/core/GraphEngineHotPatch.test.ts` | 8 | ✅ |
-| HydrationWorker | `tests/core/HydrationWorker.test.ts` | 10 | ✅ |
-| SearchService | `tests/core/SearchService.test.ts` | 16 | ✅ |
-| StoryLoader | `tests/core/StoryLoader.test.ts` | 1 | ✅ |
-| Thumbnailer | `tests/core/Thumbnailer.test.ts` | 8 | ✅ |
-| TransactionManager | `tests/core/TransactionManager.test.ts` | 8 | ✅ |
-| DateParser | `tests/utils/DateParser.test.ts` | 8 | ✅ |
-| IdGenerator | `tests/utils/IdGenerator.test.ts` | 5 | ✅ |
-| GEDCOM Import | `tests/core/gedcom/Import.test.ts` | 3 | ✅ |
-| GEDCOM Export | `tests/core/gedcom/Export.test.ts` | 6 | ✅ |
-| GEDCOM RoundTrip | `tests/core/gedcom/RoundTrip.test.ts` | 2 | ✅ |
-| GEDCOM Robustness | `tests/core/gedcom/Robustness.test.ts` | 5 | ✅ |
-| API Server | `tests/api/Server.test.ts` | 30 | ✅ |
-| TimelineSlicer | `tests/core/TimelineSlicer.test.ts` | 10 | ✅ |
-| Authentication | `tests/api/Auth.test.ts` | 11 | ✅ |
-| SlimNode | `tests/core/SlimNode.test.ts` | 10 | ✅ |
-| SearchPersistence | `tests/core/SearchPersistence.test.ts` | 8 | ✅ |
-| WriteDedup | `tests/core/WriteDedup.test.ts` | 7 | ✅ |
-| Watcher | `tests/core/Watcher.test.ts` | 10 | ✅ |
-| HydrationStream | `tests/api/HydrationStream.test.ts` | 4 | ✅ |
-| MediaDelivery | `tests/api/MediaDelivery.test.ts` | 3 | ✅ |
-
-**No skipped tests.** `IdGenerator.test.ts` added in Phase 3.11; `DateParser.test.ts` expanded in Phase 3.13; `Server.test.ts` gained 5 tests in Phase 3.14.
+1. **Docker**: Multi-stage `Dockerfile` — build frontend (`npm run build` in `client/`), copy `client/dist/` into backend, serve via `@fastify/static`.
+2. **Electron**: Desktop wrapper with `nodeIntegration` for local file-system access; bundle backend + frontend.
+3. **CI/CD**: GitHub Action on PRs — `npm test` (Vitest, all 228+) + `npm run test:e2e` (Playwright, 3 CUJs).
 
 ---
 
-### Phase 3.11: Human-Readable IDs — COMPLETE ✅
-
-> **Motivation**: Person files use opaque `N_7x9aZ2.yaml` names that are meaningless in a text editor. IDs should encode who the person is.
-
-**ID format**: `N_[first]-[last]-[birthyear]-[place]-[nanoid8]`
-- Example: `N_Johann-Bach-1685-Eisenach-7x9aZ2Kp.yaml`
-
-- [x] **`generatePersonId(person: Partial<Person>): string`** in `src/utils/idGenerator.ts`. Slugifies name components, truncates prefix to 24 chars, appends nanoid(8).
-- [x] **`POST /people`** updated to call `generatePersonId()` instead of bare `nanoid()`.
-- [x] **GEDCOM import** updated to call `generatePersonId()` for each imported person.
-- [x] **TDD**: `tests/utils/IdGenerator.test.ts` — slug correctness, missing fields, diacritics, uniqueness.
-
----
-
-### Phase 3.12: GEDCOM Import Fix (Multipart FormData) — COMPLETE ✅
-
-> **Motivation**: GEDCOM import route only accepted JSON body `{ gedcom: string }` but the frontend sends multipart `FormData` with a `file` field.
-
-- [x] `POST /api/import/gedcom` updated to accept **both** multipart `FormData` (file field, from frontend) and JSON body `{ gedcom: string }` (for programmatic/test use).
-- [x] All existing GEDCOM tests still pass.
-
----
-
-### Phase 3.13: Fuzzy Date Parsing Audit — COMPLETE ✅
-
-> **Motivation**: The spec requires `DateParser` to produce canonical sort values for approximate GEDCOM dates.
-
-- [x] `BET … AND …` → midpoint date (`1905-06-01` for `BET 1900 AND 1910`).
-- [x] `BEF …` → prior year's last day (`1849-12-31` for `BEF 1850`).
-- [x] `AFT …`, `ABT …`, `EST …`, `CAL …` → year start date.
-- [x] `Mar 1685` → `1685-03-01`; `21 Mar 1685` → `1685-03-21`.
-- [x] All new cases covered by tests in `tests/utils/DateParser.test.ts`.
-
----
-
-### Phase 3.14: Asset Deletion API — COMPLETE ✅
-
-> **Motivation**: Assets pile up on disk when users delete them from the UI.
-
-- [x] **`DELETE /api/people/:id/media/:filename`** in `src/api/routes/people.ts`.
-  - Verifies person exists (404 if not).
-  - Verifies filename is in `assets[]` (404 if not).
-  - `fs.unlink` the binary from `/assets/[filename]` (and thumbnail if cached).
-  - Removes filename from `assets[]`, writes updated YAML via `TransactionManager`.
-  - Runs `applyWriteSideEffects()`.
-  - Returns `204 No Content`.
-- [x] **TDD**: 5 tests in `tests/api/Server.test.ts` — 204 success, file gone, YAML updated, 404 missing person, 404 filename not in assets.
-
----
-
-### Phase 3.15: Place / Geo-tagging — NOT STARTED ❌
-
-> **Motivation**: Event locations are unvalidated strings. Structured geo-data enables future map visualization, validated place names, and historical name resolution.
-
-**Place Object Schema** (`src/schemas/EventSchema.ts`):
-```typescript
-{
-  name: string;            // Display name (user's original input or modern equivalent)
-  historicalName?: string; // Original historical name if name was resolved to modern form
-  lat?: number;            // WGS84 latitude
-  lng?: number;            // WGS84 longitude
-  countryCode?: string;    // ISO 3166-1 alpha-2
-  resolvedAt?: string;     // ISO-8601 timestamp of last geocode resolution
-}
-```
-
-**Tasks**:
-- [ ] **Update `EventSchema`** — change `location` from `z.string().optional()` to `z.union([z.string(), PlaceSchema]).optional()`. Auto-coerce string → `{ name: string }` on parse for backward compatibility.
-- [ ] **`src/core/GeocodingService.ts`** — `resolve(name: string): Promise<Place>`. Uses Nominatim (`https://nominatim.openstreetmap.org/search?q=...&format=jsonv2&limit=1`). Cache results in `/_meta/.geocode-cache.json`. Queue enforces ≤1 req/sec. Graceful fallback: returns `{ name }` if lookup fails.
-- [ ] **`GET /api/places/search?q=...`** in `src/api/routes/search.ts` — returns top 5 Nominatim candidates for type-ahead autocomplete.
-- [ ] **BootLoader migration**: If `location` is a bare string during hydration, coerce to `{ name: locationString }`. No data written back — migration happens transparently in memory only.
-- [ ] **TDD**: `tests/core/GeocodingService.test.ts` — resolve known city returns lat/lng, cache hit skips HTTP, rate limiter fires, fallback on 404/network error, historical name preserved in `historicalName`.
-- [ ] **TDD**: Update `EventSchema.test.ts` — string location coerces to Place object, full Place object round-trips correctly.
-- [ ] **Frontend `4.15b`**: Update `EventEditorDialog` location field to type-ahead against `GET /api/places/search`, display resolved lat/lng confirmation.
-
----
-
-### Phase 4.9: Dashboard Force Graph — NOT STARTED ❌
-
-- [ ] Install `react-force-graph-2d`.
-- [ ] Fetch all people from `GET /api/people` (paginated, all pages) to build node list.
-- [ ] Build edges from `_computed.children` relationships on each person.
-- [ ] Click node → navigate to `/people/:id`.
-- [ ] "Gravity Bands" deferred to Phase 5.
-
----
-
-### Phase 4.11: Frontend Date Validation — COMPLETE ✅
-
-> **Motivation**: The Event Editor allows saving events with unparseable date strings.
-
-- [x] `SmartDateInput` component (`client/src/components/SmartDateInput.tsx`) with `parseToISO()` export. Shows ISO preview hint inline; yellow border when unparseable.
-- [x] `EventEditorDialog` disables Save when `date` is non-empty and unparseable.
-- [x] `RelationshipEditorDialog` disables Save when spouse date is non-empty and unparseable.
-
-**Known gap (Phase 4.22)**: The catch-all `\b(\d{4})\b` regex in `parseToISO()` causes strings like "15 Jeune 1776" (French month) to parse as valid dates. This must be fixed — see Phase 4.22.
-
----
-
-### Phase 4.12: Notebook Markdown Rendering — COMPLETE ✅
-
-- [x] `react-markdown` and `remark-gfm` installed in `client/`.
-- [x] Notebook view mode renders Markdown via `<ReactMarkdown remarkPlugins={[remarkGfm]}>`.
-- [x] Edit mode: plain `<textarea>` with monospace font.
-- [x] `@tailwindcss/typography` installed; `prose prose-sm` applied.
-
-**Known bug (Phase 4.17)**: `prose-invert` is applied unconditionally, which breaks light mode styling. Must become theme-conditional.
-
----
-
-### Phase 4.13: Timeline "Unknown Date" Section — COMPLETE ✅
-
-- [x] `TimelineSlicer.ts` prepends `{ type: 'unknown_date_header' }` followed by all undated items before the dated+gap stream.
-- [x] `TimelineItem` union updated to include `UnknownDateHeader`.
-- [x] Tests updated: undated events appear first, dated events retain order.
-- [x] Frontend `VirtualizedTimeline` renders `type === 'unknown_date_header'` as styled "Undated Events" divider.
-
----
-
-### Phase 4.14: Sibling Management — COMPLETE ✅
-
-- [x] **Siblings tab** (4th tab) added to `RelationshipEditorDialog`.
-- [x] Current siblings from `_computed.siblings` shown as `PersonChip` links.
-- [x] `handleAddSibling()`: user picks a person + selects one shared parent → calls `PUT /people/[siblingId]` to add that parent.
-
-**Known gap (Phase 4.21)**: Only one shared parent can be selected at a time. The UX should allow selecting both parents simultaneously via checkboxes.
-
----
-
-### Phase 4.15: Asset Deletion Frontend — COMPLETE ✅
-
-> **Motivation**: The Assets panel had no delete action wired to the backend `DELETE /api/people/:id/media/:filename` endpoint added in Phase 3.14.
-
-- [x] `useDeleteAsset` mutation hook in `client/src/api/hooks.ts`.
-- [x] `deleteAsset()` API wrapper in `client/src/api/client.ts`.
-- [x] Confirmation dialog (AlertDialog pattern using shadcn Dialog) on delete button click.
-- [x] On confirm → `deleteAssetMutation.mutate()` → invalidates `['person', id]` query.
-
-**Known gap (Phase 4.16)**: Asset deletion invalidates the query (triggers refetch) but does not optimistically update the cache. Until the refetch completes, the avatar in the Identity Panel still shows the deleted image URL (resulting in a broken image) instead of immediately falling back to initials.
-
----
-
-### Phase 4.16: Avatar & Asset Image Quality Fixes — COMPLETE ✅
-
-> **Motivation**: Three related asset/avatar rendering bugs reported.
-
-**Bug 1 — Asset image warping**: Images in the asset gallery appear distorted/stretched. The grid thumbnail uses `aspect-square` + `object-contain` which should be correct; the root cause may be in the shadcn `AvatarImage` where `object-fit` CSS is not applied, causing `object-fill` (default) behavior in the circular avatar in the Identity Panel.
-
-**Bug 2 — People list missing primary photo**: `CustomAvatar` on the People Browse page does not receive `photoFilename` because `SlimPersonSummary` does not include asset data. The avatar shows only initials even when the person has photos.
-
-**Bug 3 — Avatar doesn't revert to initials after asset delete**: After deleting the primary asset, the Identity Panel avatar continues showing a broken image URL until the query refetches. Should immediately show initials.
-
-**Tasks**:
-- [ ] **Image warping fix**: Audit `client/src/components/CustomAvatar.tsx` and the shadcn `Avatar`/`AvatarImage` component to ensure `object-cover` is applied to `AvatarImage`. Audit the asset gallery `<img>` element to confirm `object-contain` + `aspect-square` renders correctly for non-square images.
-- [ ] **People list primary photo**: Add `primaryAsset?: string` field to `SlimPersonSummary` in `src/api/routes/people.ts` (first entry from `assets[]`, or undefined). Update the `SlimPersonSummary` type in `client/src/api/people.ts`. Pass `photoFilename={person.primaryAsset}` to `CustomAvatar` in `client/src/routes/people/index.lazy.tsx`.
-- [ ] **Optimistic asset delete**: In `useDeleteAsset`, add `onMutate` handler that immediately removes the filename from `['person', id]` query cache → avatar and gallery update instantly without waiting for refetch. Rollback in `onError`.
-- [ ] **TDD**: No new backend tests required. Frontend snapshot/interaction tests optional.
-
----
-
-### Phase 4.17: Dark Mode + Light/Dark Toggle — COMPLETE ✅
-
-> **Motivation**: The spec (§6.2.1) requires both dark and light mode with a polished toggle. Currently the app is dark-only with `prose-invert` applied unconditionally in the Notebook (broken in light mode).
-
-**Tasks**:
-- [ ] **Theme token audit**: Ensure all shadcn/ui CSS variables (`--background`, `--foreground`, `--muted`, `--card`, etc.) are defined for both `:root` (light) and `.dark` (or `[data-theme="dark"]`). Tailwind v4 uses `@theme` blocks — confirm light + dark palettes are fully defined in `client/src/index.css`.
-- [ ] **Toggle component**: Add a `ThemeToggle` button (Sun/Moon icon, `lucide-react`) to the TopBar. Reads and writes `localStorage.getItem('theme')`. Applies `document.documentElement.classList.toggle('dark')`.
-- [ ] **Theme initialization**: In `client/src/main.tsx` (or a `useEffect` in `__root.tsx`), read `localStorage` on mount and apply the saved theme class before first paint to prevent FOUC (Flash of Unstyled Content).
-- [ ] **Notebook prose-invert fix**: Replace `prose-invert` with a conditional class — apply only in dark mode: `dark:prose-invert` (Tailwind dark variant).
-- [ ] **Light mode palette validation**: Manually verify People Browse, Person Detail (all three panels), Import, Settings, Command Palette, Search — all look correct in both themes. Pay special attention to cards, dialogs, code blocks, and badges.
-- [ ] **TDD**: No backend tests. Consider adding a visual regression note or a `data-testid` for the theme toggle.
-
----
-
-### Phase 4.18: People List Server-Side Search — COMPLETE ✅
-
-> **Motivation**: The People Browse search bar filters only the current 50-person page client-side. If the user is on page 3 and types "Bach", only the 50 records on page 3 are searched, missing all other matches.
-
-**Tasks**:
-- [ ] Replace the client-side `filter` state with a server-driven search flow: when the search input is non-empty, call `GET /api/search?q=...&limit=50&offset=0` (same endpoint as CmdK) instead of `GET /api/people`. Map results to the same table row shape.
-- [ ] When search input is empty, revert to the normal `GET /api/people` paginated list.
-- [ ] Typing resets `offset` to 0.
-- [ ] Debounce the search input (300ms) to avoid excessive requests.
-- [ ] Show "X results for 'query'" count while in search mode.
-- [ ] Pagination controls are hidden or show search-result page count while in search mode.
-
----
-
-### Phase 4.19: GEDCOM Spouse Import Fix — COMPLETE ✅
-
-> **Motivation**: When a GEDCOM `FAM` record has `HUSB` and `WIFE` but no `MARR` sub-record (no marriage event date), both spouses are silently dropped — no marriage event is created on either person.
-
-**Root cause** (`src/core/gedcom/Import.ts` lines 140–163): The spouse-linking block is guarded by `if (marrNode && fatherId && motherId)`. If `marrNode` is `undefined` (no `MARR` tag in the FAM), the entire block is skipped.
-
-**Tasks**:
-- [ ] Change the guard to `if (fatherId && motherId)` — create marriage events regardless of whether a `MARR` node exists.
-- [ ] When no `marrNode`: use `date: ""`, `sort_date: ""`, `location: ""`.
-- [ ] When `marrNode` exists: continue using its `DATE` and `PLAC` children as before.
-- [ ] **TDD**: Add GEDCOM import test — FAM record with HUSB + WIFE but no MARR → both persons have a marriage event with `partner_id` set to the other person.
-- [ ] **TDD**: Add GEDCOM import test — FAM record with only HUSB (no WIFE) → no marriage event (guard requires both).
-- [ ] Run existing GEDCOM test suite; all 16 tests must still pass.
-
----
-
-### Phase 4.20: Timeline Virtualizer Reload Fix — COMPLETE ✅
-
-> **Motivation**: On hard browser reload of a person page, the timeline feed disappears. On in-app navigation (clicking through the app), the timeline renders correctly. The bug has persisted across multiple fixes.
-
-**Root cause hypothesis**: `VirtualizedTimeline` uses `useVirtualizer` with `getScrollElement: () => parentRef.current`. On hard reload, the React tree mounts fresh. On the initial render of the Holy Grail layout, `flex-1 overflow-y-auto` may not resolve to a non-zero height before the virtualizer calculates visible items. The virtualizer sees height 0, renders 0 items, and the ResizeObserver may not fire a recalculation because the container's final height is already set (no change event). On in-app navigation, the layout container may already exist with a proper height from a previous route.
-
-**Tasks**:
-- [ ] **Confirm root cause**: Add a `console.log` temporarily to `VirtualizedTimeline` logging `parentRef.current?.getBoundingClientRect().height` at mount time on a hard reload vs fresh navigation. Verify whether the height is 0 on reload.
-- [ ] **Fix option A (preferred)**: Ensure the ResizablePanelGroup and ResizablePanel have `className="h-full"` all the way from the route root. The `<main>` element in the layout should have `overflow-hidden h-full`. This ensures the flex layout resolves before `VirtualizedTimeline` mounts.
-- [ ] **Fix option B (fallback)**: Add a `useEffect` in `VirtualizedTimeline` that calls `rowVirtualizer.measure()` after the first render to force height recalculation.
-- [ ] **Fix option C (most robust)**: Replace `useVirtualizer` with `useWindowVirtualizer` (scroll relative to window) for the timeline, eliminating dependency on the container's measured height.
-- [ ] **Test**: Hard-reload a person page with events. Timeline must render on first load without requiring navigation.
-
----
-
-### Phase 4.21: Sibling Dual-Parent Selection — COMPLETE ✅
-
-> **Motivation**: When adding a sibling in the Relationship Editor, only one shared parent can be selected at a time. Real siblings typically share both a mother and a father.
-
-**Current behavior** (`RelationshipEditorDialog.tsx` `handleAddSibling`): Takes a single `sharedParentId` and adds only that one parent to the sibling.
-
-**Tasks**:
-- [ ] Replace the single-parent `PersonSearchCombobox` in the Siblings tab with a **multi-select checklist** of the current person's parents (each shown as a `PersonChip` with a checkbox).
-- [ ] All checked parents are added to the sibling's `relationships.parents[]` in a single `PUT /people/[siblingId]` call.
-- [ ] If the current person has 0 parents, show: "Add parents to this person first before linking siblings."
-- [ ] If the sibling already has some of those parents, skip the ones already present (no duplicate).
-- [ ] Keep the `PersonSearchCombobox` for selecting the sibling person itself.
-
----
-
-### Phase 4.22: Strict Date Input Validation — COMPLETE ✅
-
-> **Motivation**: `SmartDateInput.parseToISO()` has a catch-all that extracts the first 4-digit year from any string. "15 Jeune 1776" (French for "15 June 1776") parses to "1776-01-01" because "Jeune" is not a recognized English month but a 4-digit year is present. The spec requires strict token matching — unrecognized words must fail validation.
-
-**Root cause** (`client/src/components/SmartDateInput.tsx` lines 57–61):
-```typescript
-// Year with qualifiers: "abt 1900", "circa 1900", "~1900", "c. 1900", "ca 1900"
-const yearInText = s.match(/\b(\d{4})\b/);
-if (yearInText) return `${yearInText[1]}-01-01`;
-```
-This is too broad — it accepts ANY string containing a 4-digit number.
-
-**Tasks**:
-- [ ] Remove the catch-all `\b(\d{4})\b` fallback from `parseToISO()`.
-- [ ] Replace with an explicit list of recognized fuzzy prefixes: `abt`, `about`, `circa`, `ca`, `c.`, `~`, `est`, `cal`, `bef`, `aft`, `bet`, `from`. Only these known qualifiers + a bare 4-digit year (or recognized month abbreviation + year) are valid.
-- [ ] Accepted patterns after the fix:
-  - `"1900"` → `"1900-01-01"` ✅
-  - `"abt 1900"` → `"1900-01-01"` ✅
-  - `"circa 1900"` → `"1900-01-01"` ✅
-  - `"15 Jun 1900"` → `"1900-06-15"` ✅
-  - `"15 Jeune 1776"` → `null` (fail) ✅
-  - `"Foo Bar 1900"` → `null` (fail) ✅
-- [ ] Update `SmartDateInput` tests / the EventEditorDialog tests to verify "15 Jeune 1776" is treated as unparseable (Save disabled, yellow border).
-
----
-
-## 4. Technical Decisions
-
-Decisions made during implementation that deviate from or elaborate on the spec.
-
-| # | Decision | Rationale |
-|:--|:---------|:----------|
-| 1 | Use `nanoid()` for media upload filenames | Prevents collisions, URL-safe, preserves file extension |
-| 2 | GEDCOM import is destructive (deletes all `*.yaml`) | Clean slate prevents orphaned data; `.git` history preserved |
-| 3 | ~~Snapshot uses `simple-git` (not `isomorphic-git` yet)~~ | ~~Already a dependency. Migration deferred to 3.5.1~~ → Superseded by Decision #14 (Phase 3.6.1) |
-| 4 | Snapshot auto-creates initial commit if HEAD missing | Handles fresh repos gracefully without requiring manual setup |
-| 5 | API Server tests init a git repo in `tests/fixtures/data/` | Required for snapshot endpoint testing; created in `beforeEach` |
-| 6 | Auth is optional (graceful degradation) | If `/_meta/auth.yaml` missing, all routes remain public. Allows dev/testing without auth setup |
-| 7 | `bcryptjs` over `bcrypt` for password hashing | Pure JS — no native compilation required, easier cross-platform deployment |
-| 8 | Auth tests use isolated `tests/fixtures/auth-data/` directory | Prevents race conditions with parallel `Server.test.ts` which shares `tests/fixtures/data/` |
-| 9 | GraphEngine re-created per `createServer()` call | Fixes singleton leakage across parallel test files; `onClose` hook nulls the reference |
-| 10 | Cache uses absolute file paths as keys | Simplifies mtime comparison (glob returns absolute paths). Cache auto-invalidates if data directory moves — triggers full nuclear, which is correct behavior |
-| 11 | `cacheAge` is an ISO-8601 timestamp (not duration string) | Unambiguous, machine-parseable. Frontend can compute "X minutes ago" from the timestamp |
-| 12 | Worker thread uses `tsx/cjs` for ESM interop | `p-limit` v7 and `remark` v15 are ESM-only; the project uses CommonJS. `tsx` resolves `require()` of ESM modules in the worker thread. Added as devDependency |
-| 13 | `awaitHydration` defaults to `true` in `ServerConfig` | Preserves backward compatibility for tests (which expect hydration complete before assertions). Set `false` for production immediate-availability |
-| 14 | `isomorphic-git` migration elevated to immediate (Phase 3.6.1) | Architecture review: child-process overhead from `simple-git` is an architectural flaw, not an optimization deferral. Must resolve before frontend consumes write APIs |
-| 15 | Replace `chokidar` with `@parcel/watcher` (Phase 3.6.2) | Native OS watcher APIs via Rust/C++ bindings eliminate EMFILE limits. Resolves skipped `Watcher.test.ts` |
-| 16 | API pagination mandatory before frontend (Phase 3.6.3) | Unbounded search/timeline responses would lock up the browser DOM for large datasets. `limit`/`offset` with `totalCounts` prevents payload bloat |
-| 17 | Virtualization mandatory in frontend (Phase 4) | Timeline Feed and Search Results must use `@tanstack/react-virtual` or equivalent. No DOM nodes for off-screen items |
-| 18 | SSE hydration stream (`GET /system/hydration/stream`) | Replaces polling `GET /system/status` with a push-based progress stream. Frontend connects on boot, shows real progress bar |
-| 19 | Slim Node Strategy — strip `scrapbook_md` + `_gedcom` from in-memory graph (Phase 3.7.1) | Architecture review: 50K nodes × 2KB markdown = ~100MB idle in V8 heap. Lazy-load heavy fields from disk on `GET /people/:id` only |
-| 20 | Search Index Persistence — serialize FlexSearch to disk (Phase 3.7.2) | PE scaling review: rebuilding FlexSearch index for 50K+ nodes on every boot is avoidable CPU work. Export/import compiled index, surgically update changed nodes |
-| 21 | Write-Event Deduplication — self-write ignore set (Phase 3.7.3) | PE scaling review: API writes trigger redundant watcher hot-patches. Write-origin set with TTL prevents double-processing |
-| 22 | Phase 4 execution order: Foundation → Shell → CmdK → Browse → Holy Grail → Editors → Import/Settings → E2E → Dashboard → Search | PE recommendation: TanStack Query + optimistic updates from day one; CmdK early to battle-test search; Browse before Holy Grail as warm-up; E2E locked as soon as edit→persist works |
-| 23 | Frontend architecture: `client/` directory, shadcn/ui, Zustand, Tailwind v4 | User decision: prioritize stability, testability, and elegance. shadcn/ui for accessible styled components without bundle bloat. Zustand for minimal, testable UI state |
-| 24 | Responsive design mandatory | User decision: persistent sidebar collapses to icon-only on tablet, hamburger on mobile. Holy Grail panels stack on small screens |
-| 25 | Full event/relationship editors from Phase 4 | User decision: not just inline text editing — modal-based event editor for all 11 types with dynamic fields, searchable person selectors |
-| 26 | Hover preview cards (`HoverCard`) on person references | User decision: `PersonChip` components show avatar + vital dates on hover, click to navigate |
-| 27 | Human-readable IDs replace nanoid-only IDs (Phase 3.11) | User decision: file system is the database — IDs must be legible in a text editor. Random suffix preserves global uniqueness |
-| 28 | Nominatim (OpenStreetMap) for geocoding (Phase 3.15) | Free, no API key, handles historical place names. Rate limit 1 req/s enforced by GeocodingService queue |
-| 29 | Place field migrated from `string` to structured object (Phase 3.15) | Backward compat: string locations auto-migrated to `{ name }` at parse time |
-| 30 | People list search must be server-side (Phase 4.18) | Client-side filtering only searches the current page of 50 — misses all other matches. Server-side search against FlexSearch covers the full dataset |
-| 31 | GEDCOM spouse linking must not require MARR record (Phase 4.19) | FAM records with HUSB + WIFE but no MARR are common in real GEDCOMs. Dropping spouses silently is data loss |
-| 32 | `parseToISO()` catch-all year extraction removed (Phase 4.22) | The `\b(\d{4})\b` fallback accepts any string with a 4-digit number. Strict token matching prevents false positives like "15 Jeune 1776" → "1776-01-01" |
-| 33 | Theme uses Tailwind `dark:` variant + `localStorage` persistence | Standard Tailwind dark mode toggle pattern. `dark:prose-invert` in Notebook eliminates light-mode invisible text. FOUC prevented by script in `<head>` before React mounts |
-
+## Test Suite
+
+228 passing | 0 skipped | 31 files
+
+| Module | File | Count |
+|:-------|:-----|:------|
+| PersonSchema | tests/schemas/PersonSchema.test.ts | 3 |
+| EventSchema | tests/schemas/EventSchema.test.ts | 2 |
+| AssetSchema | tests/schemas/AssetSchema.test.ts | 1 |
+| StorySchema | tests/schemas/StorySchema.test.ts | 1 |
+| AuthSchema | tests/schemas/AuthSchema.test.ts | 5 |
+| SchemaExpansion | tests/schemas/SchemaExpansion.test.ts | 6 |
+| BootLoader | tests/core/BootLoader.test.ts | 1 |
+| GraphEngine | tests/core/GraphEngine.test.ts | 1 |
+| GraphCache | tests/core/GraphCache.test.ts | 11 |
+| GraphLogic | tests/core/GraphLogic.test.ts | 8 |
+| HotPatch | tests/core/GraphEngineHotPatch.test.ts | 8 |
+| HydrationWorker | tests/core/HydrationWorker.test.ts | 10 |
+| SearchService | tests/core/SearchService.test.ts | 16 |
+| StoryLoader | tests/core/StoryLoader.test.ts | 1 |
+| Thumbnailer | tests/core/Thumbnailer.test.ts | 8 |
+| TransactionManager | tests/core/TransactionManager.test.ts | 8 |
+| DateParser | tests/utils/DateParser.test.ts | 8 |
+| IdGenerator | tests/utils/IdGenerator.test.ts | 5 |
+| GEDCOM Import | tests/core/gedcom/Import.test.ts | 3 |
+| GEDCOM Export | tests/core/gedcom/Export.test.ts | 6 |
+| GEDCOM RoundTrip | tests/core/gedcom/RoundTrip.test.ts | 2 |
+| GEDCOM Robustness | tests/core/gedcom/Robustness.test.ts | 5 |
+| API Server | tests/api/Server.test.ts | 30 |
+| TimelineSlicer | tests/core/TimelineSlicer.test.ts | 10 |
+| Authentication | tests/api/Auth.test.ts | 11 |
+| SlimNode | tests/core/SlimNode.test.ts | 10 |
+| SearchPersistence | tests/core/SearchPersistence.test.ts | 8 |
+| WriteDedup | tests/core/WriteDedup.test.ts | 7 |
+| Watcher | tests/core/Watcher.test.ts | 10 |
+| HydrationStream | tests/api/HydrationStream.test.ts | 4 |
+| MediaDelivery | tests/api/MediaDelivery.test.ts | 3 |
