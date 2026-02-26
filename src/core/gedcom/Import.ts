@@ -162,6 +162,30 @@ export class GedcomReader {
                 }
             }
 
+            // 2a2. Divorce Event
+            const divNode = node.children.find(c => c.tag === 'DIV');
+            if (divNode && fatherId && motherId) {
+                const date = this.getChildValue(divNode, 'DATE') || "";
+                const place = this.getChildValue(divNode, 'PLAC') || "";
+                const sortDate = parseDate(date);
+
+                const h = people.find(x => x.id === fatherId);
+                if (h) {
+                    h.events.push({
+                        id: crypto.randomUUID(), type: 'divorce', date, sort_date: sortDate,
+                        location: place, assets: [], partner_id: motherId
+                    });
+                }
+
+                const w = people.find(x => x.id === motherId);
+                if (w) {
+                    w.events.push({
+                        id: crypto.randomUUID(), type: 'divorce', date, sort_date: sortDate,
+                        location: place, assets: [], partner_id: fatherId
+                    });
+                }
+            }
+
             // 2b. Parent-Child Relationships (The new robust logic)
             // Iterate all CHIL tags
             node.children.filter(c => c.tag === 'CHIL').forEach(childNode => {
@@ -186,16 +210,18 @@ export class GedcomReader {
     }
 
     private mapIndi(node: GedcomNode, p: Person) {
-        // Name
+        // Name — "John /Doe/" or "John /Doe/ Jr."
         const nameVal = this.getChildValue(node, 'NAME');
         if (nameVal) {
-             // "John /Doe/"
              const parts = nameVal.split('/').map(s => s.trim());
              p.names.push({
-                 first: parts[0] || "?",
-                 last: parts[1] || "?",
+                 first: parts[0] || "Unknown",
+                 last: parts[1] || "",
                  primary: true
              });
+        } else {
+            // Fallback: INDI with no NAME tag still needs a valid names array
+            p.names.push({ first: "Unknown", last: "", primary: true });
         }
 
         // Sex
@@ -203,31 +229,65 @@ export class GedcomReader {
         if (sex === 'M') p.sex = 'M';
         if (sex === 'F') p.sex = 'F';
 
-        // Events
-        const eventTags: Record<string, string> = {
-            'BIRT': 'birth', 'DEAT': 'death', 'CHR': 'baptism', 'BURI': 'burial'
+        // Simple event tags: GEDCOM tag -> LegacyGraph event type
+        const simpleEventTags: Record<string, string> = {
+            'BIRT': 'birth', 'DEAT': 'death', 'CHR': 'baptism', 'BURI': 'burial', 'RESI': 'residence'
         };
 
+        const ignoredTags = new Set(['NAME', 'SEX', 'FAMC', 'FAMS', 'SOUR', 'OBJE', 'CHAN', 'SUBM']);
+
         node.children.forEach(child => {
-            if (eventTags[child.tag]) {
+            if (simpleEventTags[child.tag]) {
                 const date = this.getChildValue(child, 'DATE') || "";
                 const place = this.getChildValue(child, 'PLAC') || "";
                 p.events.push({
                     id: crypto.randomUUID(),
-                    type: eventTags[child.tag] as any,
+                    type: simpleEventTags[child.tag] as any,
                     date: date,
                     sort_date: parseDate(date),
                     location: place,
                     assets: []
                 });
+            } else if (child.tag === 'OCCU') {
+                // Occupation: value is the job title
+                const title = child.value || this.getChildValue(child, 'TYPE') || "Unknown";
+                const date = this.getChildValue(child, 'DATE') || "";
+                const place = this.getChildValue(child, 'PLAC') || "";
+                p.events.push({
+                    id: crypto.randomUUID(),
+                    type: 'occupation',
+                    title,
+                    date,
+                    sort_date: parseDate(date),
+                    location: place,
+                    assets: []
+                });
+            } else if (child.tag === 'EVEN') {
+                // Generic event: TYPE subtag gives the title
+                const title = this.getChildValue(child, 'TYPE') || child.value || "";
+                const date = this.getChildValue(child, 'DATE') || "";
+                const place = this.getChildValue(child, 'PLAC') || "";
+                p.events.push({
+                    id: crypto.randomUUID(),
+                    type: 'generic',
+                    title,
+                    date,
+                    sort_date: parseDate(date),
+                    location: place,
+                    assets: []
+                });
             } else if (child.tag === 'NOTE') {
-                if (child.value) {
-                    p.scrapbook_md += (p.scrapbook_md ? "\n\n" : "") + child.value;
+                // Assemble NOTE text including CONT (newline) and CONC (concatenate) children
+                let noteText = child.value || "";
+                child.children.forEach(nc => {
+                    if (nc.tag === 'CONT') noteText += "\n" + (nc.value || "");
+                    else if (nc.tag === 'CONC') noteText += (nc.value || "");
+                });
+                if (noteText) {
+                    p.scrapbook_md += (p.scrapbook_md ? "\n\n" : "") + noteText;
                 }
-                // Handle CONC/CONT if they exist as children of NOTE
-                // For simplicity, ignoring deep concatenation now, but it's important for robustness.
-            } else if (!['NAME', 'SEX', 'FAMC', 'FAMS'].includes(child.tag)) {
-                // Capture generic attributes
+            } else if (!ignoredTags.has(child.tag)) {
+                // Capture unrecognised attributes in the loss-prevention bucket
                 if (p._gedcom) {
                     p._gedcom[child.tag] = child.value;
                 }
