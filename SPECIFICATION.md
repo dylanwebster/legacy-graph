@@ -123,6 +123,7 @@ All data ingestion must pass strict Zod schemas. This ensures data integrity bef
 | `names`         | Array         | List of name objects.                                |
 | `sex`           | Enum          | `M`, `F`, `I` (Intersex), `U` (Unknown).             |
 | `tags`          | Array<String> | User-defined tags (e.g., "Civil War", "Immigrant").  |
+| `private`       | Boolean       | If `true`, profile is hidden/anonymized in Guest Mode (see Section 6.14). |
 | `relationships` | Object        | Stores **ONLY** upstream parents.                    |
 | `events`        | Array         | Chronological life events (See 3.2).                 |
 | `assets`        | Array<String> | Filenames of associated media. First item is Avatar. |
@@ -163,19 +164,29 @@ Events are typed objects acting as state reducers. They determine the "current s
 
 **Supported Event Types**:
 
-| Type         | Computed Logic / Extra Fields                                                         |
-| :----------- | :------------------------------------------------------------------------------------ |
-| `birth`      | Defines start of timeline.                                                            |
-| `death`      | Defines end of timeline. Field: `cause` (string).                                     |
-| `marriage`   | Links two people. Fields: `partner_id` (string), `status` (married/divorced/widowed). |
-| `divorce`    | Terminates a marriage. Field: `partner_id` (string).                                  |
-| `residence`  | Location history.                                                                     |
-| `census`     | Census record. Field: `household_id` (string).                                        |
-| `occupation` | Work history. Fields: `title`, `organization`.                                        |
-| `education`  | Academic history. Fields: `institution`, `degree`.                                    |
-| `baptism`    | Religious event.                                                                      |
-| `burial`     | Final resting place.                                                                  |
-| `generic`    | Custom events. Field: `title`.                                                        |
+| Type               | Computed Logic / Extra Fields                                                         |
+| :----------------- | :------------------------------------------------------------------------------------ |
+| `birth`            | Defines start of timeline.                                                            |
+| `death`            | Defines end of timeline. Field: `cause` (string).                                     |
+| `marriage`         | Links two people. Fields: `partner_id` (string), `status` (married/divorced/widowed). |
+| `divorce`          | Terminates a marriage. Field: `partner_id` (string).                                  |
+| `engagement`       | Pre-marriage partnership. Field: `partner_id` (string).                               |
+| `residence`        | Location history.                                                                     |
+| `census`           | Census record. Field: `household_id` (string).                                        |
+| `occupation`       | Work history. Fields: `title`, `organization`.                                        |
+| `education`        | Academic history. Fields: `institution`, `degree`.                                    |
+| `graduation`       | Academic milestone. Fields: `institution`, `degree`.                                  |
+| `military_service` | Military service record. Fields: `branch`, `rank`.                                    |
+| `emigration`       | Emigration/immigration record.                                                        |
+| `adoption`         | Adoption event. Field: `adoptive_parent_ids` (string[]).                              |
+| `baptism`          | Religious event.                                                                      |
+| `burial`           | Final resting place.                                                                  |
+| `cremation`        | Cremation record.                                                                     |
+| `generic`          | Custom events. Field: `title`.                                                        |
+
+**Witnessing**: Any event may include a `witness_ids: string[]` field listing person IDs who were present. The `TimelineSlicer` treats witnessed events as appearing on **both** the subject's timeline and each witness's timeline — as a distinct `WitnessEventCard` item showing "Witness at [Subject Name]'s [event type]".
+
+**Event Visibility Rule**: The `private` field on a Person is a profile-level flag (see Section 3.1). Witnessed events that belong to a private person are hidden for non-authenticated viewers.
 
 ### **3.3 Asset Index (`/_meta/assets.yaml`)**
 
@@ -322,7 +333,8 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
   4.  **Gap Detection**: Iterate sorted dated list. If `Item[i+1].year - Item[i].year > 10`, insert a `Gap` object: `{ type: 'gap', years: diff }`.
   5.  **Assemble**: If any undated items exist, prepend `{ type: 'unknown_date_header' }` followed by all undated items before the dated+gap stream. This ensures undated events are visible at the top, not lost at the bottom.
   6.  **Pagination**: Apply `offset` and `limit` to the final combined array. Return `totalCount` alongside the page slice.
-- **Output**: `{ items: Array<Event | Story | Gap | UnknownDateHeader>, totalCount: number, offset: number, limit: number }`.
+- **Output**: `{ items: Array<Event | Story | Gap | UnknownDateHeader | WitnessEvent>, totalCount: number, offset: number, limit: number }`.
+- **`WitnessEvent`**: `{ type: 'witness_event', subjectId: string, subjectName: string, eventType: string, sort_date: string, location?: Place }` — rendered as a `WitnessEventCard` in the Timeline Feed.
 - **`UnknownDateHeader`**: `{ type: 'unknown_date_header' }` — rendered as a section divider "Undated Events" in the UI.
 
 ### **4.3 GEDCOM Engine**
@@ -458,8 +470,9 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 ```
 
 - **Persistent Left Sidebar** (VS Code Activity Bar pattern):
-  - Icons + labels for: **Dashboard**, **People**, **Import**, **Settings**.
+  - Icons + labels for: **Dashboard** (Tree), **People** (Users), **Stories** (Book), **Map** (Globe), **Assets** (Image), **Import** (Upload), **Settings** (Cog).
   - System status indicator at bottom (node count, hydration state dot — green/amber/red).
+  - **Settings entry** additionally shows: current Git branch name + "Clean" / "Dirty" badge.
   - Collapsible to icon-only mode via toggle button or responsive breakpoint.
 - **Top Bar**:
   - Breadcrumb trail (e.g., `People / John Smith`).
@@ -474,11 +487,15 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 
 | Route | Page | Description |
 |:------|:-----|:------------|
-| `/` | Dashboard | Stats panel, force graph visualization |
+| `/` | Dashboard | Stats panel, visualization modes (Force Graph / Fan Chart / Pedigree) |
 | `/people` | People Browse | Searchable/filterable list of all people |
 | `/people/:id` | Person Detail | "Holy Grail" 3-column layout |
+| `/stories` | Stories Feed | Blog-feed view of all stories |
+| `/stories/:id` | Story Reader/Editor | Full-page reader with filmstrip; split-pane editor |
+| `/map` | Map View | Interactive world map of geocoded event locations |
+| `/assets` | Asset Gallery | Universal grid of all media; orphan detection |
 | `/import` | GEDCOM Import | Upload form, hydration progress |
-| `/settings` | Settings | System status, auth config, cache management |
+| `/settings` | Settings | System status, auth config, cache management, Git status |
 | `/search?q=` | Search Results | Full-page search results (linked from CmdK "View all") |
 
 ### **6.3 Component System**
@@ -518,12 +535,29 @@ The primary navigation and search tool. Built early — it drives all navigation
 - **Trigger**: Global hotkey `Cmd+K` / `Ctrl+K`, or click the search button in the Top Bar.
 - **Foundation**: shadcn/ui `Command` component (wraps `cmdk` library).
 - **Behavior**:
-  1. On open: Focus input, show recent/suggested items.
+  1. On open: Focus input, show recent/suggested items and static Commands list.
   2. On keystroke: Debounced input (300ms) queries `GET /api/search?q=...&limit=20`.
-  3. Results rendered in categorized sections: **People** (with Avatar), **Stories**, **Places**.
+  3. Results rendered in four categorized sections:
+     - **People** (with Avatar thumbnail)
+     - **Stories** (with title + excerpt)
+     - **Places** (with location name)
+     - **Commands** (static list, always visible — filtered by query string)
   4. Keyboard navigation: `↑`/`↓` arrows, `Enter` to select, `Escape` to close.
-  5. On select: Navigate to `/people/:id` (person), story detail (story), or filtered search (place).
+  5. On select: Navigate to `/people/:id` (person), `/stories/:id` (story), `/map?place=` (place), or execute command action.
   6. Footer action: "View all results →" links to `/search?q=...` full-page results.
+
+**Commands List** (static, always present):
+
+| Command | Action |
+|:--------|:-------|
+| Create Person | Navigate to `/people` with new-person dialog open |
+| Import GEDCOM | Navigate to `/import` |
+| Export GEDCOM | Trigger `GET /api/export/gedcom` download |
+| Switch Theme | Toggle light/dark mode |
+| Create Snapshot | Open snapshot dialog |
+| Force Rebuild | Call `POST /system/rebuild` |
+| View Map | Navigate to `/map` |
+| View Assets | Navigate to `/assets` |
 
 ### **6.5 The "Holy Grail" Person Detail Page**
 
@@ -564,10 +598,17 @@ A dense, 3-column layout. The most critical view in the application.
 - **Name**: Primary name displayed prominently. **Click-to-edit** — inline text field, saves via `PUT /people/:id` with optimistic update. Other names shown below in muted text.
 - **Vital Dates**: Birth–Death date range. Click-to-edit.
 - **Sex**: Badge indicator (M/F/I/U).
+- **Private Toggle**: Small lock icon badge. When enabled, marks person as private (hidden in Guest Mode — see Section 6.14).
 - **Relationship Sections** (from `_computed`): Collapsible groups for **Parents**, **Spouses**, **Children**, **Siblings**. Each person rendered as a `PersonChip`:
   - **Hover**: `HoverCard` shows mini bio preview — avatar, name, birth–death dates, relationship type.
   - **Click**: Navigate to `/people/:id` for that person.
+  - Each group has **quick-action buttons**:
+    - Parents: "Add Father" / "Add Mother" (separate buttons, sets relationship type hint)
+    - Spouses: "Add Spouse/Partner" (opens Event Editor pre-set to `marriage` type)
+    - Children: "Add Child" (creates new Person with current as parent)
+    - Siblings: "Add Sibling" (creates new Person inheriting current person's parent IDs)
 - **Tags**: Inline editable tag list with add/remove.
+- **Stats Bar** (bottom of panel): Compact summary row — e.g., `Lived 42 years · 3 Children · 14 Stories`. Derived from `_computed` and story mention count. Clicking "14 Stories" scrolls Timeline Feed to StoryCards.
 
 #### **6.5.3 Timeline Feed (Center)**
 
@@ -577,9 +618,10 @@ The integrated feed of life events, stories, and gaps. **Virtualized** — only 
 - **Virtualization reliability**: The virtualizer scroll container must have a deterministic, non-zero height on first render. The container must use explicit height (`h-full` on a flex-stretched panel, with the panel group having `h-full` from the route root) rather than relying on post-paint layout resolution. The virtualizer must observe the container for resize events so that if the initial height is 0, it recalculates automatically when the container reaches its final height. Timeline data must render correctly on both fresh in-app navigation and hard browser reloads.
 - **Item Types**:
   - `UnknownDateHeader`: Section divider rendered at the very top of the feed when any undated items exist. Styled as "Undated Events" label. Only rendered once.
-  - `EventCard`: Displays event type icon, date (fuzzy `date` + sort-date), location, description excerpt. Expandable for full detail.
-  - `StoryCard`: Title, excerpt, mentioned persons chips.
+  - `EventCard`: Displays event type icon, date (fuzzy `date` + sort-date), location, description excerpt. Expandable for full detail. **If the event has a geocoded `location` (lat/lng populated)**, renders a small static **map snippet** below the location text — a thumbnail tile showing the pinned location. Clicking the map snippet opens the `/map` view filtered to that place.
+  - `StoryCard`: Title, excerpt, mentioned persons as `PersonChip` links. **If the story has attached assets**, shows a **thumbnail of the first asset** as a leading image (aspect-ratio 16/9, `object-cover`). Clicking the card navigates to `/stories/:id`.
   - `GapIndicator`: Visual break showing year gap.
+  - `WitnessEventCard`: Appears on the witness's timeline (not the subject's). Shows "Witness at [Subject Name]'s [event type]" with date, location, and a `PersonChip` link to the subject. Styled with a distinct "eye" icon to differentiate from own events.
 - **Add Event**: Floating action button or "+" button at bottom of timeline. Opens the Event Editor modal.
 - **Edit Event**: Click an `EventCard` to open the Event Editor modal pre-filled with that event's data.
 
@@ -632,8 +674,28 @@ Searchable, sortable table/list of all people in the graph. Entry point from the
 The landing page. Overview of the family graph.
 
 - **Stats Panel**: Cards showing Total People, Total Families (derived from marriage events), Last Edited File (from git log or `last_modified`), System Status.
-- **Force Graph Visualization**: Interactive 2D graph visualization using `react-force-graph-2d`. Nodes = people, edges = parent-child + spouse relationships. Click a node → navigate to `/people/:id`.
-- **"Gravity Bands"** (Phase 5): Position nodes vertically by birth year, creating generational layers.
+- **Visualization Mode Toggle**: Three switchable views, toggled by a segmented control (icons + labels):
+
+  #### Mode 1: Force Graph (Physics)
+  - **Library**: `react-force-graph-2d`.
+  - Nodes = people, edges = parent-child + spouse relationships.
+  - **Y-Axis Gravity ("Gravity Bands")**: Nodes pulled to horizontal bands by birth year, creating generational layers.
+  - **X-Axis Clustering**: Immediate families naturally cluster together.
+  - **Interaction**: Click node → navigate to `/people/:id`. Drag to rearrange (springs back on release).
+  - Spouse bonds visually distinguished: **solid edge** (active marriage) vs **dashed edge** (divorced/widowed).
+
+  #### Mode 2: Fan Chart
+  - **Ancestor semi-circle** radiating from a selected root person.
+  - Each generation occupies a ring; root person at the center.
+  - **Color-coded by lineage** (paternal vs. maternal branches use distinct hues).
+  - Click a segment → navigate to `/people/:id` or re-root the chart.
+  - Root person selector: search input to pick the focal ancestor.
+
+  #### Mode 3: Pedigree Chart
+  - **Standard rigid horizontal tree** (root person on left, ancestors branch right).
+  - Generations as columns; each person as a card node.
+  - Click a node → navigate to `/people/:id`.
+  - Scroll/pan for large trees. Export to PNG (Phase 6+).
 
 ### **6.8 Import & Settings Pages**
 
@@ -651,7 +713,139 @@ The landing page. Overview of the family graph.
 - **Snapshot**: "Create Snapshot" → `POST /system/snapshot`. Input for snapshot name.
 - **Authentication** (when active): Current user display, logout button.
 
-### **6.9 Technical Constraints (Mandatory)**
+### **6.9 Stories Pages**
+
+#### **6.9.1 Stories Feed (`/stories`)**
+
+Blog-feed view of all story Markdown files. Entry point from sidebar.
+
+- **Layout**: Single-column feed, newest-first by default. Each entry is a `StoryFeedCard`:
+  - Hero image (first story asset, if any) — 16:9, `object-cover`
+  - Title (links to `/stories/:id`)
+  - Date range (e.g., "1939–1945")
+  - Excerpt (first 200 chars of body text)
+  - Tagged people as `PersonChip` links (up to 5, then "+N more")
+  - Tagged place (if present)
+- **Sorting**: newest / oldest / alphabetical — segmented control.
+- **Search**: Inline filter queries `GET /api/search?q=...` Stories category.
+- **Create Story**: "New Story" button → opens `/stories/new` (editor in create mode).
+- **Virtualization**: `@tanstack/react-virtual` for large story collections.
+
+#### **6.9.2 Story Reader (`/stories/:id` — view mode)**
+
+Clean reading experience for a single story.
+
+- **Layout**: Centered column (max 720px), wide margins. Typography: `Merriweather` serif.
+- **Header**: Title, date range, tagged places (as links to `/map?place=`), tagged people as `PersonChip` row.
+- **Body**: Rendered Markdown via `react-markdown` + `remark-gfm`. `@N_xxx` mentions rendered as inline `PersonChip`. `[[wikilink]]` mentions rendered as inline `PersonChip`.
+- **Filmstrip**: Horizontal scrollable strip of all story assets at the bottom. Each image: square thumbnail, `object-cover`. Click → lightbox (full `object-contain`).
+- **Edit Button**: "Edit Story" in top-right → switches to editor mode (same URL, `?mode=edit`).
+- **Back Navigation**: Breadcrumb `Stories / [Title]` in Top Bar.
+
+#### **6.9.3 Story Editor (`/stories/:id?mode=edit` or `/stories/new`)**
+
+Split-pane editing experience.
+
+- **Layout**: 50/50 split — Markdown textarea on left, live preview on right.
+  - Preview uses same rendering pipeline as Story Reader.
+  - Panels resizable via drag handle.
+- **Frontmatter Fields** (above editor): Title, Date range, Tagged People (searchable selector), Tagged Place.
+- **Slash Commands**: Type `/` in the textarea to open an insertion menu:
+  - `/image` → opens asset picker, inserts `![alt](../assets/filename)` syntax
+  - `/person` → same as `@mention` (convenience alias)
+- **@Mentions**: Type `@` to open a live type-ahead of people. Select → inserts `@N_xxx` tag. Rendered in preview as a `PersonChip`.
+- **Asset Attachment**: Drag-and-drop zone at the bottom of the editor — uploads via `PUT /stories/:id/media` (new endpoint, Phase 5.1).
+- **Save**: `PUT /stories/:id` (or `POST /stories` for new). Optimistic update. Saves Markdown frontmatter + body to disk.
+- **Auto-save**: Debounced 3-second auto-save while editing (shows "Saving…" indicator).
+
+---
+
+### **6.10 Asset Gallery Page (`/assets`)**
+
+Universal gallery of all files in the `/assets` directory.
+
+- **Layout**: Masonry or fixed-grid of thumbnails. Toggle between grid (compact) and list (detailed) views.
+- **Each asset card**:
+  - Thumbnail (`object-cover`, square)
+  - Filename
+  - File type badge (image / video / pdf)
+  - Size
+  - Referenced by: list of people/story names that reference this file (linked)
+  - Caption (editable inline)
+- **Orphan Detection**:
+  - Assets not referenced by any YAML `assets[]` array or story Markdown are flagged with an **"Orphaned"** warning badge.
+  - "Show only orphans" filter toggle.
+  - Orphaned assets can be bulk-deleted with confirmation dialog.
+- **Upload**: Drag-and-drop zone or file picker — uploads to `/assets/` (not attached to a specific person).
+- **Search/Filter**: Filter by type (image / video / pdf), referenced/orphaned, filename.
+- **Click**: Opens lightbox (images) or download (PDFs/videos).
+- **API**: Requires new `GET /api/assets` endpoint returning `{ filename, size, mimeType, referencedBy: string[] }[]` (see Section 6.11).
+
+---
+
+### **6.11 Map View (`/map`)**
+
+Interactive world map of all geocoded event locations.
+
+- **Library**: `react-leaflet` with OpenStreetMap tiles (free, no API key).
+- **Pins**: Each geocoded Place object (lat/lng populated) becomes a map marker.
+  - Marker color by event type (birth=green, death=grey, marriage=gold, residence=blue, etc.).
+  - Click marker → popup showing: place name, event type, person name (linked to `/people/:id`), date.
+  - Marker clustering for dense areas (`react-leaflet-markercluster`).
+- **Filters** (sidebar or toolbar):
+  - Filter by event type
+  - Filter by person (search selector)
+  - Filter by date range (year slider)
+- **Deep-link support**: `/map?place=London%2C+UK` centers and highlights matching pins. `/map?person=N_xxx` shows only that person's event locations.
+- **Map snippet integration**: The small map snippets on EventCards in the Person Detail Timeline link here with `?place=` param.
+- **No backend changes required**: Uses already-geocoded `lat`/`lng` from Place objects (populated by GeocodingService, Phase 3.15).
+
+---
+
+### **6.12 Settings Page — Git Status Addition**
+
+Extend the existing Settings page (Section 6.8.2) with:
+
+- **Git Status Section**:
+  - Current branch name (from `GET /api/system/status` — extend response to include `gitBranch: string`).
+  - Repository state: **Clean** (no uncommitted changes) or **Dirty** (pending changes) — badge with color (green/amber).
+  - "Commit Now" button → immediately flushes `TransactionManager` debounce queue and commits.
+  - Last commit message + timestamp (from git log).
+
+---
+
+### **6.14 Private Mode & Guest Mode**
+
+- **Private toggle**: Each person has a `private: boolean` field (default `false`). Set via the lock icon badge in the Identity Panel.
+- **Authenticated view** (normal): All people visible regardless of `private` flag.
+- **Guest Mode**: When no valid JWT is present (unauthenticated request) and auth is configured:
+  - Persons with `private: true` are **excluded** from `GET /api/people` list responses.
+  - `GET /api/people/:id` for a private person returns `404` (not `403`) to avoid revealing existence.
+  - Search results exclude private persons.
+  - Timeline witness events that reference a private person are anonymized: name shown as "Private Individual".
+  - Force Graph, Fan Chart, and Pedigree Chart nodes for private persons are hidden or replaced with "Private" placeholder nodes.
+- **"Living Surname" anonymization** (Phase 6+): For living persons (no death event) marked private, display only last name with a "Living" prefix (e.g., "Living Smith") in public/guest contexts.
+
+---
+
+### **6.15 New API Endpoints Required**
+
+In addition to the endpoints in Section 6.10, the following new backend endpoints are needed:
+
+| Method | Path | Purpose |
+|:-------|:-----|:--------|
+| `GET` | `/api/stories` | Paginated list of all stories (`StoryFeedItem[]`) |
+| `GET` | `/api/stories/:id` | Full story — frontmatter + body Markdown |
+| `POST` | `/api/stories` | Create new story (writes Markdown file) |
+| `PUT` | `/api/stories/:id` | Update story body + frontmatter |
+| `DELETE` | `/api/stories/:id` | Delete story file |
+| `PUT` | `/api/stories/:id/media` | Attach asset to story (multipart) |
+| `GET` | `/api/assets` | List all `/assets` files with referencing people/stories |
+| `GET` | `/api/system/git-status` | `{ branch: string, dirty: boolean, lastCommit: { message, timestamp } }` |
+
+---
+
+### **6.16 Technical Constraints (Mandatory)**
 
 These constraints are non-negotiable for any data-dense genealogy UI:
 
@@ -661,9 +855,9 @@ These constraints are non-negotiable for any data-dense genealogy UI:
 4.  **Typed API Client**: A shared `client/src/api/` layer with typed fetch wrappers for every backend endpoint. Types shared or mirrored from the backend Zod schemas to ensure compile-time safety.
 5.  **Responsive Design**: All pages must function on desktop (≥1280px), tablet (768px–1279px), and mobile (<768px) viewports. The sidebar, Holy Grail panels, and tables adapt as specified in 6.2.2 and 6.5.1.
 
-### **6.10 API Additions Required for Frontend**
+### **6.17 API Additions Required for Frontend (Original)**
 
-The following backend additions are needed to support the frontend views:
+The following backend additions are needed to support the core frontend views. See Section 6.15 for the full extended list including Stories, Assets, and Git status endpoints.
 
 - **`GET /api/people`**: Paginated list of all people (slim summaries). Query params: `?limit=50&offset=0&sort=last_modified&order=desc`. Returns `{ people: SlimPersonSummary[], totalCount: number }`. Each summary: `{ id, names, sex, birthDate?, deathDate?, tags, assetCount, primaryAsset? }`. `primaryAsset` is the first entry from `assets[]`, used for photo display on the People Browse page.
 - **`GET /api/stats`** (or extend `GET /system/status`): Dashboard stats — total people, total families (marriage event count), last modified timestamp.
@@ -748,7 +942,7 @@ This spec defines _what_ to build. `PROGRESS.md` tracks _how far_ and _what's ne
 *   **CUJ: Holy Grail (Import → View → Edit → Persist)**: Upload GEDCOM → navigate to person → edit name → reload → assert persisted. ✅ Complete.
 *   **CUJ: Search Navigation**: Cmd+K → type query → click result → assert navigation. ✅ Complete.
 *   **CUJ: Responsive Layout**: Mobile viewport → hamburger → expand sidebar. Desktop → sidebar visible. ✅ Complete.
-*   **CUJ: Time Tunnel**: Load view → Scroll → Verify Camera Z position changes. (Phase 5.2 — not started)
+*   **CUJ: Fly-Through Timeline**: Load immersive mode → Scroll wheel → Verify camera Z position advances → Verify ancestor photo cards float by at correct birth years. (Phase 5.2 — not started)
 
 ### **9.4 New Unit Tests Required (Phases 3.11–3.15)**
 
