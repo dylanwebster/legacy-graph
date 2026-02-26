@@ -9,7 +9,10 @@ LegacyGraph is a self-hosted genealogy platform. It rejects proprietary database
 ### **1.1 Core Axioms**
 
 1.  **The "Notepad" Rule**: The database **IS** the file system. A user must be able to navigate, read, and understand their entire family history using only a basic text editor (VS Code, Notepad). The application is an _enhancer_, not a gatekeeper.
-2.  **Git is the Undo Button**: Every save action in the UI is captured by Git. Rapid edits are batched into atomic commits via a debounced queue (see Section 7.1).
+2.  **Git is the Undo Button**: Every save action in the UI is captured by Git. This is not just backup — it is a first-class, actionable history layer:
+    - Every write is debounced into an atomic commit with a **semantic message** (`"Add person: Johann Bach (1685)"`, not `"Update 1 files"`). See Section 7.1.
+    - The **commit history is surfaced in the app** as a paginated audit log — browse what changed and when without leaving LegacyGraph.
+    - Users can **restore to any point** (full repo or single person) from within the app. Single-person restore creates a safe new forward commit. Full-repo restore uses `git.checkout` and automatically rebuilds the graph. See Section 7.2.
 3.  **Event-Sourced Truth**: Relationships (Spouse) are computed from Events (Marriage - Divorce), not stored as static fields.
 4.  **Local-First Security**: Authentication is local. No cloud dependencies.
 5.  **Data Density**: The UI prioritizes information density over whitespace (VS Code aesthetic).
@@ -407,7 +410,14 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 ### **5.3 System Operations**
 
 - `POST /system/snapshot`: Flush pending commits, create a Git Tag.
-  - _Body_: `{ name: string }`.
+  - _Body_: `{ name: string, description?: string }`.
+- `GET /system/snapshots`: List all snapshot tags. See Section 7.2.
+- `DELETE /system/snapshots/:name`: Delete a snapshot tag. Auth required. See Section 7.2.
+- `GET /system/git-status`: Git status including pending file list. See Section 7.2.
+- `POST /system/commit`: Flush pending writes immediately; optional message override. See Section 7.2.
+- `GET /system/git-log`: Paginated commit history. See Section 7.2.
+- `GET /system/git-log/:hash`: Single commit detail with file diffs. See Section 7.2.
+- `POST /system/restore`: Full-repo or single-person restore. See Section 7.2.
 - `POST /import/gedcom`: Bulk Import.
   - _Warning_: Destructive. Wipes current data directory (except `.git`).
 - `GET /api/stats`: Returns dashboard statistics (`totalPeople`, `totalFamilies`, `lastModified`).
@@ -472,7 +482,7 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 - **Persistent Left Sidebar** (VS Code Activity Bar pattern):
   - Icons + labels for: **Dashboard** (Tree), **People** (Users), **Stories** (Book), **Map** (Globe), **Assets** (Image), **Import** (Upload), **Settings** (Cog).
   - System status indicator at bottom (node count, hydration state dot — green/amber/red).
-  - **Settings entry** additionally shows: current Git branch name + "Clean" / "Dirty" badge.
+  - **Settings entry** additionally shows: current Git branch name (muted monospace, max 16 chars) + amber `•` dot when `gitDirty: true`. In icon-only mode: amber dot badge on the gear icon. See Section 6.12.
   - Collapsible to icon-only mode via toggle button or responsive breakpoint.
 - **Top Bar**:
   - Breadcrumb trail (e.g., `People / John Smith`).
@@ -802,15 +812,77 @@ Interactive world map of all geocoded event locations.
 
 ---
 
-### **6.12 Settings Page — Git Status Addition**
+### **6.12 Settings Page — Git History & Recovery**
 
-Extend the existing Settings page (Section 6.8.2) with:
+The Settings page is the primary surface for the git history/recovery UX. It is restructured into four sections:
 
-- **Git Status Section**:
-  - Current branch name (from `GET /api/system/status` — extend response to include `gitBranch: string`).
-  - Repository state: **Clean** (no uncommitted changes) or **Dirty** (pending changes) — badge with color (green/amber).
-  - "Commit Now" button → immediately flushes `TransactionManager` debounce queue and commits.
-  - Last commit message + timestamp (from git log).
+#### **Section 1 — System Status** *(existing, extended)*
+Existing cards (hydration state, node count, edge count, cache age) plus:
+- Heap usage mini progress bar: `[====----] 42 MB / 120 MB` — turns amber/red when `heapWarning: true` (>75% of heap limit).
+- `hydrationDurationMs`: "Last hydration: 1.2s" (muted).
+- `cacheHitRatio`: "Cache: 94% hit" (muted).
+
+#### **Section 2 — Git Status**
+Backed by `useGitStatus()` hook → `GET /api/system/git-status`. Polls every 5s when dirty/pending, 30s when clean.
+
+- **Branch badge**: `GitBranch` icon + branch name (monospace, max 16 chars, truncated with `…`).
+- **State badge**: Green "Clean" / Amber "Dirty" / Amber "N pending" (when `hasPending: true`).
+- **Pending files list** (collapsible, shown when `hasPending: true`): human-readable labels from `pendingFiles[]` — e.g., "Johann Bach", "Anna Magdalena Bach". Helps the user understand what is queued before pressing "Commit Now".
+- **Last commit line**: `{message} — {relative time}  [{shortHash}]` (muted text below the badges).
+- **"Commit Now"** button + optional `<Input>` for a custom commit message. Button disabled when `!hasPending`. Calls `POST /api/system/commit` with optional `{ message }`. On success, invalidates `gitStatus` and `gitLog` queries and shows a success toast.
+
+#### **Section 3 — History Log**
+Backed by `useGitLog({ limit: 20, offset })` → `GET /api/system/git-log`. Paginated.
+
+- Paginated list (20/page) of commits.
+- Each **row**: short hash (monospace), commit message (truncated), relative time, file count. Rows are expandable.
+- **Expanded row** (lazy-fetches `GET /api/system/git-log/:hash` on first open):
+  - Per-file list with `+` (added, emerald), `M` (modified, amber), `-` (deleted, red) prefix and file path.
+  - If `truncated: true`, shows `"...and {N - 50} more files"`.
+  - **"Restore to this commit"** button → opens `RestoreDialog` in `scope: 'full'` mode.
+
+#### **Section 4 — Snapshots**
+Backed by `useSnapshots()` → `GET /api/system/snapshots`.
+
+- **"New Snapshot"** button: opens snapshot dialog with name field + optional `description` field. Calls `POST /api/system/snapshot`.
+- **Snapshot grid**: cards sorted newest-first. Each card shows:
+  - Snapshot name (bold)
+  - Creation date (formatted)
+  - Linked commit: short hash (monospace badge) + first line of commit message (muted, truncated)
+  - **"Restore"** button → opens `RestoreDialog` in `scope: 'full'` mode with `ref: snapshot.name`.
+  - **"Delete"** button (destructive icon) → `DELETE /api/system/snapshots/:name` with confirmation toast.
+
+#### **`RestoreDialog` component** (`client/src/components/RestoreDialog.tsx`)
+Shared by both the History Log and Snapshots sections, and by the Person Detail History tab:
+
+- **`scope: 'full'`** — full-repo restore:
+  > "This will restore ALL files to the state at `[commit/tag]` from `[time]`. Uncommitted changes will be lost. The repository will enter detached HEAD state. The graph will be rebuilt automatically."
+  > [Cancel] · [Restore to this commit]
+
+  Post-restore: server returns `{ rebuildTriggered: true }`, frontend navigates to `/` (Dashboard), `HydrationProgress` overlay re-appears.
+
+- **`scope: 'person'`** — single-person restore:
+  > "This is **safe**: a new commit will be created with the restored data. Your commit history is fully preserved."
+  > Shows a **semantic diff preview** (fetched from `GET /api/system/git-log/:hash`): field-level comparison of the current vs. target YAML (name, event count, asset count — not line-by-line diff). Aimed at non-technical users.
+  > [Cancel] · [Restore this person]
+
+  Post-restore: `queryClient.invalidateQueries(['person', personId])` — no full rebuild.
+
+#### **Person Detail — History Tab** (`client/src/routes/people/$id.lazy.tsx`)
+A 4th tab added to the right Context Panel alongside Assets / Notebook / Raw YAML:
+
+- Backed by `usePersonHistory(personId, { limit: 10, offset })` → `GET /api/people/:id/history`.
+- Compact commit list (10/page; sized for the narrow panel).
+- Each entry: short hash (monospace), semantic commit message, relative time.
+- **"Restore this version"** button per entry → opens `RestoreDialog` in `scope: 'person'` mode.
+- Simple `Newer` / `Older` pagination buttons (no full pagination component — panel is too narrow).
+
+#### **Sidebar Dirty Indicator** (update to Section 6.2.2)
+The Settings sidebar entry is enhanced:
+- Shows current branch name (muted monospace, truncated at 16 chars) when sidebar is expanded.
+- Shows an amber `•` dot when `gitDirty: true`.
+- In icon-only mode: amber dot badge on the Settings gear icon.
+- Data sourced from the shared `useGitStatus()` TanStack Query cache — no extra API calls, no prop drilling.
 
 ---
 
@@ -841,7 +913,14 @@ In addition to the endpoints in Section 6.10, the following new backend endpoint
 | `DELETE` | `/api/stories/:id` | Delete story file |
 | `PUT` | `/api/stories/:id/media` | Attach asset to story (multipart) |
 | `GET` | `/api/assets` | List all `/assets` files with referencing people/stories |
-| `GET` | `/api/system/git-status` | `{ branch: string, dirty: boolean, lastCommit: { message, timestamp } }` |
+| `GET` | `/api/system/git-status` | Enhanced git status (see Section 7.2): `{ branch, dirty, pendingFiles[], hasPending, lastCommit }` |
+| `POST` | `/api/system/commit` | Flush TransactionManager immediately with optional message override (see Section 7.2) |
+| `GET` | `/api/system/git-log` | Paginated commit history `?limit&offset` → `{ commits[], totalCount }` (see Section 7.2) |
+| `GET` | `/api/system/git-log/:hash` | Single commit detail with per-file before/after content (see Section 7.2) |
+| `GET` | `/api/system/snapshots` | List all git tags / snapshots (see Section 7.2) |
+| `DELETE` | `/api/system/snapshots/:name` | Delete a snapshot tag (see Section 7.2) |
+| `POST` | `/api/system/restore` | Restore to commit or snapshot — full or single-person scope (see Section 7.2) |
+| `GET` | `/api/people/:id/history` | Path-filtered commit log for a single person's YAML file (see Section 7.2) |
 
 ---
 
@@ -875,10 +954,27 @@ The following backend additions are needed to support the core frontend views. S
 The `TransactionManager` uses `isomorphic-git` (pure JavaScript, in-process) for all programmatic Git operations, avoiding child-process overhead:
 
 - **Commit Window**: File writes are queued. After the last write in a burst, a **5-second debounce timer** starts. When the timer fires, all pending changes are committed in a single atomic Git commit via `isomorphic-git`.
-- **Commit Message**: Batched commits use a summary message: `"Update N files: Person X, Person Y, ..."` (truncated at 72 chars for Git convention).
+- **Commit Message**: Semantic, operation-aware. `TransactionManager` accepts an optional `OperationHint` on each write that produces context-specific messages:
+  ```typescript
+  type OperationKind = 'create_person' | 'update_person' | 'upload_media' | 'delete_media'
+                     | 'import_gedcom' | 'create_story' | 'update_story' | 'delete_story' | 'generic';
+  interface OperationHint { kind: OperationKind; subject: string; detail?: string; count?: number; }
+  ```
+  - `create_person` → `"Add person: Johann Sebastian Bach (1685)"`
+  - `update_person` → `"Update person: Anna Bach — events, relationships"`
+  - `upload_media` → `"Upload photo for: Johann Bach"`
+  - `delete_media` → `"Remove photo from: Johann Bach"`
+  - `import_gedcom` → `"Import 47 people from Bach-Family.ged"`
+  - `create_story` / `update_story` / `delete_story` → `"Add/Update/Delete story: {title}"`
+  - Batches with mixed operation kinds fall back to: `"Update N files: Person X, ..."` (72-char truncated).
+  - `flush(messageOverride?)` accepts an optional user-supplied message (wired to the "Commit Now" button in Settings).
 - **Flush on Demand**: The API exposes a mechanism to force an immediate flush (e.g., before a snapshot or on graceful shutdown), bypassing the debounce window.
 - **Graceful Shutdown Flush**: Node process `SIGTERM`/`SIGINT` signals are trapped. The application blocks shutdown until `TransactionManager.destroy()` finishes flushing any buffered `isomorphic-git` commits, preventing data loss.
 - **Mutex Retained**: The global Mutex still protects concurrent write access to the file system. The debounce only affects when `git commit` is invoked, not when files are written.
+- **Extended Public API**:
+  - `getPendingLabels(): string[]` — returns human-readable labels of all queued writes (exposed by `GET /api/system/git-status` to show the pending file list to the user).
+  - `setBatchHint(hint: OperationHint): void` — stamps all currently-queued writes with a single bulk hint (used by GEDCOM import to collapse N individual file writes into one message: `"Import 47 people from Bach-Family.ged"`).
+  - `flush(messageOverride?: string): Promise<void>` — extended to accept an optional user-supplied commit message, overriding the auto-generated message for that single flush operation.
 
 **isomorphic-git (Complete — Phase 3.6)**:
 
@@ -887,7 +983,41 @@ The `TransactionManager` uses `isomorphic-git` (pure JavaScript, in-process) for
 - **Scope**: The user's system Git remains available for manual CLI use and is unaffected.
 - **Tradeoff**: `isomorphic-git` does not support every Git feature (e.g., advanced merge strategies). For operations like `push`/`pull` (future network sync), fall back to spawning system Git.
 
-### **7.2 Authentication**
+### **7.2 Git History & Recovery**
+
+The git history is surfaced as a first-class, actionable feature. Users can browse the commit log, inspect what changed, and restore to any previous state — all from within the app.
+
+**New API Endpoints** (all in `src/api/routes/system.ts` unless noted):
+
+| Method | Path | Description |
+|:-------|:-----|:------------|
+| `GET` | `/api/system/git-status` | Enhanced: `{ branch, dirty, pendingFiles: string[], hasPending, lastCommit: { hash, fullHash, message, author, timestamp } \| null }` |
+| `POST` | `/api/system/commit` | Flush `TransactionManager` immediately; optional `{ message? }` body overrides auto-generated message → `{ committed: bool, hash, timestamp }` |
+| `GET` | `/api/system/git-log` | Paginated commit history — `?limit=20&offset=0` → `{ commits[], totalCount, offset, limit }`. Each commit: `hash`, `fullHash`, `message`, `author`, `timestamp`, `filesChanged: number \| null` |
+| `GET` | `/api/system/git-log/:hash` | Single commit detail: full message, author, email, timestamp, and per-file `{ path, status: 'added'\|'modified'\|'deleted', before: string\|null, after: string\|null }` content via `git.readBlob`. Binary assets: `{ isBinary: true }`. Commits with >50 changed files: `{ truncated: true, totalFiles: N }` |
+| `GET` | `/api/system/snapshots` | List all git tags → `{ snapshots: [{ name, message, taggerName, timestamp, targetCommit: { hash, fullHash, message, timestamp } }] }`, sorted newest-first |
+| `DELETE` | `/api/system/snapshots/:name` | Delete a snapshot tag → `204 No Content`. Auth required. `404 SNAPSHOT_NOT_FOUND` if missing. |
+| `POST` | `/api/system/restore` | Restore to a ref. Body: `{ ref: string, scope: 'full'\|'person', personId?: string, confirm: true }`. `confirm` must be `true` → `400 CONFIRM_REQUIRED` otherwise. |
+| `GET` | `/api/people/:id/history` | Path-filtered commit log for a single person's YAML file. Same pagination shape as `git-log`. Lives in `src/api/routes/people.ts`. |
+
+**`GET /api/system/git-status` implementation notes**:
+- `branch`: `git.currentBranch()` — returns `null` for detached HEAD (shown as `"HEAD"` in the UI).
+- `dirty`: `git.statusMatrix()` — any file with a tuple other than `[1,1,1]` (tracked+unchanged) sets `dirty: true`.
+- `pendingFiles`: `txManager.getPendingLabels()` — labels of writes not yet committed.
+- `lastCommit.timestamp`: isomorphic-git uses Unix seconds (`commit.author.timestamp * 1000` for `Date`).
+- Non-git repo: returns `{ branch: null, dirty: false, pendingFiles: [], hasPending: false, lastCommit: null }` — not an error.
+- **503 gating**: `git-status` and `system/commit` are NOT 503-gated (always available, like `GET /system/status`).
+
+**`POST /api/system/restore` — two scopes**:
+
+- `scope: 'full'`: `git.checkout({ ref, force: true })` restores the entire working directory to the target state. Enters detached HEAD (the frontend shows a prominent warning and offers to create a new branch). Triggers full graph hydration rebuild via `graphEngine.hydrateInBackground()`. The `HydrationProgress` overlay re-appears automatically (server sets `hydrationState: 'loading'`). Pending writes are flushed first.
+- `scope: 'person'`: reads the person's YAML blob at the target commit via `git.readBlob` + a `resolveBlobAtCommit(dir, commitOid, filePath)` helper (walks commit tree to resolve blob OID), then writes the content back via `TransactionManager.writeFile()`. This creates a new **forward commit** — linear history preserved, no `git reset`. Only hot-patches the single person node; no full rebuild needed. Commit message: `"Update person: {name} (restored from {shortHash})"`.
+
+**`GET /api/people/:id/history` algorithm**: Walk git log from HEAD (capped at 1000 commits). For each commit, compare the person's blob OID against the parent commit's blob OID via `resolveBlobAtCommit`. Include only commits where the OID changed. `O(n)` in commit count — acceptable at genealogy-dataset scales.
+
+---
+
+### **7.3 Authentication**
 
 - **Local-First Auth**:
   - Credentials stored in `/_meta/auth.yaml` (BCrypt).
@@ -914,7 +1044,7 @@ This spec defines _what_ to build. `PROGRESS.md` tracks _how far_ and _what's ne
 *   **Computed Cache (`_computed`)**: Verify `computeRelationships()` populates correct spouse, sibling, and children data. Verify invalidation recomputes only affected nodes and neighbors.
 *   **Edge Reconciliation**: Verify diff-based patching adds/removes exact edges for parent and marriage changes without touching unrelated edges.
 *   **Graph Cache**: Verify cache hit skips YAML parsing. Verify stale `mtime` triggers selective re-parse. Verify missing/corrupt cache triggers full Nuclear Hydration.
-*   **TransactionManager**: Verify debounced batching collapses rapid writes into a single commit. Verify flush-on-demand bypasses the debounce window. Verify `isomorphic-git` operations run in-process (no child-process spawning).
+*   **TransactionManager**: Verify debounced batching collapses rapid writes into a single commit. Verify flush-on-demand bypasses the debounce window. Verify `isomorphic-git` operations run in-process (no child-process spawning). Verify `OperationHint` produces semantic commit messages for all `OperationKind` values. Verify `getPendingLabels()` returns human-readable labels. Verify `setBatchHint()` stamps all pending writes. Verify `flush(messageOverride)` uses the supplied message.
 *   **SearchService Hot-Patch**: Verify incremental index update on node change. Verify index removal on node unlink.
 *   **Worker Thread Hydration**: Verify worker function produces identical people/story output as inline BootLoader. Verify `hydrateInBackground()` completes and populates graph to same state as `hydrate()`. Verify `hydrationState` transitions correctly. Verify API returns 503 during loading for non-exempt endpoints.
 *   **File Watcher (`@parcel/watcher`)**: Verify watcher detects add, change, unlink events for both `people/` and `stories/` directories. Verify subscription cleanup on shutdown. Verify story creation adds graph node with mentions edges. Verify story update refreshes metadata and edges. Verify story deletion removes node and edges from graph + search index.
@@ -926,7 +1056,8 @@ This spec defines _what_ to build. `PROGRESS.md` tracks _how far_ and _what's ne
 ### **9.2 Integration Tests (Supertest)**
 
 *   **Media Upload**: Test multipart upload -> FS write -> YAML update.
-*   **Snapshots**: Trigger snapshot -> Verify git tag exists. Verify pending commits are flushed before tagging.
+*   **Snapshots**: Trigger snapshot → verify git tag exists. Verify pending commits flushed before tagging. Verify `GET /system/snapshots` lists the tag. Verify `DELETE /system/snapshots/:name` removes the tag (204). Verify 404 for missing snapshot name.
+*   **Git History API** (`tests/api/GitHistory.test.ts`): `GET /system/git-status` — branch, dirty, pending, lastCommit. `GET /system/git-log` — pagination, empty repo graceful. `GET /system/git-log/:hash` — file before/after, 404 for unknown hash. `POST /system/commit` — flushes pending, uses custom message, no-op when nothing pending. `POST /system/restore` — 400 without `confirm: true`, person-scope creates forward commit, person-scope 404 for unknown personId. `GET /api/people/:id/history` — correct commits returned, pagination, 404 for missing person.
 *   **Graph Hydration**: Verify `BootLoader` correctly populates the `GraphEngine`.
 *   **API `_computed` Contract**: Verify `GET /people/:id` returns pre-computed relationships without triggering on-the-fly traversal.
 *   **System Status**: Verify `GET /system/status` returns accurate node/edge counts and hydration state.

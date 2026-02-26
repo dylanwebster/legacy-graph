@@ -168,12 +168,36 @@ Add to `EventSchema` discriminated union and Event Editor UI:
 Update Event Editor type selector dropdown and conditional field rendering.
 TDD: `tests/schemas/EventSchema.test.ts` — new types parse, round-trip, export.
 
-#### 5.10 Observability & Monitoring
-1. Add `heapUsedMB`, `hydrationDurationMs`, `cacheHitRatio`, `gitBranch`, `gitDirty` to `GET /system/status` response.
-2. Add `GET /api/system/git-status` endpoint: `{ branch: string, dirty: boolean, lastCommit: { message, timestamp } }`.
-3. Settings page: Git Status section — branch badge, Clean/Dirty indicator, "Commit Now" button, last commit info.
-4. Sidebar: Settings entry shows branch name + dirty indicator badge (icon-only mode shows just the dirty dot).
-5. Log memory warnings when V8 heap exceeds 75% of limit.
+#### 5.10 Git History & Recovery
+
+Full spec in SPECIFICATION.md Sections 6.12, 7.1, and 7.2.
+
+**Backend (TDD — write failing tests first):**
+
+1. `tests/api/GitHistory.test.ts` — new test file (~18 tests covering all new endpoints below)
+2. `tests/core/TransactionManager.test.ts` — add 8 tests: semantic messages per `OperationKind`, `getPendingLabels()`, `setBatchHint()`, `flush(messageOverride)`, mixed-kind fallback, legacy format fallback
+3. `src/core/TransactionManager.ts` — add `OperationHint` type + `OperationKind` union; add `hint?` param to `writeFile()` and `trackFile()`; add `getPendingLabels(): string[]`, `setBatchHint(hint)`, `flush(messageOverride?)` methods; rewrite `buildCommitMessage()` with semantic dispatch per `OperationKind`
+4. `GET /api/system/git-status` — enhanced response: `{ branch, dirty, pendingFiles: string[], hasPending, lastCommit: { hash, fullHash, message, author, timestamp } | null }`. Not 503-gated.
+5. `POST /api/system/commit` — flush `TransactionManager` immediately; optional `{ message? }` body → `{ committed: bool, hash, timestamp }`. Not 503-gated.
+6. `GET /api/system/git-log` — paginated: `?limit=20&offset=0` → `{ commits[], totalCount, offset, limit }`. Each commit includes `filesChanged` count (tree diff via `git.walk`).
+7. `GET /api/system/git-log/:hash` — detail: per-file `{ path, status, before, after }` content via `git.readBlob` + `resolveBlobAtCommit` helper. Binary files: `{ isBinary: true }`. >50 files: `{ truncated: true, totalFiles }`.
+8. `GET /api/system/snapshots` — list all git tags → `{ snapshots[] }` sorted newest-first. Handle both annotated and lightweight tags.
+9. `DELETE /api/system/snapshots/:name` — `git.deleteTag()`; 204 on success; 404 `SNAPSHOT_NOT_FOUND` if missing. Auth required.
+10. `POST /api/system/restore` — body: `{ ref, scope: 'full'|'person', personId?, confirm: true }`. 400 `CONFIRM_REQUIRED` without flag. Full scope: `git.checkout({ force: true })` + `hydrateInBackground()`. Person scope: `resolveBlobAtCommit` → `writeFile` → forward commit + hot-patch.
+11. `GET /api/people/:id/history` (in `people.ts`) — path-filtered commit log: walk git log from HEAD (cap 1000), include only commits where person's blob OID changed vs. parent. Same pagination shape as `git-log`.
+12. Extend `GET /api/system/status` — add `heapUsedMB`, `heapTotalMB`, `heapWarning` (>75%), `hydrationDurationMs`, `cacheHitRatio`, `gitBranch`, `gitDirty`. Requires new private fields on `GraphEngine` populated after each hydration.
+13. Update callsites — pass `OperationHint` to `writeFile`/`trackFile` in `people.ts`, `gedcom.ts`, `stories.ts` (Phase 5.1). Use `setBatchHint()` after GEDCOM import to produce `"Import N people from file.ged"`.
+
+**Frontend (after all backend tests pass):**
+
+14. `client/src/api/hooks.ts` — add hooks: `useGitStatus()` (adaptive polling: 5s dirty, 30s clean), `useGitLog(params)`, `useGitCommitDetail(hash, { enabled })` (staleTime: Infinity — commit content never changes), `useSnapshots()`, `usePersonHistory(personId, params)`, `useCommitNow()` (mutation), `useRestore()` (mutation), `useDeleteSnapshot()` (mutation)
+15. `client/src/routes/settings.lazy.tsx` — restructure into 4 sections: System Status (extended with heap/hydration metrics), Git Status (branch badge, pending files list, Commit Now), History Log (paginated expandable commit rows with Restore button), Snapshots (grid of snapshot cards with Restore/Delete)
+16. `client/src/components/RestoreDialog.tsx` — new shared component for full-repo and person-scope restore dialogs. Full scope: warning dialog with detached HEAD notice. Person scope: safety notice + semantic diff preview (field-level, not line-by-line: name, event count, asset count).
+17. `client/src/components/PersonHistoryTab.tsx` — compact commit list for the narrow right panel; "Restore this version" button per entry; simple Newer/Older pagination
+18. `client/src/routes/people/$id.lazy.tsx` — add "History" as 4th tab in Context Panel (alongside Assets / Notebook / Raw YAML); renders `PersonHistoryTab`
+19. `client/src/components/Sidebar.tsx` — Settings entry: branch name (muted mono, max 16 chars) + amber `•` dot when dirty; icon-only mode: dot badge on gear icon; data from shared `useGitStatus()` TanStack Query cache (no extra calls)
+
+**Expected test count increase:** ~26 new Vitest tests (18 API in `GitHistory.test.ts` + 8 TransactionManager)
 
 ---
 
