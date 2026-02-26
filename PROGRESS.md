@@ -51,7 +51,7 @@ All backend phases (1–3.14) and all frontend phases (4.1–4.22, except 4.9 fo
 
 ### Phase 3.15 — Place / Geo-tagging
 
-Schema-breaking change. Complete backend before any frontend work.
+Schema-breaking change. Complete backend before any frontend work. **Required by Phase 5.3 (Map View) and EventCard map snippets.**
 
 1. **Schema** (`src/schemas/EventSchema.ts`): Add `PlaceSchema { name, historicalName?, lat?, lng?, countryCode?, resolvedAt? }`. Change `location` to `z.union([z.string(), PlaceSchema])` with auto-coerce of string → `{ name }`.
 2. **BootLoader migration**: During hydration, coerce bare string locations to `{ name }` in-memory — no file writes.
@@ -59,39 +59,121 @@ Schema-breaking change. Complete backend before any frontend work.
 4. **`GET /api/places/search?q=`** in `src/api/routes/search.ts`: Returns top 5 Nominatim candidates for type-ahead autocomplete.
 5. **TDD**: `tests/core/GeocodingService.test.ts` (resolve, cache hit, rate limit, fallback, historical name). Update `tests/schemas/EventSchema.test.ts` (string coerce, Place round-trip).
 6. **Frontend** (`EventEditorDialog`): Replace plain text location field with type-ahead against `GET /api/places/search`. Show lat/lng confirmation after resolution.
+7. **EventCard map snippet**: After Phase 3.15 backend is complete, `EventCard` in the Person Detail Timeline shows a small static map thumbnail for events with geocoded `lat`/`lng`. Clicking opens `/map?place=...`.
 
 ---
 
 ### Phase 4.9 — Dashboard Force Graph
 
-Standalone frontend feature. No backend changes needed.
+Standalone frontend feature. No backend changes needed. **Prerequisite for Phase 5.5 (visualization mode toggle).**
 
 1. `npm install react-force-graph-2d` in `client/`.
 2. Fetch all people via paginated `GET /api/people` (loop until all pages loaded).
-3. Build edges from `_computed.children` on each person node.
+3. Build edges from `_computed.children` on each person node. Include spouse edges (from `_computed.allSpouses`) with dashed style for divorced/widowed.
 4. Render graph in `client/src/routes/index.lazy.tsx` below stats cards.
 5. Click node → navigate to `/people/$id`.
-6. "Gravity Bands" (position nodes by birth year) — deferred to Phase 5.
+6. **"Gravity Bands"**: Position nodes vertically by birth year — Y-axis pulled to horizontal generational bands. X-axis families cluster together.
+7. Drag-to-rearrange with spring-back on release.
 
 ---
 
-### Phase 5 — Immersion & Polish
+### Phase 5 — Immersion, Narrative & Full Vision
 
-#### 5.1 Rich Story Editor
-1. `npm install @tiptap/react @tiptap/starter-kit` in `client/`.
-2. Replace Notebook `<textarea>` with Tiptap editor.
-3. `@Mention` extension: debounced `GET /api/search?q=` for people type-ahead, inserts `@N_xxx`.
-4. `/Asset` slash command: inserts image from `/assets` directory.
+#### 5.1 Stories System (Backend + Frontend)
 
-#### 5.2 The 3D Time Tunnel
+**Backend:**
+1. Add `GET /api/stories` — paginated list: `{ stories: StoryFeedItem[], totalCount }`. `StoryFeedItem`: `{ id, title, date, people: string[], place?, excerpt, firstAsset? }`.
+2. Add `GET /api/stories/:id` — full story: frontmatter + body Markdown.
+3. Add `POST /api/stories` — create new Markdown file in `stories/`.
+4. Add `PUT /api/stories/:id` — update frontmatter + body.
+5. Add `DELETE /api/stories/:id` — delete Markdown file.
+6. Add `PUT /api/stories/:id/media` — attach asset to story (multipart).
+7. Extend `StorySchema` with `date` (date range string), `place`, `private` fields.
+8. TDD: `tests/api/Stories.test.ts` — CRUD round-trip, mention extraction, asset attachment.
+
+**Frontend:**
+1. `/stories` route (`client/src/routes/stories/index.lazy.tsx`) — virtualized `StoryFeedCard` list. Sort toggle. Inline search.
+2. `/stories/:id` route (`client/src/routes/stories/$id.lazy.tsx`) — Story Reader (Merriweather serif, filmstrip at bottom) + Editor toggle (split pane: Markdown left / preview right).
+3. Slash commands in editor: `/image` (asset picker) and `/person` (person selector).
+4. `@Mention` type-ahead: debounced `GET /api/search?q=` → inserts `@N_xxx` inline.
+5. Add Stories icon + link to sidebar nav.
+6. `npm install @tiptap/react @tiptap/starter-kit @tiptap/extension-mention` in `client/`.
+7. E2E test: Create story → add @mention → verify appears on mentioned person's timeline.
+
+#### 5.2 The "Fly-Through" Timeline (3D Immersive Mode)
 1. `npm install three @react-three/fiber` in `client/`.
-2. Tunnel geometry: timeline events positioned at Z-depth proportional to date.
-3. Scroll-based camera movement along the tunnel axis.
-4. Accessible fallback: 2D list view when WebGL is unavailable.
+2. Tunnel geometry: timeline events positioned at Z-depth proportional to `sort_date` year.
+3. **Scroll-based camera** movement along the tunnel axis (scroll wheel moves "forward" into the past).
+4. **Year depth markers**: floating year labels pass by as depth indicators.
+5. **Ancestor photo cards**: persons with assets display a floating card (avatar + name) at their birth-year Z-depth.
+6. Accessible fallback: 2D list view when WebGL is unavailable (`<canvas>` detection).
+7. E2E test: Load view → Scroll → Verify camera Z position changes → Verify photo card appears at correct year.
 
-#### 5.3 Observability & Monitoring
-1. Add `heapUsedMB`, `hydrationDurationMs`, `cacheHitRatio` to `GET /system/status` response (extend existing endpoint).
-2. Log memory warnings when V8 heap exceeds 75% of limit.
+#### 5.3 Map View (`/map`)
+1. `npm install react-leaflet leaflet` in `client/`.
+2. `/map` route (`client/src/routes/map.lazy.tsx`) — Leaflet map, OpenStreetMap tiles.
+3. Fetch all people via `GET /api/people` (paginated loop); collect geocoded Place objects from events.
+4. Render pins by event type (color-coded). Click pin → popup with person link + event details.
+5. Marker clustering (`react-leaflet-markercluster`) for dense areas.
+6. Filters: by event type, by person (search selector), by date range (year slider).
+7. Deep-link support: `/map?place=...` centers map; `/map?person=N_xxx` filters to one person's locations.
+8. Add Map (Globe) icon + link to sidebar nav.
+9. Note: requires Phase 3.15 (geo-tagging) to be complete first.
+
+#### 5.4 Asset Gallery (`/assets`)
+1. New `GET /api/assets` endpoint: list all files in `/assets/` with `{ filename, size, mimeType, referencedBy: string[] }`. Orphaned = `referencedBy.length === 0`.
+2. `/assets` route (`client/src/routes/assets.lazy.tsx`) — masonry/grid of thumbnails.
+3. "Orphaned" badge + "Show only orphans" filter.
+4. Inline caption editing (calls new `PUT /api/assets/:filename/meta`).
+5. Orphan bulk-delete with confirmation dialog.
+6. Click image → lightbox (`object-contain`).
+7. Add Assets (Image) icon + link to sidebar nav.
+
+#### 5.5 Dashboard Visualization Modes (Fan Chart + Pedigree Chart)
+1. Toggle UI (segmented control) between Force Graph / Fan Chart / Pedigree Chart.
+2. **Fan Chart**: implement ancestor semi-circle using D3 or `@nivo/sunburst`. Root person selector (search input). Color-coded by paternal/maternal lineage.
+3. **Pedigree Chart**: standard horizontal tree using D3 tree layout. Click node → navigate. Scroll/pan for large trees.
+4. Persist selected mode to Zustand store (session-level, not localStorage).
+5. Phase 4.9 Force Graph moves here (force graph implementation is prerequisite).
+
+#### 5.6 Private Mode & Guest Mode
+1. Add `private?: boolean` to `PersonSchema` (optional, default `false`). Update Zod schema and YAML writer.
+2. Identity Panel: lock icon toggle → calls `PUT /people/:id` with `private: true/false`.
+3. API middleware: if no valid JWT and auth is configured, filter `private: true` persons from all list/search responses. Return 404 (not 403) for direct `GET /people/:id` on private persons.
+4. Frontend: respect auth state — if guest, private persons hidden. Witness events referencing private persons show "Private Individual".
+5. "Living Surname" display (Phase 6+): living persons (no death event) with `private: true` shown as "Living [LastName]" in guest mode.
+
+#### 5.7 Event Witnessing
+1. Add `witness_ids?: string[]` to `BaseEventSchema` in `src/schemas/EventSchema.ts`.
+2. Event Editor: multi-select person picker for "Witnesses" field (all event types).
+3. `TimelineSlicer`: for each person requested, also collect events from other people where that person appears in `witness_ids`. Return as `WitnessEvent` items.
+4. Frontend: `WitnessEventCard` component (distinct "eye" icon, "Witness at [Subject]'s [type]" label, `PersonChip` link to subject).
+5. TDD: `TimelineSlicer` test — witness events appear on witness's timeline, not subject's primary events.
+
+#### 5.8 Command Palette — Commands Category
+1. Define static `COMMANDS` array in `client/src/components/CommandPalette.tsx` (Create Person, Import GEDCOM, Export GEDCOM, Switch Theme, Create Snapshot, Force Rebuild, View Map, View Assets).
+2. Render "Commands" as a 4th `CommandGroup` in the palette.
+3. Filter commands by query string (simple `includes` match on command label).
+4. Wire actions: navigation commands use `router.navigate()`, theme toggle calls Zustand, export triggers file download.
+
+#### 5.9 Additional Event Types
+Add to `EventSchema` discriminated union and Event Editor UI:
+- `cremation` (no extra fields)
+- `adoption` (field: `adoptive_parent_ids: string[]`)
+- `engagement` (field: `partner_id: string`)
+- `emigration` (no extra fields beyond base — location is the destination)
+- `military_service` (fields: `branch: string`, `rank?: string`)
+- `graduation` (fields: `institution: string`, `degree: string`)
+
+Update Event Editor type selector dropdown and conditional field rendering.
+TDD: `tests/schemas/EventSchema.test.ts` — new types parse, round-trip, export.
+
+#### 5.10 Observability & Monitoring
+1. Add `heapUsedMB`, `hydrationDurationMs`, `cacheHitRatio`, `gitBranch`, `gitDirty` to `GET /system/status` response.
+2. Add `GET /api/system/git-status` endpoint: `{ branch: string, dirty: boolean, lastCommit: { message, timestamp } }`.
+3. Settings page: Git Status section — branch badge, Clean/Dirty indicator, "Commit Now" button, last commit info.
+4. Sidebar: Settings entry shows branch name + dirty indicator badge (icon-only mode shows just the dirty dot).
+5. Log memory warnings when V8 heap exceeds 75% of limit.
 
 ---
 
@@ -99,7 +181,10 @@ Standalone frontend feature. No backend changes needed.
 
 1. **Docker**: Multi-stage `Dockerfile` — build frontend (`npm run build` in `client/`), copy `client/dist/` into backend, serve via `@fastify/static`.
 2. **Electron**: Desktop wrapper with `nodeIntegration` for local file-system access; bundle backend + frontend.
-3. **CI/CD**: GitHub Action on PRs — `npm test` (Vitest, all 232+) + `npm run test:e2e` (Playwright, 3 CUJs).
+3. **CI/CD**: GitHub Action on PRs — `npm test` (Vitest, all 232+) + `npm run test:e2e` (Playwright, all CUJs).
+4. **"Living Surname"** anonymization: Living persons (no death event) with `private: true` displayed as "Living [LastName]" in guest/unauthenticated mode. Requires Phase 5.6.
+5. **Pedigree Chart PNG export**: "Export to PNG" button on Pedigree Chart view. Uses canvas `toDataURL`.
+6. **GEDCOM Export UI**: Trigger from Command Palette "Export GEDCOM" command → `GET /api/export/gedcom` → browser download.
 
 ---
 
