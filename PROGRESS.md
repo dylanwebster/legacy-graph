@@ -2,15 +2,15 @@
 
 > Single source of truth for implementation status. See `SPECIFICATION.md` for the full technical spec.
 
-**Last Updated**: 2026-02-25
-**Test Suite**: 232 passing, 0 skipped (31 files)
-**Overall Completion**: ~95%
+**Last Updated**: 2026-02-27
+**Test Suite**: 247 passing, 0 skipped (31 files)
+**Overall Completion**: ~97%
 
 ---
 
 ## Completed
 
-All backend phases (1–3.14) and all frontend phases (4.1–4.22, except 4.9 force graph) are complete.
+All backend phases (1–3.14) and all frontend phases (4.1–4.22, 4.9) are complete.
 
 | Phase | Description |
 |:------|:------------|
@@ -44,6 +44,7 @@ All backend phases (1–3.14) and all frontend phases (4.1–4.22, except 4.9 fo
 | 4.20 | Timeline Virtualizer Reload Fix: `h-full` layout chain + `timelineKey` remount |
 | 4.21 | Sibling Dual-Parent Selection: multi-select checkboxes for all current person's parents |
 | 4.22 | Strict Date Input Validation: explicit fuzzy-prefix regex replaces catch-all `\b(\d{4})\b` |
+| 4.9 | Dashboard Force Graph: `react-force-graph-2d` with Y-gravity bands, sex-colored nodes with glow, parent→child directional arrows, amber spouse edges (dashed for divorced/widowed), click-to-navigate, fit-to-view. Backend: `GET /api/graph` endpoint (3 new tests) |
 
 ---
 
@@ -62,18 +63,6 @@ Schema-breaking change. Complete backend before any frontend work. **Required by
 7. **EventCard map snippet**: After Phase 3.15 backend is complete, `EventCard` in the Person Detail Timeline shows a small static map thumbnail for events with geocoded `lat`/`lng`. Clicking opens `/map?place=...`.
 
 ---
-
-### Phase 4.9 — Dashboard Force Graph
-
-Standalone frontend feature. No backend changes needed. **Prerequisite for Phase 5.5 (visualization mode toggle).**
-
-1. `npm install react-force-graph-2d` in `client/`.
-2. Fetch all people via paginated `GET /api/people` (loop until all pages loaded).
-3. Build edges from `_computed.children` on each person node. Include spouse edges (from `_computed.allSpouses`) with dashed style for divorced/widowed.
-4. Render graph in `client/src/routes/index.lazy.tsx` below stats cards.
-5. Click node → navigate to `/people/$id`.
-6. **"Gravity Bands"**: Position nodes vertically by birth year — Y-axis pulled to horizontal generational bands. X-axis families cluster together.
-7. Drag-to-rearrange with spring-back on release.
 
 ---
 

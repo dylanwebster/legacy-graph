@@ -3,6 +3,21 @@ import { peopleApi } from './people';
 import type { CreatePersonInput } from './people';
 import { apiFetch, deleteAsset } from './client';
 
+export interface GraphNodeData {
+    id: string;
+    label: string;
+    sex: string;
+    birthYear: number | null;
+    primaryAsset: string | null;
+}
+
+export interface GraphLinkData {
+    source: string;
+    target: string;
+    type: 'parent_child' | 'spouse';
+    status?: string;
+}
+
 export const usePeople = (params?: { limit?: number; offset?: number; sort?: string; order?: string }) => {
     return useQuery({
         queryKey: ['people', params],
@@ -47,6 +62,17 @@ export const useStats = () => {
     return useQuery({
         queryKey: ['stats'],
         queryFn: () => apiFetch<any>('/stats')
+    });
+};
+
+export const useGraphData = () => {
+    return useQuery({
+        queryKey: ['graphData'],
+        queryFn: async () => {
+            const raw = await apiFetch<{ nodes: GraphNodeData[]; edges: GraphLinkData[] }>('/graph');
+            return { nodes: raw.nodes, links: raw.edges };
+        },
+        staleTime: 30_000
     });
 };
 

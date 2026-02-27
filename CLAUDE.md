@@ -50,8 +50,11 @@ find ./data/stories -name 'synthetic-family-*.md' -delete
 ## Rules
 
 You must always abide by these rules:
-- Always use Context7 MCP when I need public library/API documentation, code generation, setup or configuration steps without me having to explicitly ask.
-- Always use the frontend-design skill when doing frontend design work.
+
+1. **TDD is mandatory** — write a failing test before writing implementation code.
+2. **Spec-first** — `SPECIFICATION.md` is authoritative. Discrepancies between spec and code are critical bugs.
+3. **Keep track of full progress** — `PROGRESS.md` must be updated with the full implementation progress and remaining steps.
+4. **frontend-design is mandatory** - Always use the frontend-design skill when doing frontend design work.
 
 ---
 
@@ -125,17 +128,6 @@ client/src/
                  import.lazy.tsx, settings.lazy.tsx, search.lazy.tsx
   store/         uiStore.ts (Zustand)
 ```
-
----
-
-## Core Principles
-
-1. **TDD is mandatory** — write a failing test before writing implementation code.
-2. **Spec-first** — `SPECIFICATION.md` is authoritative. Discrepancies between spec and code are critical bugs.
-3. **Keep track of full progress** — `PROGRESS.md` must be updated with the full implementation progress and remaining steps.
-4. **Slim Nodes** — `scrapbook_md` and `_gedcom` are stripped from the in-memory graph. Lazy-loaded from disk on `GET /people/:id`. This keeps ~100MB+ of idle text out of the V8 heap at 50K nodes.
-5. **Self-write dedup** — API writes register the file path in a write-origin set (`GraphEngine`). The file watcher skips hot-patching for self-written files. External edits (VS Code, `git checkout`) pass through normally.
-6. **Debounced commits** — `TransactionManager` batches writes into a single `isomorphic-git` commit every 5 seconds. No child processes for git.
 
 ---
 

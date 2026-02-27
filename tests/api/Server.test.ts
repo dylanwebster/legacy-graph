@@ -673,4 +673,61 @@ _gedcom: {}
             expect(response.body.code).toBe('INVALID_MODE');
         });
     });
+
+    describe('GET /api/graph', () => {
+        it('should return nodes and edges arrays', async () => {
+            const response = await request.get('/api/graph');
+            expect(response.status).toBe(200);
+            expect(response.body).toHaveProperty('nodes');
+            expect(response.body).toHaveProperty('edges');
+            expect(Array.isArray(response.body.nodes)).toBe(true);
+            expect(Array.isArray(response.body.edges)).toBe(true);
+        });
+
+        it('should include required node fields', async () => {
+            // Create a person so we have at least one node
+            const createRes = await request.post('/api/people').send({
+                names: [{ first: 'Graph', last: 'Node', primary: true }],
+                sex: 'M',
+                events: [{ type: 'birth', date: '1980-01-01', sort_date: '1980-01-01' }]
+            });
+            expect(createRes.status).toBe(201);
+
+            const response = await request.get('/api/graph');
+            expect(response.status).toBe(200);
+            expect(response.body.nodes.length).toBeGreaterThan(0);
+
+            const node = response.body.nodes.find((n: any) => n.id === createRes.body.id);
+            expect(node).toBeDefined();
+            expect(node).toHaveProperty('id');
+            expect(node).toHaveProperty('label');
+            expect(node).toHaveProperty('sex');
+            expect(node.birthYear).toBe(1980);
+        });
+
+        it('should include parent_child edges for related people', async () => {
+            const parentRes = await request.post('/api/people').send({
+                names: [{ first: 'Graph', last: 'Parent', primary: true }],
+                sex: 'F',
+                events: []
+            });
+            const childRes = await request.post('/api/people').send({
+                names: [{ first: 'Graph', last: 'Child', primary: true }],
+                sex: 'M',
+                events: [],
+                relationships: { parents: [{ id: parentRes.body.id, type: 'biological' }] }
+            });
+            expect(parentRes.status).toBe(201);
+            expect(childRes.status).toBe(201);
+
+            const response = await request.get('/api/graph');
+            expect(response.status).toBe(200);
+
+            const edge = response.body.edges.find(
+                (e: any) => e.source === childRes.body.id && e.target === parentRes.body.id
+            );
+            expect(edge).toBeDefined();
+            expect(edge.type).toBe('parent_child');
+        });
+    });
 });
