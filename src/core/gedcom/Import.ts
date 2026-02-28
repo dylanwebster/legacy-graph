@@ -1,7 +1,13 @@
 import { Person } from '../../schemas/PersonSchema';
+import type { Place } from '../../schemas/PlaceSchema';
 import * as crypto from 'crypto';
 import { parseDate } from '../../utils/dateParser';
 import { generatePersonId } from '../../utils/idGenerator';
+
+/** Convert a GEDCOM PLAC string to a Place object, or undefined if empty. */
+function placeFromString(s: string): Place | undefined {
+    return s ? { name: s } : undefined;
+}
 
 // --- Custom GEDCOM Parser Types ---
 
@@ -147,7 +153,7 @@ export class GedcomReader {
                 const h = people.find(x => x.id === fatherId);
                 if (h) {
                     h.events.push({
-                        id: crypto.randomUUID(), type: 'marriage', date, sort_date: sortDate, location: place, assets: [],
+                        id: crypto.randomUUID(), type: 'marriage', date, sort_date: sortDate, location: placeFromString(place), assets: [],
                         partner_id: motherId, status: 'married'
                     });
                 }
@@ -156,7 +162,7 @@ export class GedcomReader {
                 const w = people.find(x => x.id === motherId);
                 if (w) {
                     w.events.push({
-                        id: crypto.randomUUID(), type: 'marriage', date, sort_date: sortDate, location: place, assets: [],
+                        id: crypto.randomUUID(), type: 'marriage', date, sort_date: sortDate, location: placeFromString(place), assets: [],
                         partner_id: fatherId, status: 'married'
                     });
                 }
@@ -173,7 +179,7 @@ export class GedcomReader {
                 if (h) {
                     h.events.push({
                         id: crypto.randomUUID(), type: 'divorce', date, sort_date: sortDate,
-                        location: place, assets: [], partner_id: motherId
+                        location: placeFromString(place), assets: [], partner_id: motherId
                     });
                 }
 
@@ -181,7 +187,7 @@ export class GedcomReader {
                 if (w) {
                     w.events.push({
                         id: crypto.randomUUID(), type: 'divorce', date, sort_date: sortDate,
-                        location: place, assets: [], partner_id: fatherId
+                        location: placeFromString(place), assets: [], partner_id: fatherId
                     });
                 }
             }
@@ -245,7 +251,7 @@ export class GedcomReader {
                     type: simpleEventTags[child.tag] as any,
                     date: date,
                     sort_date: parseDate(date),
-                    location: place,
+                    location: placeFromString(place),
                     assets: []
                 });
             } else if (child.tag === 'OCCU') {
@@ -259,7 +265,7 @@ export class GedcomReader {
                     title,
                     date,
                     sort_date: parseDate(date),
-                    location: place,
+                    location: placeFromString(place),
                     assets: []
                 });
             } else if (child.tag === 'EVEN') {
@@ -273,7 +279,7 @@ export class GedcomReader {
                     title,
                     date,
                     sort_date: parseDate(date),
-                    location: place,
+                    location: placeFromString(place),
                     assets: []
                 });
             } else if (child.tag === 'NOTE') {

@@ -1,5 +1,14 @@
 import { apiFetch } from './client';
 
+export interface Place {
+    name: string;
+    historicalName?: string;
+    lat?: number;
+    lng?: number;
+    countryCode?: string;
+    resolvedAt?: string;
+}
+
 export interface PersonName {
     primary?: boolean;
     first?: string;

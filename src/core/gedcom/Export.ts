@@ -87,10 +87,10 @@ export class GedcomExporter {
                 if (event.date) {
                     lines.push(`2 DATE ${event.date}`);
                 }
-                if (event.location) {
-                    lines.push(`2 PLAC ${event.location}`);
+                if (event.location?.name) {
+                    lines.push(`2 PLAC ${event.location.name}`);
                 }
-                
+
                 // Death cause
                 if (event.type === 'death' && 'cause' in event && event.cause) {
                     lines.push(`2 CAUS ${event.cause}`);
@@ -124,12 +124,12 @@ export class GedcomExporter {
                 if (event.date) {
                     lines.push(`2 DATE ${event.date}`);
                 }
-                if (event.location) {
-                    lines.push(`2 PLAC ${event.location}`);
+                if (event.location?.name) {
+                    lines.push(`2 PLAC ${event.location.name}`);
                 }
             }
         });
-        
+
         // Scrapbook as NOTE
         if (person.scrapbook_md && person.scrapbook_md.trim()) {
             lines.push(`1 NOTE ${person.scrapbook_md.trim()}`);
@@ -220,7 +220,7 @@ export class GedcomExporter {
                             children: [],
                             marriage: {
                                 date: event.date || '',
-                                location: event.location || ''
+                                location: event.location?.name || ''
                             }
                         };
                         familyMap.set(familyKey, family);
@@ -229,7 +229,7 @@ export class GedcomExporter {
                         // Add marriage data to existing family
                         family.marriage = {
                             date: event.date || '',
-                            location: event.location || ''
+                            location: event.location?.name || ''
                         };
                     }
                 }

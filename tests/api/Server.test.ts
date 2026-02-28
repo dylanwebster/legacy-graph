@@ -566,7 +566,6 @@ events:
     type: birth
     date: 1 JAN 2000
     sort_date: '2000-01-01'
-    location: ''
     assets: []
 assets: []
 relationships:

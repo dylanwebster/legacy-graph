@@ -78,7 +78,7 @@ describe('GEDCOM Round-Trip (Import → Export → Import)', () => {
             const birthOriginal = johnOriginal.events.find(e => e.type === 'birth');
             const birthReimport = johnReimport.events.find(e => e.type === 'birth');
             expect(birthReimport?.date).toBe(birthOriginal?.date);
-            expect(birthReimport?.location).toBe(birthOriginal?.location);
+            expect(birthReimport?.location?.name).toBe(birthOriginal?.location?.name);
             
             // Marriage event
             const marriageOriginal = johnOriginal.events.find(e => e.type === 'marriage');

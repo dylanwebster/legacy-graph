@@ -1,11 +1,15 @@
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
+import { PlaceSchema, type Place } from './PlaceSchema';
 
 const BaseEvent = z.object({
     id: z.string().default(() => nanoid()),
     date: z.string().default(''), // "Bet. 1900 and 1910" — optional, empty string when unknown
     sort_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null), // ISO-8601, null if unparseable or absent
-    location: z.string().optional(),
+    location: z.union([
+        z.string().transform((s): Place => ({ name: s })),
+        PlaceSchema,
+    ]).optional(),
     description: z.string().optional(),
     assets: z.array(z.string()).default([]) // List of filenames/IDs
 });

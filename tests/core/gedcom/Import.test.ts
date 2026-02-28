@@ -49,7 +49,7 @@ describe('GedcomReader', () => {
             const birth = john.events.find(e => e.type === 'birth');
             expect(birth).toBeDefined();
             expect(birth?.date).toBe('10 JAN 1980');
-            expect(birth?.location).toBe('Springfield, IL');
+            expect(birth?.location?.name).toBe('Springfield, IL');
 
             // Check Custom Tag preservation
             expect(john._gedcom).toBeDefined();
@@ -177,7 +177,7 @@ describe('GedcomReader', () => {
         const residences = mary.events.filter(e => e.type === 'residence');
         expect(residences).toHaveLength(2);
         expect(residences[0].date).toBe('1880');
-        expect(residences[0].location).toBe('Boston, Massachusetts');
+        expect(residences[0].location?.name).toBe('Boston, Massachusetts');
         expect(residences[0].sort_date).toBe('1880-01-01');
         expect(residences[1].date).toBe('1900');
     });
@@ -204,7 +204,7 @@ describe('GedcomReader', () => {
         expect((arrival as any).title).toBe('Arrival');
         expect(arrival!.date).toBe('24 May 1947');
         expect(arrival!.sort_date).toBe('1947-05-24');
-        expect(arrival!.location).toBe('Southampton, England');
+        expect(arrival!.location?.name).toBe('Southampton, England');
     });
 
     it('should import OCCU (occupation) events', async () => {

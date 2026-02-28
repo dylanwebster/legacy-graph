@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useUpdatePerson } from '@/api/hooks';
-import { useSearch } from '@/api/hooks';
+import { useUpdatePerson, useSearch, usePlacesSearch } from '@/api/hooks';
+import type { Place } from '@/api/people';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
 import {
@@ -91,6 +91,78 @@ function PersonSearchCombobox({
     );
 }
 
+// Debounced place search combobox
+function PlaceSearchCombobox({
+    value,
+    onChange,
+    onSelect,
+}: {
+    value: string;
+    onChange: (query: string) => void;
+    onSelect: (place: Place) => void;
+}) {
+    const [debouncedQuery, setDebouncedQuery] = useState('');
+    const [showDropdown, setShowDropdown] = useState(false);
+    const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
+
+    useEffect(() => {
+        const t = setTimeout(() => setDebouncedQuery(value), 350);
+        return () => clearTimeout(t);
+    }, [value]);
+
+    const { data: places } = usePlacesSearch(debouncedQuery);
+
+    const handleSelect = (place: Place) => {
+        onChange(place.name);
+        setSelectedPlace(place);
+        onSelect(place);
+        setShowDropdown(false);
+    };
+
+    const handleChange = (query: string) => {
+        onChange(query);
+        setSelectedPlace(null);
+        setShowDropdown(true);
+    };
+
+    const displayLat = selectedPlace?.lat != null
+        ? `${Math.abs(selectedPlace.lat).toFixed(2)}°${selectedPlace.lat >= 0 ? 'N' : 'S'}, ${Math.abs(selectedPlace.lng ?? 0).toFixed(2)}°${(selectedPlace.lng ?? 0) >= 0 ? 'E' : 'W'}`
+        : null;
+
+    return (
+        <div className="relative">
+            <Input
+                placeholder="City, Country"
+                value={value}
+                onChange={(e) => handleChange(e.target.value)}
+                onFocus={() => setShowDropdown(true)}
+                onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+                className="h-8 text-sm"
+            />
+            {showDropdown && debouncedQuery.length >= 2 && (places ?? []).length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-md max-h-48 overflow-auto">
+                    {(places ?? []).map((place, i) => (
+                        <button
+                            key={i}
+                            type="button"
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 text-left"
+                            onMouseDown={() => handleSelect(place)}
+                        >
+                            <span className="truncate flex-1">{place.name}</span>
+                            {!!place.countryCode && (
+                                <span className="text-xs text-muted-foreground shrink-0">{place.countryCode}</span>
+                            )}
+                        </button>
+                    ))}
+                </div>
+            )}
+            {!!displayLat && (
+                <p className="text-xs text-green-600 dark:text-green-400 mt-1">{displayLat}</p>
+            )}
+        </div>
+    );
+}
+
 function getRequiredFields(type: EventType): string[] {
     switch (type) {
         case 'marriage':
@@ -120,7 +192,18 @@ export function EventEditorDialog({
         (existingEvent?.type as EventType) ?? initialEventType ?? 'birth'
     );
     const [date, setDate] = useState((existingEvent?.date as string) ?? '');
-    const [location, setLocation] = useState((existingEvent?.location as string) ?? '');
+    const [locationQuery, setLocationQuery] = useState(() => {
+        const loc = existingEvent?.location;
+        if (!loc) return '';
+        if (typeof loc === 'object' && loc !== null && 'name' in loc) return (loc as Place).name;
+        if (typeof loc === 'string') return loc;
+        return '';
+    });
+    const [locationPlace, setLocationPlace] = useState<Place | null>(() => {
+        const loc = existingEvent?.location;
+        if (loc && typeof loc === 'object' && 'name' in loc) return loc as Place;
+        return null;
+    });
     const [description, setDescription] = useState((existingEvent?.description as string) ?? '');
     const [partnerId, setPartnerId] = useState((existingEvent?.partner_id as string) ?? '');
     const [marriageStatus, setMarriageStatus] = useState(
@@ -138,7 +221,17 @@ export function EventEditorDialog({
         if (isOpen) {
             setEventType((existingEvent?.type as EventType) ?? initialEventType ?? 'birth');
             setDate((existingEvent?.date as string) ?? '');
-            setLocation((existingEvent?.location as string) ?? '');
+            const loc = existingEvent?.location;
+            if (loc && typeof loc === 'object' && 'name' in loc) {
+                setLocationQuery((loc as Place).name);
+                setLocationPlace(loc as Place);
+            } else if (typeof loc === 'string') {
+                setLocationQuery(loc);
+                setLocationPlace(null);
+            } else {
+                setLocationQuery('');
+                setLocationPlace(null);
+            }
             setDescription((existingEvent?.description as string) ?? '');
             setPartnerId((existingEvent?.partner_id as string) ?? '');
             setMarriageStatus((existingEvent?.status as string) ?? 'married');
@@ -160,7 +253,11 @@ export function EventEditorDialog({
             const iso = parseToISO(date);
             if (iso) base.sort_date = iso;
         }
-        if (location) base.location = location;
+        if (locationPlace) {
+            base.location = locationPlace;
+        } else if (locationQuery.trim()) {
+            base.location = { name: locationQuery.trim() };
+        }
         if (description) base.description = description;
 
         switch (eventType) {
@@ -191,7 +288,7 @@ export function EventEditorDialog({
         }
         return base;
     }, [
-        eventType, date, location, description,
+        eventType, date, locationPlace, locationQuery, description,
         partnerId, marriageStatus, cause, title, organization,
         institution, degree, householdId,
     ]);
@@ -268,11 +365,10 @@ export function EventEditorDialog({
 
                     <div className="space-y-1">
                         <label className="text-xs font-medium">Location</label>
-                        <Input
-                            placeholder="City, Country"
-                            value={location}
-                            onChange={(e) => setLocation(e.target.value)}
-                            className="h-8 text-sm"
+                        <PlaceSearchCombobox
+                            value={locationQuery}
+                            onChange={setLocationQuery}
+                            onSelect={setLocationPlace}
                         />
                     </div>
 

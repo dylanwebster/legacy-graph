@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import type { AppInstance } from '../types';
 
 export async function searchRoutes(server: FastifyInstance) {
-    const { graphEngine } = (server as AppInstance).appServices;
+    const { graphEngine, geocodingService } = (server as AppInstance).appServices;
 
     server.get<{
         Querystring: { q?: string; limit?: string; offset?: string }
@@ -77,5 +77,31 @@ export async function searchRoutes(server: FastifyInstance) {
                 details: error.message
             });
         }
+    });
+
+    // GET /api/places/search?q=
+    server.get<{ Querystring: { q?: string } }>('/api/places/search', async (request, reply) => {
+        const { q } = request.query;
+        if (!q || q.trim().length < 2) {
+            return reply.status(400).send({
+                error: 'Query parameter "q" must be at least 2 characters',
+                code: 'VALIDATION_ERROR'
+            });
+        }
+        const results = await geocodingService.search(q.trim(), 5);
+        return results;
+    });
+
+    // POST /api/places/resolve
+    server.post<{ Body: { name?: string } }>('/api/places/resolve', async (request, reply) => {
+        const { name } = request.body ?? {};
+        if (!name || !name.trim()) {
+            return reply.status(400).send({
+                error: 'Request body must include "name"',
+                code: 'VALIDATION_ERROR'
+            });
+        }
+        const result = await geocodingService.resolve(name.trim());
+        return result;
     });
 }

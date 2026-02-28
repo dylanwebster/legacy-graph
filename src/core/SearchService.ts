@@ -146,7 +146,7 @@ export class SearchService {
 
         // Flatten locations for full-text search
         const locations = p.events
-            .map(e => e.location)
+            .map(e => e.location?.name)
             .filter(Boolean)
             .join(" ");
 
@@ -318,11 +318,12 @@ export class SearchService {
      */
     private extractPlaces(p: Person): void {
         p.events.forEach(e => {
-            if (e.location) {
-                if (!this.placeMap.has(e.location)) {
-                    this.placeMap.set(e.location, new Set());
+            const locName = e.location?.name;
+            if (locName) {
+                if (!this.placeMap.has(locName)) {
+                    this.placeMap.set(locName, new Set());
                 }
-                this.placeMap.get(e.location)!.add(p.id);
+                this.placeMap.get(locName)!.add(p.id);
             }
         });
     }

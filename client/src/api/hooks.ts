@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { peopleApi } from './people';
 import type { CreatePersonInput } from './people';
-import { apiFetch, deleteAsset } from './client';
+import { apiFetch, deleteAsset, searchPlaces, resolvePlace } from './client';
 
 export interface GraphNodeData {
     id: string;
@@ -117,6 +117,21 @@ export const useDeleteAsset = () => {
             queryClient.invalidateQueries({ queryKey: ['person', personId] });
             queryClient.invalidateQueries({ queryKey: ['people'] });
         },
+    });
+};
+
+export const usePlacesSearch = (q: string) => {
+    return useQuery({
+        queryKey: ['placesSearch', q],
+        queryFn: () => searchPlaces(q),
+        enabled: q.trim().length >= 2,
+        staleTime: 60_000,
+    });
+};
+
+export const useResolvePlace = () => {
+    return useMutation({
+        mutationFn: (name: string) => resolvePlace(name),
     });
 };
 
