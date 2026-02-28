@@ -137,9 +137,15 @@ export async function systemRoutes(server: FastifyInstance) {
             const label = name ? `${name.first ?? ''} ${name.last ?? ''}`.trim() : nodeId;
             const birthEvent = p.events?.find((e: any) => e.type === 'birth');
             let birthYear: number | null = null;
-            if (birthEvent?.date) {
-                const yr = parseInt(birthEvent.date.slice(0, 4), 10);
-                if (!isNaN(yr)) birthYear = yr;
+            if (birthEvent) {
+                // Prefer sort_date (always ISO YYYY-MM-DD) over display date
+                // which may be in GEDCOM format ("15 JAN 1920" → slice(0,4) = "15 J" → 15).
+                const dateStr: string = birthEvent.sort_date || birthEvent.date || '';
+                const match = dateStr.match(/\b(\d{4})\b/);
+                if (match) {
+                    const yr = parseInt(match[1], 10);
+                    if (yr > 999 && yr < 2200) birthYear = yr;
+                }
             }
             nodes.push({
                 id: nodeId,

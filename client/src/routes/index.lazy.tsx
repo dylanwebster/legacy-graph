@@ -5,7 +5,7 @@ import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useGraphData } from '@/api/hooks';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
 import { Skeleton } from '@/components/ui/skeleton';
-import { GitBranch, RefreshCw, Maximize2, Network, Search, X } from 'lucide-react';
+import { GitBranch, RefreshCw, Scan, Maximize2, Minimize2, Network, Search, X } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
 
 export const Route = createLazyFileRoute('/')({
@@ -103,7 +103,9 @@ function FamilyGraphPanel() {
 
     const fgRef = useRef<ForceGraphMethods | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const panelRef = useRef<HTMLDivElement>(null);
     const [dims, setDims] = useState({ width: 800, height: 600 });
+    const [isFullscreen, setIsFullscreen] = useState(false);
 
     // ── Search state ───────────────────────────────────────────────────────
     const [searchQuery, setSearchQuery] = useState('');
@@ -354,7 +356,32 @@ function FamilyGraphPanel() {
         [navigate],
     );
 
-    const handleZoomFit = () => fgRef.current?.zoomToFit(400, 60);
+    // ── Fullscreen ─────────────────────────────────────────────────────────
+    useEffect(() => {
+        const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+        document.addEventListener('fullscreenchange', onFsChange);
+        return () => document.removeEventListener('fullscreenchange', onFsChange);
+    }, []);
+
+    const toggleFullscreen = useCallback(async () => {
+        if (!panelRef.current) return;
+        try {
+            if (!document.fullscreenElement) {
+                await panelRef.current.requestFullscreen();
+            } else {
+                await document.exitFullscreen();
+            }
+        } catch { /* fullscreen not supported */ }
+    }, []);
+
+    // ── Refresh (clears saved layout so graph re-settles from scratch) ─────
+    const handleRefresh = useCallback(() => {
+        try { localStorage.removeItem(LS_KEY); } catch {}
+        savedPositionsRef.current = {};
+        refetch();
+    }, [refetch]);
+
+    const handleResetView = () => fgRef.current?.zoomToFit(400, 60);
 
     // ── Render ─────────────────────────────────────────────────────────────
     const isEmpty = !isLoading && !isError && (stableGraphData?.nodes.length ?? 0) === 0;
@@ -363,7 +390,7 @@ function FamilyGraphPanel() {
     const matchCount = matchingIds?.size ?? 0;
 
     return (
-        <div className="rounded-xl border border-border bg-card overflow-visible">
+        <div ref={panelRef} className={`border border-border bg-card overflow-visible ${isFullscreen ? 'rounded-none' : 'rounded-xl'}`}>
             {/* Header */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
                 <Network className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -416,7 +443,7 @@ function FamilyGraphPanel() {
                                         />
                                         <span className="flex-1 min-w-0 truncate">{node.label}</span>
                                         {node.birthYear && (
-                                            <span className="text-muted-foreground font-mono shrink-0">{node.birthYear}</span>
+                                            <span className="text-muted-foreground font-mono shrink-0">b.&nbsp;{node.birthYear}</span>
                                         )}
                                     </button>
                                 ))}
@@ -432,21 +459,26 @@ function FamilyGraphPanel() {
 
                 {/* Controls */}
                 <div className={`flex items-center gap-1 ${nodeCount > 0 ? '' : 'ml-auto'}`}>
-                    <button onClick={() => refetch()}
+                    <button onClick={handleRefresh}
                         className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                        title="Refresh graph">
+                        title="Reload graph (resets layout)">
                         <RefreshCw className="h-3.5 w-3.5" />
                     </button>
-                    <button onClick={handleZoomFit}
+                    <button onClick={handleResetView}
                         className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                        title="Fit to view">
-                        <Maximize2 className="h-3.5 w-3.5" />
+                        title="Reset zoom and center">
+                        <Scan className="h-3.5 w-3.5" />
+                    </button>
+                    <button onClick={toggleFullscreen}
+                        className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                        title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+                        {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
                     </button>
                 </div>
             </div>
 
             {/* Canvas */}
-            <div ref={containerRef} className="relative w-full overflow-hidden rounded-b-xl" style={{ height: 600 }}>
+            <div ref={containerRef} className={`relative w-full overflow-hidden ${isFullscreen ? '' : 'rounded-b-xl'}`} style={{ height: isFullscreen ? 'calc(100dvh - 44px)' : 600 }}>
                 {isLoading && (
                     <div className="absolute inset-0 flex items-center justify-center p-16">
                         <div className="w-full space-y-3">
