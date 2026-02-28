@@ -10,7 +10,7 @@
 
 ## Completed
 
-All backend phases (1–3.14) and all frontend phases (4.1–4.22, 4.9) are complete.
+Initial backend phases (1–3.14) and initial frontend phases (4.1–4.22, 4.9) are complete.
 
 | Phase | Description |
 |:------|:------------|

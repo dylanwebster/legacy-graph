@@ -1,11 +1,11 @@
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import ForceGraph2D from 'react-force-graph-2d';
 import type { ForceGraphMethods, NodeObject, LinkObject } from 'react-force-graph-2d';
-import { useRef, useEffect, useCallback, useState } from 'react';
-import { useSystemStatus, useStats, usePeople, useGraphData } from '@/api/hooks';
+import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
+import { useGraphData } from '@/api/hooks';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Users, GitBranch, Clock, Activity, RefreshCw, Maximize2, Network } from 'lucide-react';
+import { GitBranch, RefreshCw, Maximize2, Network, Search, X } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
 
 export const Route = createLazyFileRoute('/')({
@@ -26,19 +26,42 @@ type SimLink = LinkObject & GraphLinkData;
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const NODE_R = 6;
+const LS_KEY = 'fg-positions-v1';
 
 const SEX_COLOR: Record<string, string> = {
-    M: '#60a5fa',   // blue-400
-    F: '#f472b6',   // pink-400
-    I: '#a78bfa',   // violet-400
-    U: '#94a3b8',   // slate-400
+    M: '#60a5fa',
+    F: '#f472b6',
+    I: '#a78bfa',
+    U: '#94a3b8',
 };
 
 function sexColor(sex: string): string {
     return SEX_COLOR[sex] ?? SEX_COLOR['U'];
 }
 
-// ─── Custom Y-Gravity Force ───────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function loadSavedPositions(): Record<string, { x: number; y: number }> {
+    try {
+        return JSON.parse(localStorage.getItem(LS_KEY) ?? '{}');
+    } catch {
+        return {};
+    }
+}
+
+function savePositions(nodes: SimNode[]) {
+    const out: Record<string, { x: number; y: number }> = {};
+    for (const n of nodes) {
+        if (typeof n.x === 'number' && typeof n.y === 'number') {
+            out[n.id as string] = { x: n.x, y: n.y };
+        }
+    }
+    try {
+        localStorage.setItem(LS_KEY, JSON.stringify(out));
+    } catch {}
+}
+
+// ─── Y-Gravity Force ─────────────────────────────────────────────────────────
 
 function makeYGravityForce(minYear: number, maxYear: number, spread: number) {
     let nodes: SimNode[] = [];
@@ -47,61 +70,25 @@ function makeYGravityForce(minYear: number, maxYear: number, spread: number) {
 
     function force(alpha: number) {
         for (const node of nodes) {
-            if (node.birthYear != null) {
+            if (node.birthYear != null && node.vy !== undefined && node.y !== undefined) {
                 const targetY = ((node.birthYear - midYear) / yearRange) * spread;
-                if (node.vy !== undefined && node.y !== undefined) {
-                    node.vy += (targetY - node.y) * 0.04 * alpha;
-                }
+                node.vy += (targetY - node.y) * 0.04 * alpha;
             }
         }
     }
-
     (force as any).initialize = (n: SimNode[]) => { nodes = n; };
     return force;
 }
 
-// ─── Dashboard Component ──────────────────────────────────────────────────────
+// ─── Dashboard ────────────────────────────────────────────────────────────────
 
 function Dashboard() {
-    const { data: status, isLoading: statusLoading } = useSystemStatus();
-    const { data: statsData, isLoading: statsLoading } = useStats();
-    const { data: peopleData, isLoading: peopleLoading } = usePeople({ limit: 1 });
-
-    const isLoading = statusLoading || statsLoading || peopleLoading;
-
     return (
-        <div className="h-full overflow-auto p-6 space-y-6">
+        <div className="h-full overflow-auto p-6 space-y-4">
             <div>
                 <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-                <p className="text-sm text-muted-foreground mt-1">Overview of your family graph</p>
+                <p className="text-sm text-muted-foreground mt-1">Interactive family graph</p>
             </div>
-
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard
-                    icon={Users}
-                    label="Total People"
-                    value={isLoading ? undefined : String(peopleData?.totalCount ?? 0)}
-                />
-                <StatCard
-                    icon={GitBranch}
-                    label="Relationships"
-                    value={isLoading ? undefined : String(status?.edgeCount ?? 0)}
-                />
-                <StatCard
-                    icon={Clock}
-                    label="Last Modified"
-                    value={isLoading ? undefined : (statsData?.lastModified ? new Date(statsData.lastModified).toLocaleDateString() : '—')}
-                />
-                <StatCard
-                    icon={Activity}
-                    label="Engine Status"
-                    value={isLoading ? undefined : (status?.hydrationState ?? 'unknown')}
-                    accent={status?.hydrationState === 'ready' ? 'green' : status?.hydrationState === 'loading' ? 'amber' : 'red'}
-                />
-            </div>
-
-            {/* Force Graph */}
             <FamilyGraphPanel />
         </div>
     );
@@ -116,51 +103,142 @@ function FamilyGraphPanel() {
 
     const fgRef = useRef<ForceGraphMethods | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const [dims, setDims] = useState({ width: 800, height: 520 });
-    const [hoveredId, setHoveredId] = useState<string | null>(null);
+    const [dims, setDims] = useState({ width: 800, height: 600 });
 
-    // Responsive sizing
+    // ── Search state ───────────────────────────────────────────────────────
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchFocused, setSearchFocused] = useState(false);
+    const searchRef = useRef<HTMLDivElement>(null);
+
+    // ── Position persistence ───────────────────────────────────────────────
+    // Read once synchronously at mount — no state update, no re-render
+    const savedPositionsRef = useRef<Record<string, { x: number; y: number }>>(
+        loadSavedPositions()
+    );
+
+    // Stable graph data with restored positions injected into nodes.
+    // Nodes with saved positions are initially PINNED (fx/fy) so D3 cannot
+    // move them during the brief window before our forces useEffect fires.
+    //
+    // Links MUST have their source/target normalized back to string IDs here.
+    // D3 mutates link objects in-place, replacing IDs with actual node references.
+    // Those mutated link objects stay in TanStack Query's cache, so on remount
+    // `graphData.links` still points to the old node objects from the previous
+    // simulation. Normalizing ensures D3 re-resolves edges against the new nodes.
+    const stableGraphData = useMemo(() => {
+        if (!graphData) return null;
+        const pos = savedPositionsRef.current;
+        return {
+            nodes: graphData.nodes.map((n) => {
+                const saved = pos[n.id];
+                return saved
+                    ? { ...n, x: saved.x, y: saved.y, fx: saved.x, fy: saved.y }
+                    : { ...n };
+            }),
+            links: graphData.links.map((l) => ({
+                ...l,
+                source: typeof l.source === 'object' ? (l.source as any).id : l.source,
+                target: typeof l.target === 'object' ? (l.target as any).id : l.target,
+            })),
+        };
+    }, [graphData]);
+
+    // Keep a ref to stableGraphData so the stable onEngineStop callback can read it
+    const stableGraphDataRef = useRef(stableGraphData);
+    stableGraphDataRef.current = stableGraphData;
+
+    const handleEngineStop = useCallback(() => {
+        const gd = stableGraphDataRef.current;
+        if (!gd) return;
+        savePositions(gd.nodes as SimNode[]);
+    }, []);
+
+    // ── Responsive sizing ──────────────────────────────────────────────────
     useEffect(() => {
         if (!containerRef.current) return;
         const ro = new ResizeObserver((entries) => {
-            const entry = entries[0];
-            if (entry) {
-                setDims({
-                    width: entry.contentRect.width,
-                    height: Math.max(420, entry.contentRect.height),
-                });
-            }
+            const e = entries[0];
+            if (e) setDims({ width: e.contentRect.width, height: Math.max(500, e.contentRect.height) });
         });
         ro.observe(containerRef.current);
         return () => ro.disconnect();
     }, []);
 
-    // Apply custom D3 forces after graph mounts and data is ready
+    // ── D3 forces ──────────────────────────────────────────────────────────
     useEffect(() => {
-        if (!fgRef.current || !graphData?.nodes.length) return;
+        if (!fgRef.current || !stableGraphData?.nodes.length) return;
         const fg = fgRef.current;
 
-        // Stronger repulsion
-        fg.d3Force('charge')?.strength?.(-180);
-
-        // Link distance
+        fg.d3Force('charge')?.strength?.(-200);
         fg.d3Force('link')?.distance?.(55);
 
-        // Y gravity by birth year
-        const years = graphData.nodes
-            .map((n) => n.birthYear)
+        const years = stableGraphData.nodes
+            .map((n) => (n as SimNode).birthYear)
             .filter((y): y is number => y != null);
 
         if (years.length > 1) {
             const minYear = Math.min(...years);
             const maxYear = Math.max(...years);
-            (fg as any).d3Force('yGravity', makeYGravityForce(minYear, maxYear, 420));
-            fg.d3ReheatSimulation();
+            (fg as any).d3Force('yGravity', makeYGravityForce(minYear, maxYear, 480));
         }
-    }, [graphData]);
+
+        // Unpin nodes that were pinned for initial-frame stability.
+        // For nodes with saved positions this is a near-equilibrium release —
+        // net force ≈ 0 so they barely drift. For new nodes (no saved position)
+        // fx/fy were never set, so the delete is a safe no-op.
+        // We deliberately do NOT call d3ReheatSimulation(): the simulation
+        // auto-starts at alpha=1 on mount, which is sufficient for new layouts.
+        // Calling it on remount would re-run the full physics from scratch and
+        // produce a different (unstable) arrangement every time.
+        for (const node of stableGraphData.nodes) {
+            delete (node as any).fx;
+            delete (node as any).fy;
+        }
+    }, [stableGraphData]);
+
+    // ── Close dropdown on outside click ───────────────────────────────────
+    useEffect(() => {
+        function handleClick(e: MouseEvent) {
+            if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+                setSearchFocused(false);
+            }
+        }
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, []);
+
+    // ── Search derived state ───────────────────────────────────────────────
+    const matchingIds = useMemo<Set<string> | null>(() => {
+        const q = searchQuery.trim().toLowerCase();
+        if (!q || !stableGraphData) return null;
+        const ids = new Set<string>();
+        for (const n of stableGraphData.nodes) {
+            if ((n as SimNode).label.toLowerCase().includes(q)) ids.add(n.id as string);
+        }
+        return ids;
+    }, [searchQuery, stableGraphData]);
+
+    const dropdownNodes = useMemo<SimNode[]>(() => {
+        if (!matchingIds || !stableGraphData) return [];
+        return (stableGraphData.nodes as SimNode[]).filter((n) => matchingIds.has(n.id as string)).slice(0, 8);
+    }, [matchingIds, stableGraphData]);
+
+    const focusNode = useCallback(
+        (node: SimNode) => {
+            if (!fgRef.current) return;
+            const live = (stableGraphDataRef.current?.nodes as SimNode[] | undefined)
+                ?.find((n) => n.id === node.id);
+            if (live && typeof live.x === 'number' && typeof live.y === 'number') {
+                fgRef.current.centerAt(live.x, live.y, 450);
+                fgRef.current.zoom(2.8, 450);
+            }
+            setSearchQuery('');
+            setSearchFocused(false);
+        },
+        [],
+    );
 
     // ── Canvas drawing ─────────────────────────────────────────────────────
-
     const isDark = theme === 'dark';
 
     const drawNode = useCallback(
@@ -168,96 +246,103 @@ function FamilyGraphPanel() {
             const n = node as SimNode;
             const x = n.x ?? 0;
             const y = n.y ?? 0;
-            const isHovered = n.id === hoveredId;
+            const isMatch = matchingIds ? matchingIds.has(n.id as string) : true;
+            const hasFilt = matchingIds !== null;
+            const alpha = hasFilt ? (isMatch ? 1 : 0.12) : 1;
             const color = sexColor(n.sex);
-            const r = isHovered ? NODE_R * 1.35 : NODE_R;
+            const r = isMatch && hasFilt ? NODE_R * 1.3 : NODE_R;
 
-            // Outer glow
-            const glowR = r * 2.8;
-            const grd = ctx.createRadialGradient(x, y, 0, x, y, glowR);
-            grd.addColorStop(0, color + (isHovered ? '55' : '30'));
+            ctx.globalAlpha = alpha;
+
+            // Glow
+            const grd = ctx.createRadialGradient(x, y, 0, x, y, r * 2.8);
+            grd.addColorStop(0, color + (isMatch && hasFilt ? '60' : '28'));
             grd.addColorStop(1, 'transparent');
             ctx.beginPath();
-            ctx.arc(x, y, glowR, 0, Math.PI * 2);
+            ctx.arc(x, y, r * 2.8, 0, Math.PI * 2);
             ctx.fillStyle = grd;
             ctx.fill();
+
+            // Highlight ring for matches when filter active
+            if (isMatch && hasFilt) {
+                ctx.beginPath();
+                ctx.arc(x, y, r + 3, 0, Math.PI * 2);
+                ctx.strokeStyle = color + 'a0';
+                ctx.lineWidth = 1.5 / globalScale;
+                ctx.stroke();
+            }
 
             // Core circle
             ctx.beginPath();
             ctx.arc(x, y, r, 0, Math.PI * 2);
             ctx.fillStyle = color;
             ctx.fill();
-            ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.12)';
-            ctx.lineWidth = isHovered ? 2 / globalScale : 1.5 / globalScale;
+            ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.1)';
+            ctx.lineWidth = 1.2 / globalScale;
             ctx.stroke();
 
-            // Label — show at zoom ≥ 0.45
-            if (globalScale >= 0.45) {
-                const fontSize = Math.max(9, 11 / globalScale);
+            // Label
+            if (globalScale >= 0.5) {
+                const fontSize = Math.max(8, 10 / globalScale);
                 ctx.font = `${fontSize}px 'Fira Code', monospace`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'top';
-
-                // Label shadow for legibility
-                ctx.shadowColor = isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)';
+                ctx.shadowColor = isDark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.95)';
                 ctx.shadowBlur = 3;
-                ctx.fillStyle = isDark ? 'rgba(248,250,252,0.9)' : 'rgba(15,23,42,0.85)';
+                ctx.fillStyle = isDark
+                    ? (isMatch || !hasFilt ? 'rgba(248,250,252,0.88)' : 'rgba(248,250,252,0.25)')
+                    : (isMatch || !hasFilt ? 'rgba(15,23,42,0.82)' : 'rgba(15,23,42,0.2)');
 
-                // Truncate to first name + last initial for space
                 const parts = n.label.split(' ');
-                const shortLabel = parts.length > 1
-                    ? `${parts[0]} ${parts[parts.length - 1][0]}.`
-                    : n.label;
-
+                const shortLabel = parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : n.label;
                 ctx.fillText(shortLabel, x, y + r + 2 / globalScale);
                 ctx.shadowBlur = 0;
             }
+
+            ctx.globalAlpha = 1;
         },
-        [hoveredId, isDark],
+        [matchingIds, isDark],
     );
 
     const drawLink = useCallback(
         (link: LinkObject, ctx: CanvasRenderingContext2D, _globalScale: number) => {
             const l = link as SimLink;
-            if (l.type !== 'spouse') return; // parent_child uses default renderer
-
+            if (l.type !== 'spouse') return;
             const src = typeof l.source === 'object' ? (l.source as SimNode) : null;
             const tgt = typeof l.target === 'object' ? (l.target as SimNode) : null;
             if (!src || !tgt) return;
 
-            const x1 = src.x ?? 0, y1 = src.y ?? 0;
-            const x2 = tgt.x ?? 0, y2 = tgt.y ?? 0;
+            const hasFilt = matchingIds !== null;
+            const bothMatch = hasFilt
+                ? (matchingIds!.has(src.id as string) && matchingIds!.has(tgt.id as string))
+                : true;
             const isEnded = l.status === 'divorced' || l.status === 'widowed';
 
             ctx.save();
+            ctx.globalAlpha = hasFilt ? (bothMatch ? 0.85 : 0.08) : 0.8;
             ctx.beginPath();
-            ctx.moveTo(x1, y1);
-            ctx.lineTo(x2, y2);
+            ctx.moveTo(src.x ?? 0, src.y ?? 0);
+            ctx.lineTo(tgt.x ?? 0, tgt.y ?? 0);
             ctx.setLineDash(isEnded ? [5, 5] : []);
-            ctx.strokeStyle = isEnded
-                ? 'rgba(251, 146, 60, 0.55)'   // orange-400 for dissolved
-                : 'rgba(251, 191, 36, 0.75)';   // amber-400 for married
+            ctx.strokeStyle = isEnded ? 'rgba(251,146,60,0.75)' : 'rgba(251,191,36,0.85)';
             ctx.lineWidth = 1.5;
             ctx.stroke();
             ctx.restore();
         },
-        [],
+        [matchingIds],
     );
 
     const drawBackground = useCallback(
         (ctx: CanvasRenderingContext2D) => {
-            // Very subtle grid lines to evoke a genealogy chart
             const step = 80;
             ctx.beginPath();
             for (let x = -4000; x < 4000; x += step) {
-                ctx.moveTo(x, -4000);
-                ctx.lineTo(x, 4000);
+                ctx.moveTo(x, -4000); ctx.lineTo(x, 4000);
             }
             for (let y = -4000; y < 4000; y += step) {
-                ctx.moveTo(-4000, y);
-                ctx.lineTo(4000, y);
+                ctx.moveTo(-4000, y); ctx.lineTo(4000, y);
             }
-            ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.025)';
+            ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.022)' : 'rgba(0,0,0,0.022)';
             ctx.lineWidth = 1;
             ctx.stroke();
         },
@@ -265,65 +350,109 @@ function FamilyGraphPanel() {
     );
 
     const handleNodeClick = useCallback(
-        (node: NodeObject) => {
-            navigate({ to: '/people/$id', params: { id: String(node.id) } });
-        },
+        (node: NodeObject) => navigate({ to: '/people/$id', params: { id: String(node.id) } }),
         [navigate],
     );
 
-    const handleNodeHover = useCallback((node: NodeObject | null) => {
-        setHoveredId(node ? String(node.id) : null);
-    }, []);
+    const handleZoomFit = () => fgRef.current?.zoomToFit(400, 60);
 
-    const handleZoomFit = () => {
-        fgRef.current?.zoomToFit(400, 60);
-    };
-
-    // ── Render states ───────────────────────────────────────────────────────
-
-    const isEmpty = !isLoading && !isError && (graphData?.nodes.length ?? 0) === 0;
-    const nodeCount = graphData?.nodes.length ?? 0;
-    const linkCount = graphData?.links.length ?? 0;
+    // ── Render ─────────────────────────────────────────────────────────────
+    const isEmpty = !isLoading && !isError && (stableGraphData?.nodes.length ?? 0) === 0;
+    const nodeCount = stableGraphData?.nodes.length ?? 0;
+    const linkCount = stableGraphData?.links.length ?? 0;
+    const matchCount = matchingIds?.size ?? 0;
 
     return (
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-            {/* Panel header */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-                <div className="flex items-center gap-2.5">
-                    <Network className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-semibold tracking-wide">Family Graph</span>
-                    {!isLoading && !isError && nodeCount > 0 && (
-                        <span className="text-xs text-muted-foreground font-mono ml-1">
-                            {nodeCount} people · {linkCount} connections
-                        </span>
-                    )}
-                </div>
-                <div className="flex items-center gap-1">
-                    <button
-                        onClick={() => refetch()}
+        <div className="rounded-xl border border-border bg-card overflow-visible">
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+                <Network className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="text-sm font-semibold tracking-wide">Family Graph</span>
+
+                {!isLoading && !isError && nodeCount > 0 && (
+                    <span className="text-xs text-muted-foreground font-mono">
+                        {nodeCount} people · {linkCount} connections
+                    </span>
+                )}
+
+                {/* Search */}
+                {!isLoading && !isError && nodeCount > 0 && (
+                    <div ref={searchRef} className="relative ml-auto">
+                        <div className="flex items-center gap-1.5 h-7 rounded-md border border-border bg-muted/30 px-2 focus-within:border-ring/50 focus-within:bg-muted/50 transition-colors">
+                            <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <input
+                                type="text"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onFocus={() => setSearchFocused(true)}
+                                placeholder="Find person…"
+                                className="w-36 bg-transparent text-xs outline-none placeholder:text-muted-foreground/50"
+                            />
+                            {searchQuery && (
+                                <>
+                                    {matchingIds && (
+                                        <span className="text-[10px] font-mono text-muted-foreground">{matchCount}</span>
+                                    )}
+                                    <button onClick={() => { setSearchQuery(''); setSearchFocused(false); }}
+                                        className="text-muted-foreground hover:text-foreground">
+                                        <X className="h-3 w-3" />
+                                    </button>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Dropdown */}
+                        {searchFocused && dropdownNodes.length > 0 && (
+                            <div className="absolute right-0 top-full mt-1.5 w-56 z-50 rounded-lg border border-border bg-card shadow-xl overflow-hidden">
+                                {dropdownNodes.map((node) => (
+                                    <button
+                                        key={node.id as string}
+                                        onMouseDown={(e) => { e.preventDefault(); focusNode(node); }}
+                                        className="w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 hover:bg-muted/40 transition-colors"
+                                    >
+                                        <span
+                                            className="inline-block w-2 h-2 rounded-full shrink-0"
+                                            style={{ background: sexColor(node.sex) }}
+                                        />
+                                        <span className="flex-1 min-w-0 truncate">{node.label}</span>
+                                        {node.birthYear && (
+                                            <span className="text-muted-foreground font-mono shrink-0">{node.birthYear}</span>
+                                        )}
+                                    </button>
+                                ))}
+                                {matchCount > 8 && (
+                                    <p className="px-3 py-1.5 text-[10px] text-muted-foreground border-t border-border">
+                                        +{matchCount - 8} more — refine your search
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Controls */}
+                <div className={`flex items-center gap-1 ${nodeCount > 0 ? '' : 'ml-auto'}`}>
+                    <button onClick={() => refetch()}
                         className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                        title="Refresh graph"
-                    >
+                        title="Refresh graph">
                         <RefreshCw className="h-3.5 w-3.5" />
                     </button>
-                    <button
-                        onClick={handleZoomFit}
+                    <button onClick={handleZoomFit}
                         className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                        title="Fit to view"
-                    >
+                        title="Fit to view">
                         <Maximize2 className="h-3.5 w-3.5" />
                     </button>
                 </div>
             </div>
 
-            {/* Graph canvas area */}
-            <div ref={containerRef} className="relative w-full" style={{ height: 520 }}>
+            {/* Canvas */}
+            <div ref={containerRef} className="relative w-full overflow-hidden rounded-b-xl" style={{ height: 600 }}>
                 {isLoading && (
-                    <div className="absolute inset-0 flex items-center justify-center gap-4 p-8">
+                    <div className="absolute inset-0 flex items-center justify-center p-16">
                         <div className="w-full space-y-3">
-                            <Skeleton className="h-4 w-3/4 mx-auto" />
-                            <Skeleton className="h-4 w-1/2 mx-auto" />
-                            <Skeleton className="h-4 w-2/3 mx-auto" />
+                            <Skeleton className="h-3 w-3/4 mx-auto" />
+                            <Skeleton className="h-3 w-1/2 mx-auto" />
+                            <Skeleton className="h-3 w-2/3 mx-auto" />
                         </div>
                     </div>
                 )}
@@ -333,10 +462,8 @@ function FamilyGraphPanel() {
                         <div className="text-center space-y-2 text-muted-foreground">
                             <GitBranch className="h-10 w-10 mx-auto opacity-30" />
                             <p className="text-sm">Could not load graph data</p>
-                            <button
-                                onClick={() => refetch()}
-                                className="text-xs underline underline-offset-2 hover:text-foreground transition-colors"
-                            >
+                            <button onClick={() => refetch()}
+                                className="text-xs underline underline-offset-2 hover:text-foreground transition-colors">
                                 Try again
                             </button>
                         </div>
@@ -348,7 +475,7 @@ function FamilyGraphPanel() {
                         <div className="text-center space-y-2 text-muted-foreground">
                             <Network className="h-10 w-10 mx-auto opacity-25" />
                             <p className="text-sm font-medium">No people yet</p>
-                            <p className="text-xs opacity-70">Add family members to see the graph come alive</p>
+                            <p className="text-xs opacity-60">Add family members to see the graph</p>
                         </div>
                     </div>
                 )}
@@ -359,33 +486,35 @@ function FamilyGraphPanel() {
                         width={dims.width}
                         height={dims.height}
                         backgroundColor="transparent"
-                        graphData={graphData as any}
+                        graphData={stableGraphData as any}
                         nodeId="id"
                         nodeLabel="label"
                         nodeRelSize={NODE_R}
                         nodeCanvasObject={drawNode}
                         nodeCanvasObjectMode={() => 'replace'}
-                        linkColor={(link: any) => link.type === 'parent_child'
-                            ? (isDark ? 'rgba(148,163,184,0.4)' : 'rgba(71,85,105,0.35)')
-                            : 'transparent' // spouse drawn by linkCanvasObject
+                        linkColor={(link: any) =>
+                            link.type === 'parent_child'
+                                ? (isDark ? 'rgba(148,163,184,0.35)' : 'rgba(71,85,105,0.3)')
+                                : 'transparent'
                         }
                         linkWidth={(link: any) => link.type === 'parent_child' ? 1.5 : 0}
                         linkDirectionalArrowLength={(link: any) => link.type === 'parent_child' ? 5 : 0}
                         linkDirectionalArrowRelPos={1}
-                        linkDirectionalArrowColor={(link: any) => link.type === 'parent_child'
-                            ? (isDark ? 'rgba(148,163,184,0.5)' : 'rgba(71,85,105,0.45)')
-                            : 'transparent'
+                        linkDirectionalArrowColor={(link: any) =>
+                            link.type === 'parent_child'
+                                ? (isDark ? 'rgba(148,163,184,0.45)' : 'rgba(71,85,105,0.4)')
+                                : 'transparent'
                         }
                         linkCanvasObject={drawLink}
                         linkCanvasObjectMode={(link: any) => link.type === 'spouse' ? 'replace' : undefined}
                         onNodeClick={handleNodeClick}
-                        onNodeHover={handleNodeHover}
                         onRenderFramePre={drawBackground}
-                        cooldownTicks={120}
-                        d3AlphaDecay={0.025}
+                        onEngineStop={handleEngineStop}
+                        cooldownTicks={150}
+                        d3AlphaDecay={0.022}
                         d3VelocityDecay={0.3}
-                        minZoom={0.15}
-                        maxZoom={8}
+                        minZoom={0.1}
+                        maxZoom={10}
                         enableNodeDrag
                         enableZoomInteraction
                         enablePanInteraction
@@ -394,36 +523,32 @@ function FamilyGraphPanel() {
 
                 {/* Legend */}
                 {!isLoading && !isError && nodeCount > 0 && (
-                    <div className="absolute bottom-3 right-3 rounded-lg border border-border bg-card/90 backdrop-blur-sm px-3 py-2 text-xs space-y-1.5">
-                        <p className="text-muted-foreground font-mono text-[10px] uppercase tracking-wider mb-1">Legend</p>
-                        <div className="flex items-center gap-1.5">
-                            <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-400 shrink-0" />
-                            <span className="text-muted-foreground">Male</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                            <span className="inline-block w-2.5 h-2.5 rounded-full bg-pink-400 shrink-0" />
-                            <span className="text-muted-foreground">Female</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                            <span className="inline-block w-2.5 h-2.5 rounded-full bg-violet-400 shrink-0" />
-                            <span className="text-muted-foreground">Other</span>
-                        </div>
-                        <div className="border-t border-border pt-1.5 mt-0.5 space-y-1">
-                            <div className="flex items-center gap-1.5">
-                                <svg width="18" height="6" className="shrink-0">
-                                    <line x1="0" y1="3" x2="14" y2="3" stroke="rgba(148,163,184,0.6)" strokeWidth="1.5" markerEnd="url(#arrow)" />
+                    <div className="absolute bottom-3 right-3 rounded-lg border border-border bg-card/90 backdrop-blur-sm px-3 py-2 text-xs space-y-1.5 pointer-events-none">
+                        <p className="text-muted-foreground font-mono text-[10px] uppercase tracking-wider mb-1.5">Legend</p>
+                        <LegendRow color="#60a5fa" label="Male" />
+                        <LegendRow color="#f472b6" label="Female" />
+                        <LegendRow color="#a78bfa" label="Other" />
+                        <div className="border-t border-border pt-1.5 space-y-1.5">
+                            <div className="flex items-center gap-2">
+                                <svg width="20" height="6" className="shrink-0">
+                                    <defs>
+                                        <marker id="arr" markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto">
+                                            <path d="M0,0 L4,2 L0,4 Z" fill="rgba(148,163,184,0.6)" />
+                                        </marker>
+                                    </defs>
+                                    <line x1="0" y1="3" x2="16" y2="3" stroke="rgba(148,163,184,0.6)" strokeWidth="1.5" markerEnd="url(#arr)" />
                                 </svg>
                                 <span className="text-muted-foreground">Parent–child</span>
                             </div>
-                            <div className="flex items-center gap-1.5">
-                                <svg width="18" height="6" className="shrink-0">
-                                    <line x1="0" y1="3" x2="18" y2="3" stroke="rgba(251,191,36,0.8)" strokeWidth="1.5" />
+                            <div className="flex items-center gap-2">
+                                <svg width="20" height="6" className="shrink-0">
+                                    <line x1="0" y1="3" x2="20" y2="3" stroke="rgba(251,191,36,0.85)" strokeWidth="1.5" />
                                 </svg>
                                 <span className="text-muted-foreground">Married</span>
                             </div>
-                            <div className="flex items-center gap-1.5">
-                                <svg width="18" height="6" className="shrink-0">
-                                    <line x1="0" y1="3" x2="18" y2="3" stroke="rgba(251,146,60,0.7)" strokeWidth="1.5" strokeDasharray="4 3" />
+                            <div className="flex items-center gap-2">
+                                <svg width="20" height="6" className="shrink-0">
+                                    <line x1="0" y1="3" x2="20" y2="3" stroke="rgba(251,146,60,0.75)" strokeWidth="1.5" strokeDasharray="4 3" />
                                 </svg>
                                 <span className="text-muted-foreground">Divorced / widowed</span>
                             </div>
@@ -435,24 +560,11 @@ function FamilyGraphPanel() {
     );
 }
 
-// ─── StatCard ─────────────────────────────────────────────────────────────────
-
-function StatCard({ icon: Icon, label, value, accent }: { icon: typeof Users; label: string; value?: string; accent?: string }) {
+function LegendRow({ color, label }: { color: string; label: string }) {
     return (
-        <div className="flex items-center gap-4 p-4 rounded-xl border border-border bg-card hover:bg-muted/20 transition-colors">
-            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                <Icon className="h-5 w-5 text-primary" />
-            </div>
-            <div className="min-w-0">
-                <div className="text-xs text-muted-foreground font-medium">{label}</div>
-                {value === undefined ? (
-                    <Skeleton className="h-5 w-16 mt-0.5" />
-                ) : (
-                    <div className={`text-lg font-bold ${accent === 'green' ? 'text-emerald-500' : accent === 'amber' ? 'text-amber-500' : accent === 'red' ? 'text-red-500' : ''}`}>
-                        {value}
-                    </div>
-                )}
-            </div>
+        <div className="flex items-center gap-1.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ background: color }} />
+            <span className="text-muted-foreground">{label}</span>
         </div>
     );
 }
