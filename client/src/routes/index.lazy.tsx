@@ -2,8 +2,9 @@ import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import ForceGraph2D from 'react-force-graph-2d';
 import type { ForceGraphMethods, NodeObject, LinkObject } from 'react-force-graph-2d';
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { useGraphData } from '@/api/hooks';
+import { useGraphData, usePerson } from '@/api/hooks';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
+import { PersonHoverContent } from '@/components/PersonChip';
 import { Skeleton } from '@/components/ui/skeleton';
 import { GitBranch, RefreshCw, Scan, Maximize2, Minimize2, Network, Search, X } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
@@ -26,7 +27,7 @@ type SimLink = LinkObject & GraphLinkData;
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const NODE_R = 6;
-const LS_KEY = 'fg-positions-v1';
+const LS_KEY = 'fg-state-v2';
 
 const SEX_COLOR: Record<string, string> = {
     M: '#60a5fa',
@@ -39,25 +40,36 @@ function sexColor(sex: string): string {
     return SEX_COLOR[sex] ?? SEX_COLOR['U'];
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Graph State ──────────────────────────────────────────────────────────────
 
-function loadSavedPositions(): Record<string, { x: number; y: number }> {
+interface GraphState {
+    positions: Record<string, { x: number; y: number }>;
+    zoom: { k: number; cx: number; cy: number } | null;
+}
+
+function loadGraphState(): GraphState {
     try {
-        return JSON.parse(localStorage.getItem(LS_KEY) ?? '{}');
+        const raw = localStorage.getItem(LS_KEY);
+        if (!raw) return { positions: {}, zoom: null };
+        const parsed = JSON.parse(raw) as Partial<GraphState>;
+        return {
+            positions: parsed.positions ?? {},
+            zoom: parsed.zoom ?? null,
+        };
     } catch {
-        return {};
+        return { positions: {}, zoom: null };
     }
 }
 
-function savePositions(nodes: SimNode[]) {
-    const out: Record<string, { x: number; y: number }> = {};
+function saveGraphState(nodes: SimNode[], zoom: { k: number; cx: number; cy: number } | null) {
+    const positions: Record<string, { x: number; y: number }> = {};
     for (const n of nodes) {
         if (typeof n.x === 'number' && typeof n.y === 'number') {
-            out[n.id as string] = { x: n.x, y: n.y };
+            positions[n.id as string] = { x: n.x, y: n.y };
         }
     }
     try {
-        localStorage.setItem(LS_KEY, JSON.stringify(out));
+        localStorage.setItem(LS_KEY, JSON.stringify({ positions, zoom }));
     } catch {}
 }
 
@@ -72,12 +84,49 @@ function makeYGravityForce(minYear: number, maxYear: number, spread: number) {
         for (const node of nodes) {
             if (node.birthYear != null && node.vy !== undefined && node.y !== undefined) {
                 const targetY = ((node.birthYear - midYear) / yearRange) * spread;
-                node.vy += (targetY - node.y) * 0.04 * alpha;
+                node.vy += (targetY - node.y) * 0.1 * alpha;
             }
         }
     }
     (force as any).initialize = (n: SimNode[]) => { nodes = n; };
     return force;
+}
+
+// ─── Hierarchical Force ───────────────────────────────────────────────────────
+
+function makeHierarchicalForce(links: SimLink[], strength = 0.08, minSep = 80) {
+    let nodeMap = new Map<string, SimNode>();
+
+    function force(alpha: number) {
+        for (const link of links) {
+            if (link.type !== 'parent_child') continue;
+            // source=child, target=parent (backend edge direction)
+            const child = typeof link.source === 'object' ? (link.source as SimNode) : nodeMap.get(link.source as string);
+            const parent = typeof link.target === 'object' ? (link.target as SimNode) : nodeMap.get(link.target as string);
+            if (!child || !parent) continue;
+            const childPinned = (child as any).fx != null && (child as any).fy != null;
+            const parentPinned = (parent as any).fx != null && (parent as any).fy != null;
+            if (childPinned && parentPinned) continue;
+            const gap = (child.y ?? 0) - (parent.y ?? 0);  // want this >= minSep
+            const deficit = minSep - gap;
+            if (deficit > 0) {
+                const impulse = deficit * strength * alpha;
+                if (!parentPinned && parent.vy !== undefined) parent.vy -= impulse;
+                if (!childPinned && child.vy !== undefined) child.vy += impulse;
+            }
+        }
+    }
+    (force as any).initialize = (n: SimNode[]) => {
+        nodeMap = new Map(n.map((node) => [node.id as string, node]));
+    };
+    return force;
+}
+
+// ─── Hover Card ───────────────────────────────────────────────────────────────
+
+function GraphNodeHoverCard({ id }: { id: string }) {
+    const { data: person } = usePerson(id);
+    return <PersonHoverContent id={id} person={person} />;
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -112,21 +161,27 @@ function FamilyGraphPanel() {
     const [searchFocused, setSearchFocused] = useState(false);
     const searchRef = useRef<HTMLDivElement>(null);
 
-    // ── Position persistence ───────────────────────────────────────────────
-    // Read once synchronously at mount — no state update, no re-render
+    // ── Hover state ────────────────────────────────────────────────────────
+    const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+    const hoveredNodeIdRef = useRef<string | null>(null);
+    const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+
+    // ── Position + zoom persistence ────────────────────────────────────────
+    const initialState = useMemo(() => loadGraphState(), []);
     const savedPositionsRef = useRef<Record<string, { x: number; y: number }>>(
-        loadSavedPositions()
+        initialState.positions
     );
+    const zoomStateRef = useRef<{ k: number; cx: number; cy: number } | null>(
+        initialState.zoom
+    );
+    const zoomRestoredRef = useRef(false);
+    const zoomSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const dimsRef = useRef(dims);
+    dimsRef.current = dims;
 
     // Stable graph data with restored positions injected into nodes.
-    // Nodes with saved positions are initially PINNED (fx/fy) so D3 cannot
-    // move them during the brief window before our forces useEffect fires.
-    //
+    // Nodes with saved positions are initially PINNED (fx/fy).
     // Links MUST have their source/target normalized back to string IDs here.
-    // D3 mutates link objects in-place, replacing IDs with actual node references.
-    // Those mutated link objects stay in TanStack Query's cache, so on remount
-    // `graphData.links` still points to the old node objects from the previous
-    // simulation. Normalizing ensures D3 re-resolves edges against the new nodes.
     const stableGraphData = useMemo(() => {
         if (!graphData) return null;
         const pos = savedPositionsRef.current;
@@ -145,14 +200,14 @@ function FamilyGraphPanel() {
         };
     }, [graphData]);
 
-    // Keep a ref to stableGraphData so the stable onEngineStop callback can read it
+    // Keep a ref to stableGraphData so stable callbacks can read it
     const stableGraphDataRef = useRef(stableGraphData);
     stableGraphDataRef.current = stableGraphData;
 
     const handleEngineStop = useCallback(() => {
         const gd = stableGraphDataRef.current;
         if (!gd) return;
-        savePositions(gd.nodes as SimNode[]);
+        saveGraphState(gd.nodes as SimNode[], zoomStateRef.current);
     }, []);
 
     // ── Responsive sizing ──────────────────────────────────────────────────
@@ -181,22 +236,68 @@ function FamilyGraphPanel() {
         if (years.length > 1) {
             const minYear = Math.min(...years);
             const maxYear = Math.max(...years);
-            (fg as any).d3Force('yGravity', makeYGravityForce(minYear, maxYear, 480));
+            (fg as any).d3Force('yGravity', makeYGravityForce(minYear, maxYear, 600));
         }
 
-        // Unpin nodes that were pinned for initial-frame stability.
-        // For nodes with saved positions this is a near-equilibrium release —
-        // net force ≈ 0 so they barely drift. For new nodes (no saved position)
-        // fx/fy were never set, so the delete is a safe no-op.
-        // We deliberately do NOT call d3ReheatSimulation(): the simulation
-        // auto-starts at alpha=1 on mount, which is sufficient for new layouts.
-        // Calling it on remount would re-run the full physics from scratch and
-        // produce a different (unstable) arrangement every time.
+        (fg as any).d3Force('hierarchy', makeHierarchicalForce(stableGraphData.links as SimLink[]));
+
+        // Unpin new nodes, keep saved nodes pinned so they don't bounce
+        const savedPos = savedPositionsRef.current;
         for (const node of stableGraphData.nodes) {
-            delete (node as any).fx;
-            delete (node as any).fy;
+            const n = node as any;
+            if (!savedPos[n.id as string]) {
+                delete n.fx;
+                delete n.fy;
+            }
+            // saved node: keep fx/fy — stays pinned, no bouncing
         }
     }, [stableGraphData]);
+
+    // ── Node drag end — pin dragged node ───────────────────────────────────
+    const handleNodeDragEnd = useCallback((node: NodeObject) => {
+        const n = node as SimNode;
+        if (typeof n.x === 'number' && typeof n.y === 'number') {
+            (n as any).fx = n.x;
+            (n as any).fy = n.y;
+        }
+        const gd = stableGraphDataRef.current;
+        if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current);
+    }, []);
+
+    // ── Zoom tracking ──────────────────────────────────────────────────────
+    const handleZoom = useCallback(({ k, x, y }: { k: number; x: number; y: number }) => {
+        const w = dimsRef.current.width;
+        const h = dimsRef.current.height;
+        const cx = (w / 2 - x) / k;
+        const cy = (h / 2 - y) / k;
+        zoomStateRef.current = { k, cx, cy };
+        if (zoomSaveTimerRef.current) clearTimeout(zoomSaveTimerRef.current);
+        zoomSaveTimerRef.current = setTimeout(() => {
+            const gd = stableGraphDataRef.current;
+            if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current);
+        }, 300);
+    }, []);
+
+    // ── Restore zoom on mount ──────────────────────────────────────────────
+    useEffect(() => {
+        if (!stableGraphData?.nodes.length || zoomRestoredRef.current) return;
+        zoomRestoredRef.current = true;
+        const saved = zoomStateRef.current;
+        if (!saved) return;
+        requestAnimationFrame(() => {
+            fgRef.current?.zoom(saved.k, 0);
+            fgRef.current?.centerAt(saved.cx, saved.cy, 0);
+        });
+    }, [stableGraphData]);
+
+    // ── Cleanup on unmount ─────────────────────────────────────────────────
+    useEffect(() => {
+        return () => {
+            const gd = stableGraphDataRef.current;
+            if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current);
+            if (zoomSaveTimerRef.current) clearTimeout(zoomSaveTimerRef.current);
+        };
+    }, []);
 
     // ── Close dropdown on outside click ───────────────────────────────────
     useEffect(() => {
@@ -207,6 +308,18 @@ function FamilyGraphPanel() {
         }
         document.addEventListener('mousedown', handleClick);
         return () => document.removeEventListener('mousedown', handleClick);
+    }, []);
+
+    // ── Mouse tracking for hover tooltip ──────────────────────────────────
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+        const onMove = (e: MouseEvent) => {
+            const rect = container.getBoundingClientRect();
+            setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+        };
+        container.addEventListener('mousemove', onMove);
+        return () => container.removeEventListener('mousemove', onMove);
     }, []);
 
     // ── Search derived state ───────────────────────────────────────────────
@@ -239,6 +352,13 @@ function FamilyGraphPanel() {
         },
         [],
     );
+
+    // ── Node hover ─────────────────────────────────────────────────────────
+    const handleNodeHover = useCallback((node: NodeObject | null) => {
+        const id = node ? String(node.id) : null;
+        hoveredNodeIdRef.current = id;
+        setHoveredNodeId(id);
+    }, []);
 
     // ── Canvas drawing ─────────────────────────────────────────────────────
     const isDark = theme === 'dark';
@@ -378,13 +498,8 @@ function FamilyGraphPanel() {
     const handleRefresh = useCallback(() => {
         try { localStorage.removeItem(LS_KEY); } catch {}
         savedPositionsRef.current = {};
-        // Directly scatter existing D3 node positions to random values.
-        // Because react-force-graph-2d merges graphData by node ID (copying
-        // existing x/y onto updated nodes), simply refetching won't produce a
-        // new layout. Instead we mutate the live node objects that D3 already
-        // holds in-place, then reheat the simulation. This triggers a full
-        // re-settle without needing to remount the component (which would
-        // break the stable-navigation behaviour).
+        zoomStateRef.current = null;
+        zoomRestoredRef.current = false;
         const gd = stableGraphDataRef.current;
         if (gd && fgRef.current) {
             for (const node of gd.nodes) {
@@ -397,6 +512,7 @@ function FamilyGraphPanel() {
                 delete n.fy;
             }
             fgRef.current.d3ReheatSimulation();
+            fgRef.current.zoomToFit(400, 60);
         }
         refetch();
     }, [refetch]);
@@ -560,6 +676,9 @@ function FamilyGraphPanel() {
                         linkCanvasObject={drawLink}
                         linkCanvasObjectMode={(link: any) => link.type === 'spouse' ? 'replace' : undefined}
                         onNodeClick={handleNodeClick}
+                        onNodeDragEnd={handleNodeDragEnd}
+                        onNodeHover={handleNodeHover}
+                        onZoom={handleZoom}
                         onRenderFramePre={drawBackground}
                         onEngineStop={handleEngineStop}
                         cooldownTicks={150}
@@ -571,6 +690,22 @@ function FamilyGraphPanel() {
                         enableZoomInteraction
                         enablePanInteraction
                     />
+                )}
+
+                {/* Hover tooltip */}
+                {hoveredNodeId && (
+                    <div
+                        className="pointer-events-none absolute z-50"
+                        style={{
+                            left: tooltipPos.x + 16,
+                            top: tooltipPos.y + 16,
+                            transform: tooltipPos.x > dims.width - 280 ? 'translateX(calc(-100% - 32px))' : undefined,
+                        }}
+                    >
+                        <div className="w-64 rounded-md border border-border bg-popover p-4 shadow-md text-popover-foreground">
+                            <GraphNodeHoverCard id={hoveredNodeId} />
+                        </div>
+                    </div>
                 )}
 
                 {/* Legend */}

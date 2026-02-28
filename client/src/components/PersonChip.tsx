@@ -13,7 +13,7 @@ interface PersonChipProps {
     className?: string;
 }
 
-function deriveName(person: { names?: Array<{ first?: string; given?: string; last?: string; surname?: string }> } | undefined) {
+export function deriveName(person: { names?: Array<{ first?: string; given?: string; last?: string; surname?: string }> } | undefined) {
     const n = person?.names?.[0];
     return `${n?.first || n?.given || ''} ${n?.last || n?.surname || ''}`.trim() || 'Unknown';
 }
@@ -60,7 +60,7 @@ export function PersonChip({ id, name, photoFilename, className }: PersonChipPro
     );
 }
 
-function PersonHoverContent({
+export function PersonHoverContent({
     id,
     person,
 }: {
