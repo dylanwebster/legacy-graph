@@ -378,6 +378,26 @@ function FamilyGraphPanel() {
     const handleRefresh = useCallback(() => {
         try { localStorage.removeItem(LS_KEY); } catch {}
         savedPositionsRef.current = {};
+        // Directly scatter existing D3 node positions to random values.
+        // Because react-force-graph-2d merges graphData by node ID (copying
+        // existing x/y onto updated nodes), simply refetching won't produce a
+        // new layout. Instead we mutate the live node objects that D3 already
+        // holds in-place, then reheat the simulation. This triggers a full
+        // re-settle without needing to remount the component (which would
+        // break the stable-navigation behaviour).
+        const gd = stableGraphDataRef.current;
+        if (gd && fgRef.current) {
+            for (const node of gd.nodes) {
+                const n = node as any;
+                n.x = (Math.random() - 0.5) * 1000;
+                n.y = (Math.random() - 0.5) * 1000;
+                n.vx = 0;
+                n.vy = 0;
+                delete n.fx;
+                delete n.fy;
+            }
+            fgRef.current.d3ReheatSimulation();
+        }
         refetch();
     }, [refetch]);
 
