@@ -908,7 +908,11 @@ function VirtualizedTimeline({
                                     {!!details.location && (
                                         <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
                                             <MapPin className="h-3 w-3" />
-                                            <span className="truncate">{String(details.location)}</span>
+                                            <span className="truncate">
+                                                {typeof details.location === 'object' && details.location !== null
+                                                    ? String((details.location as Record<string, unknown>).name ?? '')
+                                                    : String(details.location)}
+                                            </span>
                                         </div>
                                     )}
                                     {!!details.description && (
