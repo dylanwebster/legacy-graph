@@ -28,7 +28,7 @@ type SimLink = LinkObject & GraphLinkData;
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const NODE_R = 6;
-const LS_KEY = 'fg-state-v3';  // bumped — layout axis changed
+const LS_KEY = 'fg-state-v4';  // bumped — generation-Y layout
 
 const SEX_COLOR: Record<string, string> = {
     M: '#60a5fa',
@@ -41,8 +41,11 @@ function sexColor(sex: string): string {
     return SEX_COLOR[sex] ?? SEX_COLOR['U'];
 }
 
-// Fixed scale: 1 year = 8 canvas units (decade = 80 units wide)
-const PIXELS_PER_YEAR = 8;
+// Fixed scale: 1 year = 14 canvas units (decade = 140 units wide — gives better temporal spread)
+const PIXELS_PER_YEAR = 14;
+// Vertical gap between consecutive generations when a root person is set
+const GENERATION_GAP = 140;
+
 function yearToX(year: number, midYear: number): number {
     return (year - midYear) * PIXELS_PER_YEAR;
 }
@@ -98,6 +101,51 @@ function computeEffectiveBirthYears(
     return result;
 }
 
+// ─── computeGenerationLevels ─────────────────────────────────────────────────
+// BFS from rootId to assign Y-generation levels:
+//   root=0, parents=-1, grandparents=-2, children=+1, grandchildren=+2, …
+// Returns a Map<nodeId, level>; nodes not reachable from root are absent.
+
+function computeGenerationLevels(
+    nodes: Array<{ id: string }>,
+    links: Array<{ source: string | object; target: string | object; type: string }>,
+    rootId: string,
+): Map<string, number> {
+    function getId(ref: string | object): string {
+        return typeof ref === 'object' ? (ref as { id: string }).id : ref;
+    }
+    const parentIds = new Map<string, string[]>();  // childId → parentIds
+    const childIds  = new Map<string, string[]>();  // parentId → childIds
+    for (const n of nodes) { parentIds.set(n.id, []); childIds.set(n.id, []); }
+    for (const l of links) {
+        if (l.type !== 'parent_child') continue;
+        const childId  = getId(l.source);
+        const parentId = getId(l.target);
+        parentIds.get(childId)?.push(parentId);
+        childIds.get(parentId)?.push(childId);
+    }
+
+    const levels = new Map<string, number>();
+    const queue: Array<{ id: string; level: number }> = [{ id: rootId, level: 0 }];
+    levels.set(rootId, 0);
+    while (queue.length > 0) {
+        const { id, level } = queue.shift()!;
+        for (const pid of parentIds.get(id) ?? []) {
+            if (!levels.has(pid)) {
+                levels.set(pid, level - 1);
+                queue.push({ id: pid, level: level - 1 });
+            }
+        }
+        for (const cid of childIds.get(id) ?? []) {
+            if (!levels.has(cid)) {
+                levels.set(cid, level + 1);
+                queue.push({ id: cid, level: level + 1 });
+            }
+        }
+    }
+    return levels;
+}
+
 // ─── Graph State ──────────────────────────────────────────────────────────────
 
 interface GraphState {
@@ -147,33 +195,42 @@ function makeXGravityForce(midYear: number, strength = 0.1) {
     return force;
 }
 
-// ─── Hierarchical Force ───────────────────────────────────────────────────────
+// ─── Generation Y Force ───────────────────────────────────────────────────────
+// Pulls each node toward targetY = level * generationGap.
+// Only affects nodes present in the levels map.
 
-function makeHierarchicalForce(links: SimLink[], strength = 0.08, minSep = 80) {
-    let nodeMap = new Map<string, SimNode>();
-
+function makeGenerationYForce(
+    levels: Map<string, number>,
+    generationGap: number,
+    strength = 0.2,
+) {
+    let nodes: SimNode[] = [];
     function force(alpha: number) {
-        for (const link of links) {
-            if (link.type !== 'parent_child') continue;
-            // source=child, target=parent (backend edge direction)
-            const child  = typeof link.source === 'object' ? (link.source as SimNode) : nodeMap.get(link.source as string);
-            const parent = typeof link.target === 'object' ? (link.target as SimNode) : nodeMap.get(link.target as string);
-            if (!child || !parent) continue;
-            const childPinned  = (child as any).fx != null && (child as any).fy != null;
-            const parentPinned = (parent as any).fx != null && (parent as any).fy != null;
-            if (childPinned && parentPinned) continue;
-            const gap = (child.x ?? 0) - (parent.x ?? 0);  // want >= minSep (child RIGHT of parent)
-            const deficit = minSep - gap;
-            if (deficit > 0) {
-                const impulse = deficit * strength * alpha;
-                if (!parentPinned && parent.vx !== undefined) parent.vx -= impulse;
-                if (!childPinned  && child.vx  !== undefined) child.vx  += impulse;
+        for (const node of nodes) {
+            const level = levels.get(node.id as string);
+            if (level === undefined || node.vy === undefined || node.y === undefined) continue;
+            node.vy += (level * generationGap - node.y) * strength * alpha;
+        }
+    }
+    (force as any).initialize = (n: SimNode[]) => { nodes = n; };
+    return force;
+}
+
+// ─── Center-Y Force ───────────────────────────────────────────────────────────
+// Softly pulls all nodes (or a subset when excludeIds is given) toward Y=0.
+// Used in no-root mode to prevent the graph from drifting too far vertically.
+
+function makeCenterYForce(excludeIds: Set<string> | null = null, strength = 0.04) {
+    let nodes: SimNode[] = [];
+    function force(alpha: number) {
+        for (const node of nodes) {
+            if (excludeIds?.has(node.id as string)) continue;
+            if (node.vy !== undefined && node.y !== undefined) {
+                node.vy += (0 - node.y) * strength * alpha;
             }
         }
     }
-    (force as any).initialize = (n: SimNode[]) => {
-        nodeMap = new Map(n.map((node) => [node.id as string, node]));
-    };
+    (force as any).initialize = (n: SimNode[]) => { nodes = n; };
     return force;
 }
 
@@ -242,6 +299,8 @@ function FamilyGraphPanel() {
     // ── Root person state ──────────────────────────────────────────────────
     const [rootPersonId, setRootPersonId] = useState<string | null>(initialState.rootPersonId);
     const rootPersonIdRef = useRef<string | null>(initialState.rootPersonId);
+    // Set to true when root changes or reset fires; forces useEffect re-layouts
+    const shouldReheatRef = useRef(false);
 
     // ── Year bounds ref (set by D3 forces useEffect) ───────────────────────
     const yearBoundsRef = useRef<{ minYear: number; maxYear: number; midYear: number } | null>(null);
@@ -293,35 +352,90 @@ function FamilyGraphPanel() {
         if (!fgRef.current || !stableGraphData?.nodes.length) return;
         const fg = fgRef.current;
 
-        fg.d3Force('charge')?.strength?.(-200);
-        fg.d3Force('link')?.distance?.(55);
+        fg.d3Force('charge')?.strength?.(-400);
+        fg.d3Force('link')?.distance?.(80);
 
+        // ── X gravity: pull every node toward its birth-year X position ──
         const years = stableGraphData.nodes
             .map((n) => (n as SimNode).effectiveBirthYear)
             .filter((y): y is number => y != null);
 
+        let midYear = 1900;
         if (years.length > 1) {
             const minYear = Math.min(...years);
             const maxYear = Math.max(...years);
-            const midYear = (minYear + maxYear) / 2;
+            midYear = (minYear + maxYear) / 2;
             yearBoundsRef.current = { minYear, maxYear, midYear };
-            (fg as any).d3Force('xGravity', makeXGravityForce(midYear));
-            // Remove old yGravity if lingering from v2 state
-            (fg as any).d3Force('yGravity', null);
+        }
+        (fg as any).d3Force('xGravity', makeXGravityForce(midYear, 0.12));
+        (fg as any).d3Force('yGravity', null);   // remove v2 yGravity if present
+        (fg as any).d3Force('hierarchy', null);  // remove v3 hierarchy force if present
+
+        // ── Y force: generation-based when root set, soft centering otherwise ──
+        const rootId = rootPersonIdRef.current;
+        let genLevels: Map<string, number> | null = null;
+        if (rootId) {
+            genLevels = computeGenerationLevels(
+                stableGraphData.nodes as Array<{ id: string }>,
+                stableGraphData.links as Array<{ source: string | object; target: string | object; type: string }>,
+                rootId,
+            );
+            (fg as any).d3Force('generationY', makeGenerationYForce(genLevels, GENERATION_GAP, 0.2));
+            // Softly center disconnected nodes that have no assigned generation
+            (fg as any).d3Force('centerY', makeCenterYForce(new Set(genLevels.keys()), 0.04));
+        } else {
+            (fg as any).d3Force('generationY', null);
+            (fg as any).d3Force('centerY', makeCenterYForce(null, 0.05));
         }
 
-        (fg as any).d3Force('hierarchy', makeHierarchicalForce(stableGraphData.links as SimLink[]));
+        // ── Reheat on root change (shouldReheatRef set by handleSetRoot) ──
+        if (shouldReheatRef.current) {
+            shouldReheatRef.current = false;
+            const bounds = yearBoundsRef.current ?? { midYear: 1900, minYear: 1800, maxYear: 2000 };
 
-        // Unpin new nodes, keep saved nodes pinned so they don't bounce
-        const savedPos = savedPositionsRef.current;
-        for (const node of stableGraphData.nodes) {
-            const n = node as any;
-            if (!savedPos[n.id as string]) {
+            for (const node of stableGraphData.nodes) {
+                const n = node as any;
                 delete n.fx;
                 delete n.fy;
+                // Set X from birth year, Y from generation level (or random spread)
+                n.x = yearToX((n as SimNode).effectiveBirthYear ?? bounds.midYear, bounds.midYear);
+                if (genLevels) {
+                    const level = genLevels.get(n.id as string);
+                    n.y = level !== undefined ? level * GENERATION_GAP : (Math.random() - 0.5) * GENERATION_GAP * 2;
+                } else {
+                    n.y = (Math.random() - 0.5) * 600;
+                }
+                n.vx = 0;
+                n.vy = 0;
+            }
+            fg.d3ReheatSimulation();
+
+            // After simulation settles a bit, center view on root node
+            if (rootId) {
+                setTimeout(() => {
+                    const rootNode = (stableGraphDataRef.current?.nodes as SimNode[] | undefined)
+                        ?.find((n) => n.id === rootId);
+                    if (rootNode && typeof rootNode.x === 'number' && typeof rootNode.y === 'number') {
+                        fgRef.current?.centerAt(rootNode.x, rootNode.y, 600);
+                        fgRef.current?.zoom(1.4, 600);
+                    } else {
+                        fgRef.current?.zoomToFit(600, 80);
+                    }
+                }, 900);
+            }
+        } else {
+            // First mount / API reload: unpin only nodes that have no saved position
+            const savedPos = savedPositionsRef.current;
+            for (const node of stableGraphData.nodes) {
+                const n = node as any;
+                if (!savedPos[n.id as string]) {
+                    delete n.fx;
+                    delete n.fy;
+                }
             }
         }
-    }, [stableGraphData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stableGraphData, rootPersonId]);
 
     // ── Node drag end — pin dragged node ───────────────────────────────────
     const handleNodeDragEnd = useCallback((node: NodeObject) => {
@@ -397,19 +511,12 @@ function FamilyGraphPanel() {
 
     // ── Root person callbacks ──────────────────────────────────────────────
     const handleSetRoot = useCallback((id: string | null) => {
-        setRootPersonId(id);
+        // Signal the forces useEffect to re-layout the graph on next render
+        shouldReheatRef.current = true;
         rootPersonIdRef.current = id;
+        setRootPersonId(id);  // triggers forces useEffect via dep array
         setRootSearch('');
         setRootFocused(false);
-
-        if (id && fgRef.current) {
-            const node = (stableGraphDataRef.current?.nodes as SimNode[] | undefined)
-                ?.find(n => n.id === id);
-            if (node && typeof node.x === 'number' && typeof node.y === 'number') {
-                fgRef.current.centerAt(node.x, node.y, 500);
-                fgRef.current.zoom(2.2, 500);
-            }
-        }
 
         const gd = stableGraphDataRef.current;
         if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, id);
@@ -655,19 +762,23 @@ function FamilyGraphPanel() {
         savedPositionsRef.current = {};
         zoomStateRef.current = null;
         zoomRestoredRef.current = false;
+        // Trigger a full re-layout through the forces useEffect
+        shouldReheatRef.current = true;
         const gd = stableGraphDataRef.current;
         if (gd && fgRef.current) {
+            // Pre-scatter nodes so D3 starts fresh
+            const bounds = yearBoundsRef.current;
             for (const node of gd.nodes) {
                 const n = node as any;
-                n.x = (Math.random() - 0.5) * 1000;
-                n.y = (Math.random() - 0.5) * 1000;
+                n.x = bounds ? yearToX((n as SimNode).effectiveBirthYear ?? bounds.midYear, bounds.midYear) : (Math.random() - 0.5) * 1000;
+                n.y = (Math.random() - 0.5) * 500;
                 n.vx = 0;
                 n.vy = 0;
                 delete n.fx;
                 delete n.fy;
             }
             fgRef.current.d3ReheatSimulation();
-            fgRef.current.zoomToFit(400, 60);
+            fgRef.current.zoomToFit(600, 80);
         }
         // Preserve root person across refresh — save it back after removeItem
         try { localStorage.setItem(LS_KEY, JSON.stringify({ positions: {}, zoom: null, rootPersonId: rootPersonIdRef.current })); } catch {}
