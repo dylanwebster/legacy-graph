@@ -20,6 +20,7 @@ type SimNode = NodeObject & GraphNodeData & {
     y?: number;
     vx?: number;
     vy?: number;
+    effectiveBirthYear?: number | null;
 };
 
 type SimLink = LinkObject & GraphLinkData;
@@ -27,7 +28,7 @@ type SimLink = LinkObject & GraphLinkData;
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const NODE_R = 6;
-const LS_KEY = 'fg-state-v2';
+const LS_KEY = 'fg-state-v3';  // bumped — layout axis changed
 
 const SEX_COLOR: Record<string, string> = {
     M: '#60a5fa',
@@ -40,51 +41,105 @@ function sexColor(sex: string): string {
     return SEX_COLOR[sex] ?? SEX_COLOR['U'];
 }
 
+// Fixed scale: 1 year = 8 canvas units (decade = 80 units wide)
+const PIXELS_PER_YEAR = 8;
+function yearToX(year: number, midYear: number): number {
+    return (year - midYear) * PIXELS_PER_YEAR;
+}
+
+// ─── computeEffectiveBirthYears ───────────────────────────────────────────────
+
+function computeEffectiveBirthYears(
+    nodes: Array<{ id: string; birthYear?: number | null }>,
+    links: Array<{ source: string | object; target: string | object; type: string }>,
+): Map<string, number> {
+    const GENERATION_GAP = 28;
+
+    const parentIds = new Map<string, string[]>();  // childId → parentIds
+    const childIds  = new Map<string, string[]>();  // parentId → childIds
+    for (const n of nodes) { parentIds.set(n.id, []); childIds.set(n.id, []); }
+    for (const l of links) {
+        if (l.type !== 'parent_child') continue;
+        const childId  = typeof l.source === 'object' ? (l.source as any).id : l.source;
+        const parentId = typeof l.target === 'object' ? (l.target as any).id : l.target;
+        parentIds.get(childId)?.push(parentId);
+        childIds.get(parentId)?.push(childId);
+    }
+
+    const result = new Map<string, number>();
+    for (const n of nodes) if (n.birthYear != null) result.set(n.id, n.birthYear);
+
+    // Iterative BFS until stable (max 10 passes)
+    let changed = true;
+    for (let i = 0; i < 10 && changed; i++) {
+        changed = false;
+        for (const n of nodes) {
+            if (result.has(n.id)) continue;
+            const estimates: number[] = [];
+            for (const pid of parentIds.get(n.id) ?? []) {
+                const y = result.get(pid); if (y != null) estimates.push(y + GENERATION_GAP);
+            }
+            for (const cid of childIds.get(n.id) ?? []) {
+                const y = result.get(cid); if (y != null) estimates.push(y - GENERATION_GAP);
+            }
+            if (estimates.length > 0) {
+                result.set(n.id, estimates.reduce((a, b) => a + b, 0) / estimates.length);
+                changed = true;
+            }
+        }
+    }
+
+    // Final fallback: dataset mean for truly isolated unknown nodes
+    const knownYears = [...result.values()];
+    if (knownYears.length > 0) {
+        const fallback = knownYears.reduce((a, b) => a + b, 0) / knownYears.length;
+        for (const n of nodes) if (!result.has(n.id)) result.set(n.id, fallback);
+    }
+    return result;
+}
+
 // ─── Graph State ──────────────────────────────────────────────────────────────
 
 interface GraphState {
     positions: Record<string, { x: number; y: number }>;
     zoom: { k: number; cx: number; cy: number } | null;
+    rootPersonId: string | null;
 }
 
 function loadGraphState(): GraphState {
     try {
         const raw = localStorage.getItem(LS_KEY);
-        if (!raw) return { positions: {}, zoom: null };
-        const parsed = JSON.parse(raw) as Partial<GraphState>;
-        return {
-            positions: parsed.positions ?? {},
-            zoom: parsed.zoom ?? null,
-        };
+        if (!raw) return { positions: {}, zoom: null, rootPersonId: null };
+        const p = JSON.parse(raw) as Partial<GraphState>;
+        return { positions: p.positions ?? {}, zoom: p.zoom ?? null, rootPersonId: p.rootPersonId ?? null };
     } catch {
-        return { positions: {}, zoom: null };
+        return { positions: {}, zoom: null, rootPersonId: null };
     }
 }
 
-function saveGraphState(nodes: SimNode[], zoom: { k: number; cx: number; cy: number } | null) {
+function saveGraphState(
+    nodes: SimNode[],
+    zoom: { k: number; cx: number; cy: number } | null,
+    rootPersonId: string | null,
+) {
     const positions: Record<string, { x: number; y: number }> = {};
     for (const n of nodes) {
-        if (typeof n.x === 'number' && typeof n.y === 'number') {
+        if (typeof n.x === 'number' && typeof n.y === 'number')
             positions[n.id as string] = { x: n.x, y: n.y };
-        }
     }
-    try {
-        localStorage.setItem(LS_KEY, JSON.stringify({ positions, zoom }));
-    } catch {}
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ positions, zoom, rootPersonId })); } catch {}
 }
 
-// ─── Y-Gravity Force ─────────────────────────────────────────────────────────
+// ─── X-Gravity Force ─────────────────────────────────────────────────────────
 
-function makeYGravityForce(minYear: number, maxYear: number, spread: number) {
+function makeXGravityForce(midYear: number, strength = 0.1) {
     let nodes: SimNode[] = [];
-    const midYear = (minYear + maxYear) / 2;
-    const yearRange = Math.max(maxYear - minYear, 1);
-
     function force(alpha: number) {
         for (const node of nodes) {
-            if (node.birthYear != null && node.vy !== undefined && node.y !== undefined) {
-                const targetY = ((node.birthYear - midYear) / yearRange) * spread;
-                node.vy += (targetY - node.y) * 0.1 * alpha;
+            const ey = node.effectiveBirthYear;
+            if (ey != null && node.vx !== undefined && node.x !== undefined) {
+                const targetX = yearToX(ey, midYear);
+                node.vx += (targetX - node.x) * strength * alpha;
             }
         }
     }
@@ -101,18 +156,18 @@ function makeHierarchicalForce(links: SimLink[], strength = 0.08, minSep = 80) {
         for (const link of links) {
             if (link.type !== 'parent_child') continue;
             // source=child, target=parent (backend edge direction)
-            const child = typeof link.source === 'object' ? (link.source as SimNode) : nodeMap.get(link.source as string);
+            const child  = typeof link.source === 'object' ? (link.source as SimNode) : nodeMap.get(link.source as string);
             const parent = typeof link.target === 'object' ? (link.target as SimNode) : nodeMap.get(link.target as string);
             if (!child || !parent) continue;
-            const childPinned = (child as any).fx != null && (child as any).fy != null;
+            const childPinned  = (child as any).fx != null && (child as any).fy != null;
             const parentPinned = (parent as any).fx != null && (parent as any).fy != null;
             if (childPinned && parentPinned) continue;
-            const gap = (child.y ?? 0) - (parent.y ?? 0);  // want this >= minSep
+            const gap = (child.x ?? 0) - (parent.x ?? 0);  // want >= minSep (child RIGHT of parent)
             const deficit = minSep - gap;
             if (deficit > 0) {
                 const impulse = deficit * strength * alpha;
-                if (!parentPinned && parent.vy !== undefined) parent.vy -= impulse;
-                if (!childPinned && child.vy !== undefined) child.vy += impulse;
+                if (!parentPinned && parent.vx !== undefined) parent.vx -= impulse;
+                if (!childPinned  && child.vx  !== undefined) child.vx  += impulse;
             }
         }
     }
@@ -161,6 +216,11 @@ function FamilyGraphPanel() {
     const [searchFocused, setSearchFocused] = useState(false);
     const searchRef = useRef<HTMLDivElement>(null);
 
+    // ── Root person picker state ───────────────────────────────────────────
+    const [rootSearch, setRootSearch]   = useState('');
+    const [rootFocused, setRootFocused] = useState(false);
+    const rootPickerRef = useRef<HTMLDivElement>(null);
+
     // ── Hover state ────────────────────────────────────────────────────────
     const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
     const hoveredNodeIdRef = useRef<string | null>(null);
@@ -179,18 +239,25 @@ function FamilyGraphPanel() {
     const dimsRef = useRef(dims);
     dimsRef.current = dims;
 
-    // Stable graph data with restored positions injected into nodes.
-    // Nodes with saved positions are initially PINNED (fx/fy).
-    // Links MUST have their source/target normalized back to string IDs here.
+    // ── Root person state ──────────────────────────────────────────────────
+    const [rootPersonId, setRootPersonId] = useState<string | null>(initialState.rootPersonId);
+    const rootPersonIdRef = useRef<string | null>(initialState.rootPersonId);
+
+    // ── Year bounds ref (set by D3 forces useEffect) ───────────────────────
+    const yearBoundsRef = useRef<{ minYear: number; maxYear: number; midYear: number } | null>(null);
+
+    // ── Stable graph data with positions + effectiveBirthYear ─────────────
     const stableGraphData = useMemo(() => {
         if (!graphData) return null;
+        const effectiveYears = computeEffectiveBirthYears(graphData.nodes, graphData.links);
         const pos = savedPositionsRef.current;
         return {
             nodes: graphData.nodes.map((n) => {
                 const saved = pos[n.id];
+                const effectiveBirthYear = effectiveYears.get(n.id) ?? null;
                 return saved
-                    ? { ...n, x: saved.x, y: saved.y, fx: saved.x, fy: saved.y }
-                    : { ...n };
+                    ? { ...n, effectiveBirthYear, x: saved.x, y: saved.y, fx: saved.x, fy: saved.y }
+                    : { ...n, effectiveBirthYear };
             }),
             links: graphData.links.map((l) => ({
                 ...l,
@@ -207,7 +274,7 @@ function FamilyGraphPanel() {
     const handleEngineStop = useCallback(() => {
         const gd = stableGraphDataRef.current;
         if (!gd) return;
-        saveGraphState(gd.nodes as SimNode[], zoomStateRef.current);
+        saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, rootPersonIdRef.current);
     }, []);
 
     // ── Responsive sizing ──────────────────────────────────────────────────
@@ -230,13 +297,17 @@ function FamilyGraphPanel() {
         fg.d3Force('link')?.distance?.(55);
 
         const years = stableGraphData.nodes
-            .map((n) => (n as SimNode).birthYear)
+            .map((n) => (n as SimNode).effectiveBirthYear)
             .filter((y): y is number => y != null);
 
         if (years.length > 1) {
             const minYear = Math.min(...years);
             const maxYear = Math.max(...years);
-            (fg as any).d3Force('yGravity', makeYGravityForce(minYear, maxYear, 600));
+            const midYear = (minYear + maxYear) / 2;
+            yearBoundsRef.current = { minYear, maxYear, midYear };
+            (fg as any).d3Force('xGravity', makeXGravityForce(midYear));
+            // Remove old yGravity if lingering from v2 state
+            (fg as any).d3Force('yGravity', null);
         }
 
         (fg as any).d3Force('hierarchy', makeHierarchicalForce(stableGraphData.links as SimLink[]));
@@ -249,7 +320,6 @@ function FamilyGraphPanel() {
                 delete n.fx;
                 delete n.fy;
             }
-            // saved node: keep fx/fy — stays pinned, no bouncing
         }
     }, [stableGraphData]);
 
@@ -261,7 +331,7 @@ function FamilyGraphPanel() {
             (n as any).fy = n.y;
         }
         const gd = stableGraphDataRef.current;
-        if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current);
+        if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, rootPersonIdRef.current);
     }, []);
 
     // ── Zoom tracking ──────────────────────────────────────────────────────
@@ -274,7 +344,7 @@ function FamilyGraphPanel() {
         if (zoomSaveTimerRef.current) clearTimeout(zoomSaveTimerRef.current);
         zoomSaveTimerRef.current = setTimeout(() => {
             const gd = stableGraphDataRef.current;
-            if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current);
+            if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, rootPersonIdRef.current);
         }, 300);
     }, []);
 
@@ -294,16 +364,19 @@ function FamilyGraphPanel() {
     useEffect(() => {
         return () => {
             const gd = stableGraphDataRef.current;
-            if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current);
+            if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, rootPersonIdRef.current);
             if (zoomSaveTimerRef.current) clearTimeout(zoomSaveTimerRef.current);
         };
     }, []);
 
-    // ── Close dropdown on outside click ───────────────────────────────────
+    // ── Close dropdowns on outside click ──────────────────────────────────
     useEffect(() => {
         function handleClick(e: MouseEvent) {
             if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
                 setSearchFocused(false);
+            }
+            if (rootPickerRef.current && !rootPickerRef.current.contains(e.target as Node)) {
+                setRootFocused(false);
             }
         }
         document.addEventListener('mousedown', handleClick);
@@ -321,6 +394,33 @@ function FamilyGraphPanel() {
         container.addEventListener('mousemove', onMove);
         return () => container.removeEventListener('mousemove', onMove);
     }, []);
+
+    // ── Root person callbacks ──────────────────────────────────────────────
+    const handleSetRoot = useCallback((id: string | null) => {
+        setRootPersonId(id);
+        rootPersonIdRef.current = id;
+        setRootSearch('');
+        setRootFocused(false);
+
+        if (id && fgRef.current) {
+            const node = (stableGraphDataRef.current?.nodes as SimNode[] | undefined)
+                ?.find(n => n.id === id);
+            if (node && typeof node.x === 'number' && typeof node.y === 'number') {
+                fgRef.current.centerAt(node.x, node.y, 500);
+                fgRef.current.zoom(2.2, 500);
+            }
+        }
+
+        const gd = stableGraphDataRef.current;
+        if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, id);
+    }, []);
+
+    const rootDropdownNodes = useMemo<SimNode[]>(() => {
+        if (!rootFocused || !stableGraphData) return [];
+        const q = rootSearch.trim().toLowerCase();
+        const all = stableGraphData.nodes as SimNode[];
+        return (q ? all.filter(n => n.label.toLowerCase().includes(q)) : all).slice(0, 8);
+    }, [rootFocused, rootSearch, stableGraphData]);
 
     // ── Search derived state ───────────────────────────────────────────────
     const matchingIds = useMemo<Set<string> | null>(() => {
@@ -403,6 +503,15 @@ function FamilyGraphPanel() {
             ctx.lineWidth = 1.2 / globalScale;
             ctx.stroke();
 
+            // Root person gold ring
+            if (String(n.id) === rootPersonIdRef.current) {
+                ctx.beginPath();
+                ctx.arc(x, y, r + 4.5, 0, Math.PI * 2);
+                ctx.strokeStyle = '#fbbf24';  // amber-400
+                ctx.lineWidth = 2.5 / globalScale;
+                ctx.stroke();
+            }
+
             // Label
             if (globalScale >= 0.5) {
                 const fontSize = Math.max(8, 10 / globalScale);
@@ -423,7 +532,7 @@ function FamilyGraphPanel() {
 
             ctx.globalAlpha = 1;
         },
-        [matchingIds, isDark],
+        [matchingIds, isDark, rootPersonId],
     );
 
     const drawLink = useCallback(
@@ -467,9 +576,55 @@ function FamilyGraphPanel() {
             ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.022)' : 'rgba(0,0,0,0.022)';
             ctx.lineWidth = 1;
             ctx.stroke();
+
+            // Decade band columns (graph space)
+            const bounds = yearBoundsRef.current;
+            if (bounds) {
+                const { minYear, maxYear, midYear } = bounds;
+                const decadeStart = Math.floor(minYear / 10) * 10;
+                for (let decade = decadeStart; decade <= maxYear + 10; decade += 10) {
+                    const x1 = yearToX(decade, midYear);
+                    const x2 = yearToX(decade + 10, midYear);
+                    ctx.fillStyle = isDark
+                        ? (decade % 20 === 0 ? 'rgba(255,255,255,0.018)' : 'rgba(255,255,255,0.006)')
+                        : (decade % 20 === 0 ? 'rgba(0,0,0,0.018)' : 'rgba(0,0,0,0.006)');
+                    ctx.fillRect(x1, -4000, x2 - x1, 8000);
+                    ctx.beginPath(); ctx.moveTo(x1, -4000); ctx.lineTo(x1, 4000);
+                    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.055)' : 'rgba(0,0,0,0.055)';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+            }
         },
         [isDark],
     );
+
+    // Decade labels pinned to the top of the canvas in screen space
+    const handleRenderFramePost = useCallback((ctx: CanvasRenderingContext2D) => {
+        const bounds = yearBoundsRef.current;
+        if (!bounds) return;
+        const { minYear, maxYear, midYear } = bounds;
+        const transform = ctx.getTransform();  // DOMMatrix with current zoom+pan
+        const scale = transform.a;
+        const translateX = transform.e;
+
+        ctx.save();
+        ctx.resetTransform();
+
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = isDark ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)';
+
+        const decadeStart = Math.floor(minYear / 10) * 10;
+        const canvasWidth = dimsRef.current.width;
+        for (let decade = decadeStart; decade <= maxYear + 10; decade += 10) {
+            const graphX = yearToX(decade, midYear);
+            const screenX = scale * graphX + translateX;
+            if (screenX < -40 || screenX > canvasWidth + 40) continue;
+            ctx.fillText(`${decade}s`, screenX, 18);
+        }
+        ctx.restore();
+    }, [isDark]);
 
     const handleNodeClick = useCallback(
         (node: NodeObject) => navigate({ to: '/people/$id', params: { id: String(node.id) } }),
@@ -514,6 +669,8 @@ function FamilyGraphPanel() {
             fgRef.current.d3ReheatSimulation();
             fgRef.current.zoomToFit(400, 60);
         }
+        // Preserve root person across refresh — save it back after removeItem
+        try { localStorage.setItem(LS_KEY, JSON.stringify({ positions: {}, zoom: null, rootPersonId: rootPersonIdRef.current })); } catch {}
         refetch();
     }, [refetch]);
 
@@ -524,6 +681,11 @@ function FamilyGraphPanel() {
     const nodeCount = stableGraphData?.nodes.length ?? 0;
     const linkCount = stableGraphData?.links.length ?? 0;
     const matchCount = matchingIds?.size ?? 0;
+
+    const rootNodeLabel = useMemo(() => {
+        if (!rootPersonId || !stableGraphData) return '';
+        return (stableGraphData.nodes as SimNode[]).find(n => n.id === rootPersonId)?.label ?? '';
+    }, [rootPersonId, stableGraphData]);
 
     return (
         <div ref={panelRef} className={`border border-border bg-card overflow-visible ${isFullscreen ? 'rounded-none' : 'rounded-xl'}`}>
@@ -538,9 +700,46 @@ function FamilyGraphPanel() {
                     </span>
                 )}
 
+                {/* Root person picker — ml-auto anchors the right-side controls */}
+                {!isLoading && !isError && nodeCount > 0 && (
+                    <div ref={rootPickerRef} className="relative ml-auto">
+                        <div className="flex items-center gap-1.5 h-7 rounded-md border border-border bg-muted/30 px-2 focus-within:border-ring/50 focus-within:bg-muted/50 transition-colors">
+                            <span className="text-[10px] text-muted-foreground font-mono shrink-0 uppercase tracking-wider">Root</span>
+                            <input
+                                type="text"
+                                value={rootFocused ? rootSearch : (rootPersonId ? rootNodeLabel : '')}
+                                onChange={(e) => setRootSearch(e.target.value)}
+                                onFocus={() => { setRootFocused(true); setRootSearch(''); }}
+                                placeholder="none"
+                                className="w-32 bg-transparent text-xs outline-none placeholder:text-muted-foreground/40"
+                            />
+                            {rootPersonId && !rootFocused && (
+                                <button onClick={() => handleSetRoot(null)} className="text-muted-foreground hover:text-foreground">
+                                    <X className="h-3 w-3" />
+                                </button>
+                            )}
+                        </div>
+                        {rootFocused && rootDropdownNodes.length > 0 && (
+                            <div className="absolute left-0 top-full mt-1.5 w-56 z-50 rounded-lg border border-border bg-card shadow-xl overflow-hidden">
+                                {rootDropdownNodes.map((node) => (
+                                    <button
+                                        key={node.id as string}
+                                        onMouseDown={(e) => { e.preventDefault(); handleSetRoot(node.id as string); }}
+                                        className="w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 hover:bg-muted/40 transition-colors"
+                                    >
+                                        <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: sexColor(node.sex) }} />
+                                        <span className="flex-1 min-w-0 truncate">{node.label}</span>
+                                        {node.birthYear && <span className="text-muted-foreground font-mono shrink-0">b.&nbsp;{node.birthYear}</span>}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {/* Search */}
                 {!isLoading && !isError && nodeCount > 0 && (
-                    <div ref={searchRef} className="relative ml-auto">
+                    <div ref={searchRef} className="relative">
                         <div className="flex items-center gap-1.5 h-7 rounded-md border border-border bg-muted/30 px-2 focus-within:border-ring/50 focus-within:bg-muted/50 transition-colors">
                             <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                             <input
@@ -680,6 +879,7 @@ function FamilyGraphPanel() {
                         onNodeHover={handleNodeHover}
                         onZoom={handleZoom}
                         onRenderFramePre={drawBackground}
+                        onRenderFramePost={handleRenderFramePost as any}
                         onEngineStop={handleEngineStop}
                         cooldownTicks={150}
                         d3AlphaDecay={0.022}
