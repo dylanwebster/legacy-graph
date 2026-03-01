@@ -613,18 +613,17 @@ function FamilyGraphPanel() {
     }, []);
 
     // ── Zoom tracking ──────────────────────────────────────────────────────
-    const handleZoom = useCallback(({ k, x, y }: { k: number; x: number; y: number }) => {
-        const w = dimsRef.current.width;
-        const h = dimsRef.current.height;
-        const cx = (w / 2 - x) / k;
-        const cy = (h / 2 - y) / k;
+    const handleZoom = useCallback(({ k }: { k: number; x: number; y: number }) => {
         zoomLevelRef.current = k;
 
         // Skip saving the zoom if we haven't even processed our initial restore yet
         // The graph fires an initial onZoom on mount with default coords we don't want to persist
         if (!zoomRestoredRef.current && initialState.zoom) return;
 
-        zoomStateRef.current = { k, cx, cy };
+        const center = fgRef.current?.centerAt();
+        if (!center) return;
+
+        zoomStateRef.current = { k, cx: center.x, cy: center.y };
         if (zoomSaveTimerRef.current) clearTimeout(zoomSaveTimerRef.current);
         zoomSaveTimerRef.current = setTimeout(() => {
             const gd = stableGraphDataRef.current;
@@ -634,13 +633,28 @@ function FamilyGraphPanel() {
 
     // ── Restore zoom on mount ──────────────────────────────────────────────
     useEffect(() => {
-        if (!stableGraphData?.nodes.length || zoomRestoredRef.current) return;
-        zoomRestoredRef.current = true;
+        if (!stableGraphData || zoomRestoredRef.current) return;
+
+        if (stableGraphData.nodes.length === 0) {
+            zoomRestoredRef.current = true;
+            return;
+        }
+
         const saved = initialState.zoom;
-        if (!saved) return;
+        if (!saved) {
+            zoomRestoredRef.current = true;
+            return;
+        }
+
         setTimeout(() => {
             fgRef.current?.zoom(saved.k, 0);
             fgRef.current?.centerAt(saved.cx, saved.cy, 0);
+
+            // Allow 50ms for programmatic zoom to settle before marking as restored
+            // This prevents default mounting zooms from overriding the restored zoom
+            setTimeout(() => {
+                zoomRestoredRef.current = true;
+            }, 50);
         }, 100);
     }, [stableGraphData, initialState.zoom]);
 
@@ -1104,7 +1118,6 @@ function FamilyGraphPanel() {
         try { localStorage.removeItem(LS_KEY); } catch { /* empty */ }
         savedPositionsRef.current = {};
         zoomStateRef.current = null;
-        zoomRestoredRef.current = false;
         // Trigger a full re-layout through the forces useEffect
         shouldReheatRef.current = true;
         const gd = stableGraphDataRef.current;
