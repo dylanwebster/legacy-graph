@@ -54,7 +54,6 @@ You must always abide by these rules:
 1. **TDD is mandatory** — write a failing test before writing implementation code.
 2. **Spec-first** — `SPECIFICATION.md` is authoritative. Discrepancies between spec and code are critical bugs.
 3. **Keep track of implementation state and remaining work ** — `PROGRESS.md` must be updated with implementation state and remaining steps.
-4. **frontend-design is mandatory** - Always use the frontend-design skill when doing frontend design work.
 
 ---
 

@@ -28,7 +28,7 @@ type SimLink = LinkObject & GraphLinkData;
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const NODE_R = 6;
-const LS_KEY = 'fg-state-v4';  // bumped — generation-Y layout
+const LS_KEY = 'fg-state-v5';  // bumped — fixed-X birth-year layout
 
 const SEX_COLOR: Record<string, string> = {
     M: '#60a5fa',
@@ -45,10 +45,17 @@ function sexColor(sex: string): string {
 const PIXELS_PER_YEAR = 14;
 // Vertical gap between consecutive generations when a root person is set
 const GENERATION_GAP = 140;
+// Vertical gap between separate family clusters in no-root mode
+const CLUSTER_GAP = 60;
 
 function yearToX(year: number, midYear: number): number {
     return (year - midYear) * PIXELS_PER_YEAR;
 }
+
+// Zoom thresholds for time axis resolution
+const ZOOM_CENTURY_MAX = 0.5;   // k < 0.5 → century labels
+const ZOOM_DECADE_MAX = 2.0;    // 0.5 ≤ k < 2.0 → decade labels
+// k ≥ 2.0 → year labels
 
 // ─── computeEffectiveBirthYears ───────────────────────────────────────────────
 
@@ -59,11 +66,11 @@ function computeEffectiveBirthYears(
     const GENERATION_GAP = 28;
 
     const parentIds = new Map<string, string[]>();  // childId → parentIds
-    const childIds  = new Map<string, string[]>();  // parentId → childIds
+    const childIds = new Map<string, string[]>();  // parentId → childIds
     for (const n of nodes) { parentIds.set(n.id, []); childIds.set(n.id, []); }
     for (const l of links) {
         if (l.type !== 'parent_child') continue;
-        const childId  = typeof l.source === 'object' ? (l.source as any).id : l.source;
+        const childId = typeof l.source === 'object' ? (l.source as any).id : l.source;
         const parentId = typeof l.target === 'object' ? (l.target as any).id : l.target;
         parentIds.get(childId)?.push(parentId);
         childIds.get(parentId)?.push(childId);
@@ -115,11 +122,11 @@ function computeGenerationLevels(
         return typeof ref === 'object' ? (ref as { id: string }).id : ref;
     }
     const parentIds = new Map<string, string[]>();  // childId → parentIds
-    const childIds  = new Map<string, string[]>();  // parentId → childIds
+    const childIds = new Map<string, string[]>();  // parentId → childIds
     for (const n of nodes) { parentIds.set(n.id, []); childIds.set(n.id, []); }
     for (const l of links) {
         if (l.type !== 'parent_child') continue;
-        const childId  = getId(l.source);
+        const childId = getId(l.source);
         const parentId = getId(l.target);
         parentIds.get(childId)?.push(parentId);
         childIds.get(parentId)?.push(childId);
@@ -175,24 +182,130 @@ function saveGraphState(
         if (typeof n.x === 'number' && typeof n.y === 'number')
             positions[n.id as string] = { x: n.x, y: n.y };
     }
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ positions, zoom, rootPersonId })); } catch {}
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ positions, zoom, rootPersonId })); } catch { }
 }
 
-// ─── X-Gravity Force ─────────────────────────────────────────────────────────
+// ─── Family Cluster Y Layout ──────────────────────────────────────────────────
+// Assigns initial Y positions by grouping connected families into vertical clusters.
+// Parents are placed above children. Separate family trees get separate Y bands.
 
-function makeXGravityForce(midYear: number, strength = 0.1) {
-    let nodes: SimNode[] = [];
-    function force(alpha: number) {
-        for (const node of nodes) {
-            const ey = node.effectiveBirthYear;
-            if (ey != null && node.vx !== undefined && node.x !== undefined) {
-                const targetX = yearToX(ey, midYear);
-                node.vx += (targetX - node.x) * strength * alpha;
+function computeFamilyClusterY(
+    nodes: Array<{ id: string; effectiveBirthYear?: number | null }>,
+    links: Array<{ source: string | object; target: string | object; type: string }>,
+): Map<string, number> {
+    function getId(ref: string | object): string {
+        return typeof ref === 'object' ? (ref as { id: string }).id : ref;
+    }
+
+    // Build adjacency for parent_child only
+    const parentIds = new Map<string, string[]>();
+    const childIds = new Map<string, string[]>();
+    const adj = new Map<string, Set<string>>();
+    for (const n of nodes) {
+        parentIds.set(n.id, []);
+        childIds.set(n.id, []);
+        adj.set(n.id, new Set());
+    }
+    for (const l of links) {
+        if (l.type !== 'parent_child') continue;
+        const cId = getId(l.source);
+        const pId = getId(l.target);
+        parentIds.get(cId)?.push(pId);
+        childIds.get(pId)?.push(cId);
+        adj.get(cId)?.add(pId);
+        adj.get(pId)?.add(cId);
+    }
+
+    // Also connect spouses
+    for (const l of links) {
+        if (l.type !== 'spouse') continue;
+        const a = getId(l.source);
+        const b = getId(l.target);
+        adj.get(a)?.add(b);
+        adj.get(b)?.add(a);
+    }
+
+    // Find connected components
+    const visited = new Set<string>();
+    const components: string[][] = [];
+    for (const n of nodes) {
+        if (visited.has(n.id)) continue;
+        const comp: string[] = [];
+        const stack = [n.id];
+        while (stack.length > 0) {
+            const cur = stack.pop()!;
+            if (visited.has(cur)) continue;
+            visited.add(cur);
+            comp.push(cur);
+            for (const nb of adj.get(cur) ?? []) {
+                if (!visited.has(nb)) stack.push(nb);
             }
         }
+        components.push(comp);
     }
-    (force as any).initialize = (n: SimNode[]) => { nodes = n; };
-    return force;
+
+    // Within each component, assign depth via BFS from roots (nodes with no parents)
+    const result = new Map<string, number>();
+    let clusterOffset = 0;
+
+    // Sort components by size descending so the largest family is centered
+    components.sort((a, b) => b.length - a.length);
+
+    for (const comp of components) {
+        const roots = comp.filter(id => (parentIds.get(id) ?? []).length === 0);
+        const starts = roots.length > 0 ? roots : [comp[0]];
+        const depth = new Map<string, number>();
+
+        // BFS assigning depth: parents = 0, their children = 1, etc.
+        const queue: Array<{ id: string; d: number }> = [];
+        for (const s of starts) {
+            depth.set(s, 0);
+            queue.push({ id: s, d: 0 });
+        }
+        while (queue.length > 0) {
+            const { id, d } = queue.shift()!;
+            // Children get depth d+1
+            for (const cid of childIds.get(id) ?? []) {
+                if (!depth.has(cid)) {
+                    depth.set(cid, d + 1);
+                    queue.push({ id: cid, d: d + 1 });
+                }
+            }
+            // Parents get depth d-1 (if reached from a non-root)
+            for (const pid of parentIds.get(id) ?? []) {
+                if (!depth.has(pid)) {
+                    depth.set(pid, d - 1);
+                    queue.push({ id: pid, d: d - 1 });
+                }
+            }
+        }
+        // Assign any remaining unvisited nodes in this component
+        for (const id of comp) {
+            if (!depth.has(id)) depth.set(id, 0);
+        }
+
+        // Normalize depth so minimum is 0
+        const depths = [...depth.values()];
+        const minD = Math.min(...depths);
+        const maxD = Math.max(...depths);
+        const span = maxD - minD;
+
+        for (const id of comp) {
+            const d = (depth.get(id) ?? 0) - minD;
+            result.set(id, clusterOffset + d * GENERATION_GAP);
+        }
+
+        clusterOffset += (span + 1) * GENERATION_GAP + CLUSTER_GAP;
+    }
+
+    // Center everything around Y=0
+    const allY = [...result.values()];
+    const centerY = (Math.min(...allY) + Math.max(...allY)) / 2;
+    for (const [id, y] of result) {
+        result.set(id, y - centerY);
+    }
+
+    return result;
 }
 
 // ─── Generation Y Force ───────────────────────────────────────────────────────
@@ -274,7 +387,7 @@ function FamilyGraphPanel() {
     const searchRef = useRef<HTMLDivElement>(null);
 
     // ── Root person picker state ───────────────────────────────────────────
-    const [rootSearch, setRootSearch]   = useState('');
+    const [rootSearch, setRootSearch] = useState('');
     const [rootFocused, setRootFocused] = useState(false);
     const rootPickerRef = useRef<HTMLDivElement>(null);
 
@@ -302,26 +415,42 @@ function FamilyGraphPanel() {
     // Set to true when root changes or reset fires; forces useEffect re-layouts
     const shouldReheatRef = useRef(false);
 
-    // ── Year bounds ref (set by D3 forces useEffect) ───────────────────────
+    // ── Year bounds ref (set by stableGraphData useMemo) ───────────────────
     const yearBoundsRef = useRef<{ minYear: number; maxYear: number; midYear: number } | null>(null);
 
-    // ── Stable graph data with positions + effectiveBirthYear ─────────────
+    // ── Current zoom level for draw callbacks ──────────────────────────────
+    const zoomLevelRef = useRef<number>(initialState.zoom?.k ?? 1);
+
+    // ── Stable graph data with positions + effectiveBirthYear + fixed X ───
     const stableGraphData = useMemo(() => {
         if (!graphData) return null;
         const effectiveYears = computeEffectiveBirthYears(graphData.nodes, graphData.links);
         const pos = savedPositionsRef.current;
+
+        // Compute year bounds for X positioning
+        const years = [...effectiveYears.values()];
+        let midYear = 1900;
+        if (years.length > 0) {
+            const minYear = Math.min(...years);
+            const maxYear = Math.max(...years);
+            midYear = (minYear + maxYear) / 2;
+            yearBoundsRef.current = { minYear, maxYear, midYear };
+        }
+
         return {
             nodes: graphData.nodes.map((n) => {
                 const saved = pos[n.id];
                 const effectiveBirthYear = effectiveYears.get(n.id) ?? null;
-                return saved
-                    ? { ...n, effectiveBirthYear, x: saved.x, y: saved.y, fx: saved.x, fy: saved.y }
-                    : { ...n, effectiveBirthYear };
+                const fixedX = yearToX(effectiveBirthYear ?? midYear, midYear);
+                if (saved) {
+                    return { ...n, effectiveBirthYear, x: fixedX, y: saved.y, fx: fixedX, fy: saved.y };
+                }
+                return { ...n, effectiveBirthYear, x: fixedX, fx: fixedX };
             }),
             links: graphData.links.map((l) => ({
                 ...l,
-                source: typeof l.source === 'object' ? (l.source as any).id : l.source,
-                target: typeof l.target === 'object' ? (l.target as any).id : l.target,
+                source: typeof l.source === 'object' ? (l.source as { id: string }).id : l.source,
+                target: typeof l.target === 'object' ? (l.target as { id: string }).id : l.target,
             })),
         };
     }, [graphData]);
@@ -351,27 +480,20 @@ function FamilyGraphPanel() {
     useEffect(() => {
         if (!fgRef.current || !stableGraphData?.nodes.length) return;
         const fg = fgRef.current;
+        const bounds = yearBoundsRef.current ?? { midYear: 1900, minYear: 1800, maxYear: 2000 };
 
-        fg.d3Force('charge')?.strength?.(-400);
-        fg.d3Force('link')?.distance?.(80);
+        // Reduce charge and link forces — X is fixed so we only need Y-axis settling
+        fg.d3Force('charge')?.strength?.(-200);
+        fg.d3Force('link')?.distance?.(60);
 
-        // ── X gravity: pull every node toward its birth-year X position ──
-        const years = stableGraphData.nodes
-            .map((n) => (n as SimNode).effectiveBirthYear)
-            .filter((y): y is number => y != null);
+        // Remove old forces from previous versions
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const fgAny = fg as any;
+        fgAny.d3Force('xGravity', null);
+        fgAny.d3Force('yGravity', null);
+        fgAny.d3Force('hierarchy', null);
 
-        let midYear = 1900;
-        if (years.length > 1) {
-            const minYear = Math.min(...years);
-            const maxYear = Math.max(...years);
-            midYear = (minYear + maxYear) / 2;
-            yearBoundsRef.current = { minYear, maxYear, midYear };
-        }
-        (fg as any).d3Force('xGravity', makeXGravityForce(midYear, 0.12));
-        (fg as any).d3Force('yGravity', null);   // remove v2 yGravity if present
-        (fg as any).d3Force('hierarchy', null);  // remove v3 hierarchy force if present
-
-        // ── Y force: generation-based when root set, soft centering otherwise ──
+        // ── Y force: generation-based when root set, cluster-based otherwise ──
         const rootId = rootPersonIdRef.current;
         let genLevels: Map<string, number> | null = null;
         if (rootId) {
@@ -380,28 +502,35 @@ function FamilyGraphPanel() {
                 stableGraphData.links as Array<{ source: string | object; target: string | object; type: string }>,
                 rootId,
             );
-            (fg as any).d3Force('generationY', makeGenerationYForce(genLevels, GENERATION_GAP, 0.2));
-            // Softly center disconnected nodes that have no assigned generation
-            (fg as any).d3Force('centerY', makeCenterYForce(new Set(genLevels.keys()), 0.04));
+            fgAny.d3Force('generationY', makeGenerationYForce(genLevels, GENERATION_GAP, 0.3));
+            fgAny.d3Force('centerY', makeCenterYForce(new Set(genLevels.keys()), 0.04));
         } else {
-            (fg as any).d3Force('generationY', null);
-            (fg as any).d3Force('centerY', makeCenterYForce(null, 0.05));
+            fgAny.d3Force('generationY', null);
+            fgAny.d3Force('centerY', makeCenterYForce(null, 0.06));
         }
 
-        // ── Reheat on root change (shouldReheatRef set by handleSetRoot) ──
+        // ── Reheat on root change or reset ──
         if (shouldReheatRef.current) {
             shouldReheatRef.current = false;
-            const bounds = yearBoundsRef.current ?? { midYear: 1900, minYear: 1800, maxYear: 2000 };
+
+            // Compute initial Y positions from cluster layout or generation levels
+            const clusterY = rootId ? null : computeFamilyClusterY(
+                stableGraphData.nodes as SimNode[],
+                stableGraphData.links as Array<{ source: string | object; target: string | object; type: string }>,
+            );
 
             for (const node of stableGraphData.nodes) {
-                const n = node as any;
-                delete n.fx;
-                delete n.fy;
-                // Set X from birth year, Y from generation level (or random spread)
-                n.x = yearToX((n as SimNode).effectiveBirthYear ?? bounds.midYear, bounds.midYear);
+                const n = node as SimNode & { fx?: number; fy?: number };
+                const fixedX = yearToX(n.effectiveBirthYear ?? bounds.midYear, bounds.midYear);
+                n.fx = fixedX;  // Always lock X to birth year
+                n.x = fixedX;
+                delete n.fy;    // Free Y for simulation
+
                 if (genLevels) {
                     const level = genLevels.get(n.id as string);
-                    n.y = level !== undefined ? level * GENERATION_GAP : (Math.random() - 0.5) * GENERATION_GAP * 2;
+                    n.y = level !== undefined ? level * GENERATION_GAP : (Math.random() - 0.5) * GENERATION_GAP * 3;
+                } else if (clusterY) {
+                    n.y = (clusterY.get(n.id as string) ?? 0) + (Math.random() - 0.5) * 20;
                 } else {
                     n.y = (Math.random() - 0.5) * 600;
                 }
@@ -410,11 +539,11 @@ function FamilyGraphPanel() {
             }
             fg.d3ReheatSimulation();
 
-            // After simulation settles a bit, center view on root node
+            // Center view on root node after simulation settles
             if (rootId) {
                 setTimeout(() => {
                     const rootNode = (stableGraphDataRef.current?.nodes as SimNode[] | undefined)
-                        ?.find((n) => n.id === rootId);
+                        ?.find((nd) => nd.id === rootId);
                     if (rootNode && typeof rootNode.x === 'number' && typeof rootNode.y === 'number') {
                         fgRef.current?.centerAt(rootNode.x, rootNode.y, 600);
                         fgRef.current?.zoom(1.4, 600);
@@ -424,26 +553,33 @@ function FamilyGraphPanel() {
                 }, 900);
             }
         } else {
-            // First mount / API reload: unpin only nodes that have no saved position
+            // First mount / API reload: ensure fx is set to birth year, restore saved fy
             const savedPos = savedPositionsRef.current;
             for (const node of stableGraphData.nodes) {
-                const n = node as any;
-                if (!savedPos[n.id as string]) {
-                    delete n.fx;
+                const n = node as SimNode & { fx?: number; fy?: number };
+                const fixedX = yearToX(n.effectiveBirthYear ?? bounds.midYear, bounds.midYear);
+                n.fx = fixedX;
+                n.x = fixedX;
+                if (savedPos[n.id as string]) {
+                    n.fy = savedPos[n.id as string].y;
+                } else {
                     delete n.fy;
                 }
             }
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [stableGraphData, rootPersonId]);
 
-    // ── Node drag end — pin dragged node ───────────────────────────────────
+    // ── Node drag end — only pin Y (X stays locked to birth year) ──────────
     const handleNodeDragEnd = useCallback((node: NodeObject) => {
         const n = node as SimNode;
-        if (typeof n.x === 'number' && typeof n.y === 'number') {
-            (n as any).fx = n.x;
-            (n as any).fy = n.y;
+        if (typeof n.y === 'number') {
+            (n as SimNode & { fy?: number }).fy = n.y;
         }
+        // Keep fx locked to birth year
+        const bounds = yearBoundsRef.current ?? { midYear: 1900, minYear: 1800, maxYear: 2000 };
+        const fixedX = yearToX(n.effectiveBirthYear ?? bounds.midYear, bounds.midYear);
+        (n as SimNode & { fx?: number }).fx = fixedX;
+        n.x = fixedX;
         const gd = stableGraphDataRef.current;
         if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, rootPersonIdRef.current);
     }, []);
@@ -455,6 +591,7 @@ function FamilyGraphPanel() {
         const cx = (w / 2 - x) / k;
         const cy = (h / 2 - y) / k;
         zoomStateRef.current = { k, cx, cy };
+        zoomLevelRef.current = k;
         if (zoomSaveTimerRef.current) clearTimeout(zoomSaveTimerRef.current);
         zoomSaveTimerRef.current = setTimeout(() => {
             const gd = stableGraphDataRef.current;
@@ -639,11 +776,11 @@ function FamilyGraphPanel() {
 
             ctx.globalAlpha = 1;
         },
-        [matchingIds, isDark, rootPersonId],
+        [matchingIds, isDark],
     );
 
     const drawLink = useCallback(
-        (link: LinkObject, ctx: CanvasRenderingContext2D, _globalScale: number) => {
+        (link: LinkObject, ctx: CanvasRenderingContext2D) => {
             const l = link as SimLink;
             if (l.type !== 'spouse') return;
             const src = typeof l.source === 'object' ? (l.source as SimNode) : null;
@@ -672,6 +809,7 @@ function FamilyGraphPanel() {
 
     const drawBackground = useCallback(
         (ctx: CanvasRenderingContext2D) => {
+            // Subtle grid
             const step = 80;
             ctx.beginPath();
             for (let x = -4000; x < 4000; x += step) {
@@ -684,10 +822,30 @@ function FamilyGraphPanel() {
             ctx.lineWidth = 1;
             ctx.stroke();
 
-            // Decade band columns (graph space)
+            // Zoom-dependent time bands
             const bounds = yearBoundsRef.current;
-            if (bounds) {
-                const { minYear, maxYear, midYear } = bounds;
+            if (!bounds) return;
+            const { minYear, maxYear, midYear } = bounds;
+            const k = zoomLevelRef.current;
+
+            if (k < ZOOM_CENTURY_MAX) {
+                // Century bands
+                const centuryStart = Math.floor(minYear / 100) * 100;
+                for (let century = centuryStart; century <= maxYear + 100; century += 100) {
+                    const x1 = yearToX(century, midYear);
+                    const x2 = yearToX(century + 100, midYear);
+                    const idx = ((century / 100) % 2 + 2) % 2;
+                    ctx.fillStyle = isDark
+                        ? (idx === 0 ? 'rgba(255,255,255,0.020)' : 'rgba(255,255,255,0.008)')
+                        : (idx === 0 ? 'rgba(0,0,0,0.020)' : 'rgba(0,0,0,0.008)');
+                    ctx.fillRect(x1, -4000, x2 - x1, 8000);
+                    ctx.beginPath(); ctx.moveTo(x1, -4000); ctx.lineTo(x1, 4000);
+                    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+            } else if (k < ZOOM_DECADE_MAX) {
+                // Decade bands
                 const decadeStart = Math.floor(minYear / 10) * 10;
                 for (let decade = decadeStart; decade <= maxYear + 10; decade += 10) {
                     const x1 = yearToX(decade, midYear);
@@ -702,34 +860,93 @@ function FamilyGraphPanel() {
                     ctx.stroke();
                 }
             }
+            // No bands at year-level zoom (k >= ZOOM_DECADE_MAX) — too dense
         },
         [isDark],
     );
 
-    // Decade labels pinned to the top of the canvas in screen space
+    // Dynamic time axis labels pinned to top of canvas in screen space
     const handleRenderFramePost = useCallback((ctx: CanvasRenderingContext2D) => {
         const bounds = yearBoundsRef.current;
         if (!bounds) return;
         const { minYear, maxYear, midYear } = bounds;
-        const transform = ctx.getTransform();  // DOMMatrix with current zoom+pan
+        const transform = ctx.getTransform();
         const scale = transform.a;
         const translateX = transform.e;
+        const canvasWidth = dimsRef.current.width;
+        const k = zoomLevelRef.current;
 
         ctx.save();
         ctx.resetTransform();
 
-        ctx.font = '11px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = isDark ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)';
+        // Axis line at top
+        ctx.beginPath();
+        ctx.moveTo(0, 28);
+        ctx.lineTo(canvasWidth, 28);
+        ctx.strokeStyle = isDark ? 'rgba(148,163,184,0.25)' : 'rgba(71,85,105,0.25)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
 
-        const decadeStart = Math.floor(minYear / 10) * 10;
-        const canvasWidth = dimsRef.current.width;
-        for (let decade = decadeStart; decade <= maxYear + 10; decade += 10) {
-            const graphX = yearToX(decade, midYear);
-            const screenX = scale * graphX + translateX;
-            if (screenX < -40 || screenX > canvasWidth + 40) continue;
-            ctx.fillText(`${decade}s`, screenX, 18);
+        const labelColor = isDark ? 'rgba(148,163,184,0.7)' : 'rgba(71,85,105,0.7)';
+        const tickColor = isDark ? 'rgba(148,163,184,0.3)' : 'rgba(71,85,105,0.3)';
+
+        if (k < ZOOM_CENTURY_MAX) {
+            // Century labels
+            ctx.font = '12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = labelColor;
+            const centuryStart = Math.floor(minYear / 100) * 100;
+            for (let century = centuryStart; century <= maxYear + 100; century += 100) {
+                const graphX = yearToX(century, midYear);
+                const screenX = scale * graphX + translateX;
+                if (screenX < -60 || screenX > canvasWidth + 60) continue;
+                // Tick mark
+                ctx.beginPath();
+                ctx.moveTo(screenX, 22);
+                ctx.lineTo(screenX, 28);
+                ctx.strokeStyle = tickColor;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                ctx.fillText(`${century}`, screenX, 18);
+            }
+        } else if (k < ZOOM_DECADE_MAX) {
+            // Decade labels
+            ctx.font = '11px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = labelColor;
+            const decadeStart = Math.floor(minYear / 10) * 10;
+            for (let decade = decadeStart; decade <= maxYear + 10; decade += 10) {
+                const graphX = yearToX(decade, midYear);
+                const screenX = scale * graphX + translateX;
+                if (screenX < -40 || screenX > canvasWidth + 40) continue;
+                ctx.beginPath();
+                ctx.moveTo(screenX, 22);
+                ctx.lineTo(screenX, 28);
+                ctx.strokeStyle = tickColor;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                ctx.fillText(`${decade}s`, screenX, 18);
+            }
+        } else {
+            // Year labels
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = labelColor;
+            const yearStart = Math.floor(minYear);
+            for (let yr = yearStart; yr <= maxYear + 1; yr++) {
+                const graphX = yearToX(yr, midYear);
+                const screenX = scale * graphX + translateX;
+                if (screenX < -30 || screenX > canvasWidth + 30) continue;
+                ctx.beginPath();
+                ctx.moveTo(screenX, 24);
+                ctx.lineTo(screenX, 28);
+                ctx.strokeStyle = tickColor;
+                ctx.lineWidth = 0.5;
+                ctx.stroke();
+                ctx.fillText(`${yr}`, screenX, 18);
+            }
         }
+
         ctx.restore();
     }, [isDark]);
 
@@ -758,7 +975,7 @@ function FamilyGraphPanel() {
 
     // ── Refresh (clears saved layout so graph re-settles from scratch) ─────
     const handleRefresh = useCallback(() => {
-        try { localStorage.removeItem(LS_KEY); } catch {}
+        try { localStorage.removeItem(LS_KEY); } catch { /* empty */ }
         savedPositionsRef.current = {};
         zoomStateRef.current = null;
         zoomRestoredRef.current = false;
@@ -766,22 +983,22 @@ function FamilyGraphPanel() {
         shouldReheatRef.current = true;
         const gd = stableGraphDataRef.current;
         if (gd && fgRef.current) {
-            // Pre-scatter nodes so D3 starts fresh
             const bounds = yearBoundsRef.current;
             for (const node of gd.nodes) {
-                const n = node as any;
-                n.x = bounds ? yearToX((n as SimNode).effectiveBirthYear ?? bounds.midYear, bounds.midYear) : (Math.random() - 0.5) * 1000;
+                const n = node as SimNode & { fx?: number; fy?: number };
+                const fixedX = bounds ? yearToX(n.effectiveBirthYear ?? bounds.midYear, bounds.midYear) : 0;
+                n.x = fixedX;
+                n.fx = fixedX;  // Keep X locked to birth year
                 n.y = (Math.random() - 0.5) * 500;
                 n.vx = 0;
                 n.vy = 0;
-                delete n.fx;
-                delete n.fy;
+                delete n.fy;  // Free Y for simulation
             }
             fgRef.current.d3ReheatSimulation();
             fgRef.current.zoomToFit(600, 80);
         }
         // Preserve root person across refresh — save it back after removeItem
-        try { localStorage.setItem(LS_KEY, JSON.stringify({ positions: {}, zoom: null, rootPersonId: rootPersonIdRef.current })); } catch {}
+        try { localStorage.setItem(LS_KEY, JSON.stringify({ positions: {}, zoom: null, rootPersonId: rootPersonIdRef.current })); } catch { /* empty */ }
         refetch();
     }, [refetch]);
 
