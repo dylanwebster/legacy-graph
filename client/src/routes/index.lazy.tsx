@@ -885,10 +885,10 @@ function FamilyGraphPanel() {
             const transform = ctx.getTransform();
             const scale = transform.a;
             const translateX = transform.e;
-            const canvasWidth = dimsRef.current.width;
+            const physicalWidth = ctx.canvas.width;
 
             const minGraphX = -translateX / scale - 300;
-            const maxGraphX = (canvasWidth - translateX) / scale + 300;
+            const maxGraphX = (physicalWidth - translateX) / scale + 300;
             const minYear = minGraphX / PIXELS_PER_YEAR + midYear;
             const maxYear = maxGraphX / PIXELS_PER_YEAR + midYear;
 
@@ -937,20 +937,25 @@ function FamilyGraphPanel() {
         const transform = ctx.getTransform();
         const scale = transform.a;
         const translateX = transform.e;
-        const canvasWidth = dimsRef.current.width;
+
+        const cssWidth = dimsRef.current.width;
+        if (!cssWidth) return;
+        const physicalWidth = ctx.canvas.width;
+        const dpr = physicalWidth / cssWidth;
         const k = zoomLevelRef.current;
 
         ctx.save();
         ctx.resetTransform();
+        ctx.scale(dpr, dpr);
 
         // Solid background plate for the timeline
         ctx.fillStyle = isDark ? 'rgba(15,23,42,0.92)' : 'rgba(255,255,255,0.92)';
-        ctx.fillRect(0, 0, canvasWidth, 64);
+        ctx.fillRect(0, 0, cssWidth, 64);
 
         // Axis line at bottom of timeline plate
         ctx.beginPath();
         ctx.moveTo(0, 64);
-        ctx.lineTo(canvasWidth, 64);
+        ctx.lineTo(cssWidth, 64);
         ctx.strokeStyle = isDark ? 'rgba(148,163,184,0.4)' : 'rgba(71,85,105,0.4)';
         ctx.lineWidth = 1;
         ctx.stroke();
@@ -959,9 +964,11 @@ function FamilyGraphPanel() {
         const tickColor = isDark ? 'rgba(148,163,184,0.5)' : 'rgba(71,85,105,0.5)';
 
         const minGraphX = -translateX / scale - 300;
-        const maxGraphX = (canvasWidth - translateX) / scale + 300;
+        const maxGraphX = (physicalWidth - translateX) / scale + 300;
         const minYear = minGraphX / PIXELS_PER_YEAR + midYear;
         const maxYear = maxGraphX / PIXELS_PER_YEAR + midYear;
+
+        const getScreenX = (graphX: number) => (graphX * scale + translateX) / dpr;
 
         if (k < ZOOM_CENTURY_MAX) {
             // Century labels
@@ -971,9 +978,8 @@ function FamilyGraphPanel() {
             ctx.fillStyle = labelColor;
             const centuryStart = Math.floor(minYear / 100) * 100;
             for (let century = centuryStart; century <= maxYear; century += 100) {
-                const graphX = yearToX(century, midYear);
-                const screenX = scale * graphX + translateX;
-                if (screenX < -80 || screenX > canvasWidth + 80) continue;
+                const screenX = getScreenX(yearToX(century, midYear));
+                if (screenX < -80 || screenX > cssWidth + 80) continue;
                 // Tick mark
                 ctx.beginPath();
                 ctx.moveTo(screenX, 54);
@@ -991,9 +997,8 @@ function FamilyGraphPanel() {
             ctx.fillStyle = labelColor;
             const decadeStart = Math.floor(minYear / 10) * 10;
             for (let decade = decadeStart; decade <= maxYear; decade += 10) {
-                const graphX = yearToX(decade, midYear);
-                const screenX = scale * graphX + translateX;
-                if (screenX < -60 || screenX > canvasWidth + 60) continue;
+                const screenX = getScreenX(yearToX(decade, midYear));
+                if (screenX < -60 || screenX > cssWidth + 60) continue;
                 ctx.beginPath();
                 ctx.moveTo(screenX, 56);
                 ctx.lineTo(screenX, 64);
@@ -1010,9 +1015,8 @@ function FamilyGraphPanel() {
             ctx.fillStyle = labelColor;
             const yearStart = Math.floor(minYear);
             for (let yr = yearStart; yr <= maxYear; yr++) {
-                const graphX = yearToX(yr, midYear);
-                const screenX = scale * graphX + translateX;
-                if (screenX < -40 || screenX > canvasWidth + 40) continue;
+                const screenX = getScreenX(yearToX(yr, midYear));
+                if (screenX < -40 || screenX > cssWidth + 40) continue;
                 ctx.beginPath();
                 ctx.moveTo(screenX, 58);
                 ctx.lineTo(screenX, 64);
