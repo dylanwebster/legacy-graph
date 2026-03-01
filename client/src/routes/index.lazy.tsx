@@ -67,13 +67,26 @@ function computeEffectiveBirthYears(
 
     const parentIds = new Map<string, string[]>();  // childId → parentIds
     const childIds = new Map<string, string[]>();  // parentId → childIds
-    for (const n of nodes) { parentIds.set(n.id, []); childIds.set(n.id, []); }
+    const spouseIds = new Map<string, string[]>(); // personId → spouseIds
+
+    for (const n of nodes) {
+        parentIds.set(n.id, []);
+        childIds.set(n.id, []);
+        spouseIds.set(n.id, []);
+    }
+
     for (const l of links) {
-        if (l.type !== 'parent_child') continue;
-        const childId = typeof l.source === 'object' ? (l.source as any).id : l.source;
-        const parentId = typeof l.target === 'object' ? (l.target as any).id : l.target;
-        parentIds.get(childId)?.push(parentId);
-        childIds.get(parentId)?.push(childId);
+        if (l.type === 'parent_child') {
+            const childId = typeof l.source === 'object' ? (l.source as any).id : l.source;
+            const parentId = typeof l.target === 'object' ? (l.target as any).id : l.target;
+            parentIds.get(childId)?.push(parentId);
+            childIds.get(parentId)?.push(childId);
+        } else if (l.type === 'spouse') {
+            const a = typeof l.source === 'object' ? (l.source as any).id : l.source;
+            const b = typeof l.target === 'object' ? (l.target as any).id : l.target;
+            spouseIds.get(a)?.push(b);
+            spouseIds.get(b)?.push(a);
+        }
     }
 
     const result = new Map<string, number>();
@@ -91,6 +104,9 @@ function computeEffectiveBirthYears(
             }
             for (const cid of childIds.get(n.id) ?? []) {
                 const y = result.get(cid); if (y != null) estimates.push(y - GENERATION_GAP);
+            }
+            for (const sid of spouseIds.get(n.id) ?? []) {
+                const y = result.get(sid); if (y != null) estimates.push(y);
             }
             if (estimates.length > 0) {
                 result.set(n.id, estimates.reduce((a, b) => a + b, 0) / estimates.length);
@@ -133,7 +149,9 @@ function computeGenerationLevels(
     }
 
     const levels = new Map<string, number>();
-    const queue: Array<{ id: string; level: number }> = [{ id: rootId, level: 0 }];
+
+    // Ancestors: only traverse upwards
+    let queue: Array<{ id: string; level: number }> = [{ id: rootId, level: 0 }];
     levels.set(rootId, 0);
     while (queue.length > 0) {
         const { id, level } = queue.shift()!;
@@ -143,6 +161,12 @@ function computeGenerationLevels(
                 queue.push({ id: pid, level: level - 1 });
             }
         }
+    }
+
+    // Descendants: only traverse downwards
+    queue = [{ id: rootId, level: 0 }];
+    while (queue.length > 0) {
+        const { id, level } = queue.shift()!;
         for (const cid of childIds.get(id) ?? []) {
             if (!levels.has(cid)) {
                 levels.set(cid, level + 1);
@@ -150,6 +174,7 @@ function computeGenerationLevels(
             }
         }
     }
+
     return levels;
 }
 
@@ -459,6 +484,15 @@ function FamilyGraphPanel() {
     const stableGraphDataRef = useRef(stableGraphData);
     stableGraphDataRef.current = stableGraphData;
 
+    const genLevels = useMemo<Map<string, number> | null>(() => {
+        if (!rootPersonId || !stableGraphData) return null;
+        return computeGenerationLevels(
+            stableGraphData.nodes as Array<{ id: string }>,
+            stableGraphData.links as Array<{ source: string | object; target: string | object; type: string }>,
+            rootPersonId
+        );
+    }, [rootPersonId, stableGraphData]);
+
     const handleEngineStop = useCallback(() => {
         const gd = stableGraphDataRef.current;
         if (!gd) return;
@@ -495,13 +529,7 @@ function FamilyGraphPanel() {
 
         // ── Y force: generation-based when root set, cluster-based otherwise ──
         const rootId = rootPersonIdRef.current;
-        let genLevels: Map<string, number> | null = null;
-        if (rootId) {
-            genLevels = computeGenerationLevels(
-                stableGraphData.nodes as Array<{ id: string }>,
-                stableGraphData.links as Array<{ source: string | object; target: string | object; type: string }>,
-                rootId,
-            );
+        if (rootId && genLevels) {
             fgAny.d3Force('generationY', makeGenerationYForce(genLevels, GENERATION_GAP, 0.3));
             fgAny.d3Force('centerY', makeCenterYForce(new Set(genLevels.keys()), 0.04));
         } else {
@@ -567,7 +595,7 @@ function FamilyGraphPanel() {
                 }
             }
         }
-    }, [stableGraphData, rootPersonId]);
+    }, [stableGraphData, rootPersonId, genLevels]);
 
     // ── Node drag end — only pin Y (X stays locked to birth year) ──────────
     const handleNodeDragEnd = useCallback((node: NodeObject) => {
@@ -605,10 +633,10 @@ function FamilyGraphPanel() {
         zoomRestoredRef.current = true;
         const saved = zoomStateRef.current;
         if (!saved) return;
-        requestAnimationFrame(() => {
+        setTimeout(() => {
             fgRef.current?.zoom(saved.k, 0);
             fgRef.current?.centerAt(saved.cx, saved.cy, 0);
-        });
+        }, 100);
     }, [stableGraphData]);
 
     // ── Cleanup on unmount ─────────────────────────────────────────────────
@@ -714,34 +742,41 @@ function FamilyGraphPanel() {
             const y = n.y ?? 0;
             const isMatch = matchingIds ? matchingIds.has(n.id as string) : true;
             const hasFilt = matchingIds !== null;
-            const alpha = hasFilt ? (isMatch ? 1 : 0.12) : 1;
-            const color = sexColor(n.sex);
+            const inLineage = genLevels ? genLevels.has(n.id as string) : true;
+            const hasRoot = genLevels !== null;
+
+            let alpha = 1;
+            if (hasFilt && !isMatch) alpha = 0.12;
+            if (hasRoot && !inLineage) alpha = Math.min(alpha, 0.12);
+
+            const baseColor = sexColor(n.sex);
             const r = isMatch && hasFilt ? NODE_R * 1.3 : NODE_R;
+            const coreR = Math.max(r, 2.5 / globalScale);
 
             ctx.globalAlpha = alpha;
 
             // Glow
-            const grd = ctx.createRadialGradient(x, y, 0, x, y, r * 2.8);
-            grd.addColorStop(0, color + (isMatch && hasFilt ? '60' : '28'));
+            const grd = ctx.createRadialGradient(x, y, 0, x, y, coreR * 2.8);
+            grd.addColorStop(0, baseColor + (isMatch && hasFilt ? '60' : '28'));
             grd.addColorStop(1, 'transparent');
             ctx.beginPath();
-            ctx.arc(x, y, r * 2.8, 0, Math.PI * 2);
+            ctx.arc(x, y, coreR * 2.8, 0, Math.PI * 2);
             ctx.fillStyle = grd;
             ctx.fill();
 
             // Highlight ring for matches when filter active
             if (isMatch && hasFilt) {
                 ctx.beginPath();
-                ctx.arc(x, y, r + 3, 0, Math.PI * 2);
-                ctx.strokeStyle = color + 'a0';
+                ctx.arc(x, y, coreR + 3, 0, Math.PI * 2);
+                ctx.strokeStyle = baseColor + 'a0';
                 ctx.lineWidth = 1.5 / globalScale;
                 ctx.stroke();
             }
 
             // Core circle
             ctx.beginPath();
-            ctx.arc(x, y, r, 0, Math.PI * 2);
-            ctx.fillStyle = color;
+            ctx.arc(x, y, coreR, 0, Math.PI * 2);
+            ctx.fillStyle = baseColor;
             ctx.fill();
             ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.1)';
             ctx.lineWidth = 1.2 / globalScale;
@@ -750,7 +785,7 @@ function FamilyGraphPanel() {
             // Root person gold ring
             if (String(n.id) === rootPersonIdRef.current) {
                 ctx.beginPath();
-                ctx.arc(x, y, r + 4.5, 0, Math.PI * 2);
+                ctx.arc(x, y, coreR + 4.5, 0, Math.PI * 2);
                 ctx.strokeStyle = '#fbbf24';  // amber-400
                 ctx.lineWidth = 2.5 / globalScale;
                 ctx.stroke();
@@ -764,23 +799,25 @@ function FamilyGraphPanel() {
                 ctx.textBaseline = 'top';
                 ctx.shadowColor = isDark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.95)';
                 ctx.shadowBlur = 3;
+
+                const isActive = (isMatch || !hasFilt) && (inLineage || !hasRoot);
                 ctx.fillStyle = isDark
-                    ? (isMatch || !hasFilt ? 'rgba(248,250,252,0.88)' : 'rgba(248,250,252,0.25)')
-                    : (isMatch || !hasFilt ? 'rgba(15,23,42,0.82)' : 'rgba(15,23,42,0.2)');
+                    ? (isActive ? 'rgba(248,250,252,0.88)' : 'rgba(248,250,252,0.25)')
+                    : (isActive ? 'rgba(15,23,42,0.82)' : 'rgba(15,23,42,0.2)');
 
                 const parts = n.label.split(' ');
                 const shortLabel = parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : n.label;
-                ctx.fillText(shortLabel, x, y + r + 2 / globalScale);
+                ctx.fillText(shortLabel, x, y + coreR + 2 / globalScale);
                 ctx.shadowBlur = 0;
             }
 
             ctx.globalAlpha = 1;
         },
-        [matchingIds, isDark],
+        [matchingIds, genLevels, isDark],
     );
 
     const drawLink = useCallback(
-        (link: LinkObject, ctx: CanvasRenderingContext2D) => {
+        (link: LinkObject, ctx: CanvasRenderingContext2D, globalScale: number) => {
             const l = link as SimLink;
             if (l.type !== 'spouse') return;
             const src = typeof l.source === 'object' ? (l.source as SimNode) : null;
@@ -791,20 +828,32 @@ function FamilyGraphPanel() {
             const bothMatch = hasFilt
                 ? (matchingIds!.has(src.id as string) && matchingIds!.has(tgt.id as string))
                 : true;
+            const hasRoot = genLevels !== null;
+            const bothInLineage = hasRoot
+                ? (genLevels!.has(src.id as string) && genLevels!.has(tgt.id as string))
+                : true;
             const isEnded = l.status === 'divorced' || l.status === 'widowed';
 
+            let alpha = 0.8;
+            if (hasFilt && !bothMatch) alpha = 0.08;
+            if (hasRoot && !bothInLineage) alpha = Math.min(alpha, 0.08);
+
             ctx.save();
-            ctx.globalAlpha = hasFilt ? (bothMatch ? 0.85 : 0.08) : 0.8;
+            ctx.globalAlpha = alpha;
             ctx.beginPath();
             ctx.moveTo(src.x ?? 0, src.y ?? 0);
             ctx.lineTo(tgt.x ?? 0, tgt.y ?? 0);
-            ctx.setLineDash(isEnded ? [5, 5] : []);
+
+            // Determine line width based on globalScale so it remains visible when zoomed out
+            const lineWidth = Math.max(1.5, 1.5 / globalScale);
+
+            ctx.setLineDash(isEnded ? [5 * lineWidth, 5 * lineWidth] : []);
             ctx.strokeStyle = isEnded ? 'rgba(251,146,60,0.75)' : 'rgba(251,191,36,0.85)';
-            ctx.lineWidth = 1.5;
+            ctx.lineWidth = lineWidth;
             ctx.stroke();
             ctx.restore();
         },
-        [matchingIds],
+        [matchingIds, genLevels],
     );
 
     const drawBackground = useCallback(
@@ -825,13 +874,25 @@ function FamilyGraphPanel() {
             // Zoom-dependent time bands
             const bounds = yearBoundsRef.current;
             if (!bounds) return;
-            const { minYear, maxYear, midYear } = bounds;
+            const { midYear } = bounds;
             const k = zoomLevelRef.current;
+
+            let minYear = bounds.minYear;
+            let maxYear = bounds.maxYear;
+            const zoomState = zoomStateRef.current;
+            if (zoomState) {
+                const { cx } = zoomState;
+                const visibleWidthGraph = dimsRef.current.width / k;
+                const minGraphX = cx - visibleWidthGraph / 2 - 200;
+                const maxGraphX = cx + visibleWidthGraph / 2 + 200;
+                minYear = minGraphX / PIXELS_PER_YEAR + midYear;
+                maxYear = maxGraphX / PIXELS_PER_YEAR + midYear;
+            }
 
             if (k < ZOOM_CENTURY_MAX) {
                 // Century bands
                 const centuryStart = Math.floor(minYear / 100) * 100;
-                for (let century = centuryStart; century <= maxYear + 100; century += 100) {
+                for (let century = centuryStart; century <= maxYear; century += 100) {
                     const x1 = yearToX(century, midYear);
                     const x2 = yearToX(century + 100, midYear);
                     const idx = ((century / 100) % 2 + 2) % 2;
@@ -847,7 +908,7 @@ function FamilyGraphPanel() {
             } else if (k < ZOOM_DECADE_MAX) {
                 // Decade bands
                 const decadeStart = Math.floor(minYear / 10) * 10;
-                for (let decade = decadeStart; decade <= maxYear + 10; decade += 10) {
+                for (let decade = decadeStart; decade <= maxYear; decade += 10) {
                     const x1 = yearToX(decade, midYear);
                     const x2 = yearToX(decade + 10, midYear);
                     ctx.fillStyle = isDark
@@ -869,7 +930,7 @@ function FamilyGraphPanel() {
     const handleRenderFramePost = useCallback((ctx: CanvasRenderingContext2D) => {
         const bounds = yearBoundsRef.current;
         if (!bounds) return;
-        const { minYear, maxYear, midYear } = bounds;
+        const { midYear } = bounds;
         const transform = ctx.getTransform();
         const scale = transform.a;
         const translateX = transform.e;
@@ -881,8 +942,8 @@ function FamilyGraphPanel() {
 
         // Axis line at top
         ctx.beginPath();
-        ctx.moveTo(0, 28);
-        ctx.lineTo(canvasWidth, 28);
+        ctx.moveTo(0, 48);
+        ctx.lineTo(canvasWidth, 48);
         ctx.strokeStyle = isDark ? 'rgba(148,163,184,0.25)' : 'rgba(71,85,105,0.25)';
         ctx.lineWidth = 1;
         ctx.stroke();
@@ -890,60 +951,72 @@ function FamilyGraphPanel() {
         const labelColor = isDark ? 'rgba(148,163,184,0.7)' : 'rgba(71,85,105,0.7)';
         const tickColor = isDark ? 'rgba(148,163,184,0.3)' : 'rgba(71,85,105,0.3)';
 
+        let minYear = bounds.minYear;
+        let maxYear = bounds.maxYear;
+        const zoomState = zoomStateRef.current;
+        if (zoomState) {
+            const { cx } = zoomState;
+            const visibleWidthGraph = canvasWidth / k;
+            const minGraphX = cx - visibleWidthGraph / 2 - 200;
+            const maxGraphX = cx + visibleWidthGraph / 2 + 200;
+            minYear = minGraphX / PIXELS_PER_YEAR + midYear;
+            maxYear = maxGraphX / PIXELS_PER_YEAR + midYear;
+        }
+
         if (k < ZOOM_CENTURY_MAX) {
             // Century labels
-            ctx.font = '12px sans-serif';
+            ctx.font = '14px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillStyle = labelColor;
             const centuryStart = Math.floor(minYear / 100) * 100;
-            for (let century = centuryStart; century <= maxYear + 100; century += 100) {
+            for (let century = centuryStart; century <= maxYear; century += 100) {
                 const graphX = yearToX(century, midYear);
                 const screenX = scale * graphX + translateX;
                 if (screenX < -60 || screenX > canvasWidth + 60) continue;
                 // Tick mark
                 ctx.beginPath();
-                ctx.moveTo(screenX, 22);
-                ctx.lineTo(screenX, 28);
+                ctx.moveTo(screenX, 42);
+                ctx.lineTo(screenX, 48);
                 ctx.strokeStyle = tickColor;
                 ctx.lineWidth = 1;
                 ctx.stroke();
-                ctx.fillText(`${century}`, screenX, 18);
+                ctx.fillText(`${century}`, screenX, 36);
             }
         } else if (k < ZOOM_DECADE_MAX) {
             // Decade labels
-            ctx.font = '11px sans-serif';
+            ctx.font = '13px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillStyle = labelColor;
             const decadeStart = Math.floor(minYear / 10) * 10;
-            for (let decade = decadeStart; decade <= maxYear + 10; decade += 10) {
+            for (let decade = decadeStart; decade <= maxYear; decade += 10) {
                 const graphX = yearToX(decade, midYear);
                 const screenX = scale * graphX + translateX;
                 if (screenX < -40 || screenX > canvasWidth + 40) continue;
                 ctx.beginPath();
-                ctx.moveTo(screenX, 22);
-                ctx.lineTo(screenX, 28);
+                ctx.moveTo(screenX, 42);
+                ctx.lineTo(screenX, 48);
                 ctx.strokeStyle = tickColor;
                 ctx.lineWidth = 1;
                 ctx.stroke();
-                ctx.fillText(`${decade}s`, screenX, 18);
+                ctx.fillText(`${decade}s`, screenX, 36);
             }
         } else {
             // Year labels
-            ctx.font = '10px sans-serif';
+            ctx.font = '12px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillStyle = labelColor;
             const yearStart = Math.floor(minYear);
-            for (let yr = yearStart; yr <= maxYear + 1; yr++) {
+            for (let yr = yearStart; yr <= maxYear; yr++) {
                 const graphX = yearToX(yr, midYear);
                 const screenX = scale * graphX + translateX;
                 if (screenX < -30 || screenX > canvasWidth + 30) continue;
                 ctx.beginPath();
-                ctx.moveTo(screenX, 24);
-                ctx.lineTo(screenX, 28);
+                ctx.moveTo(screenX, 44);
+                ctx.lineTo(screenX, 48);
                 ctx.strokeStyle = tickColor;
                 ctx.lineWidth = 0.5;
                 ctx.stroke();
-                ctx.fillText(`${yr}`, screenX, 18);
+                ctx.fillText(`${yr}`, screenX, 36);
             }
         }
 
