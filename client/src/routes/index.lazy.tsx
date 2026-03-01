@@ -618,26 +618,31 @@ function FamilyGraphPanel() {
         const h = dimsRef.current.height;
         const cx = (w / 2 - x) / k;
         const cy = (h / 2 - y) / k;
-        zoomStateRef.current = { k, cx, cy };
         zoomLevelRef.current = k;
+
+        // Skip saving the zoom if we haven't even processed our initial restore yet
+        // The graph fires an initial onZoom on mount with default coords we don't want to persist
+        if (!zoomRestoredRef.current && initialState.zoom) return;
+
+        zoomStateRef.current = { k, cx, cy };
         if (zoomSaveTimerRef.current) clearTimeout(zoomSaveTimerRef.current);
         zoomSaveTimerRef.current = setTimeout(() => {
             const gd = stableGraphDataRef.current;
             if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, rootPersonIdRef.current);
         }, 300);
-    }, []);
+    }, [initialState.zoom]);
 
     // ── Restore zoom on mount ──────────────────────────────────────────────
     useEffect(() => {
         if (!stableGraphData?.nodes.length || zoomRestoredRef.current) return;
         zoomRestoredRef.current = true;
-        const saved = zoomStateRef.current;
+        const saved = initialState.zoom;
         if (!saved) return;
         setTimeout(() => {
             fgRef.current?.zoom(saved.k, 0);
             fgRef.current?.centerAt(saved.cx, saved.cy, 0);
         }, 100);
-    }, [stableGraphData]);
+    }, [stableGraphData, initialState.zoom]);
 
     // ── Cleanup on unmount ─────────────────────────────────────────────────
     useEffect(() => {
@@ -877,17 +882,15 @@ function FamilyGraphPanel() {
             const { midYear } = bounds;
             const k = zoomLevelRef.current;
 
-            let minYear = bounds.minYear;
-            let maxYear = bounds.maxYear;
-            const zoomState = zoomStateRef.current;
-            if (zoomState) {
-                const { cx } = zoomState;
-                const visibleWidthGraph = dimsRef.current.width / k;
-                const minGraphX = cx - visibleWidthGraph / 2 - 200;
-                const maxGraphX = cx + visibleWidthGraph / 2 + 200;
-                minYear = minGraphX / PIXELS_PER_YEAR + midYear;
-                maxYear = maxGraphX / PIXELS_PER_YEAR + midYear;
-            }
+            const transform = ctx.getTransform();
+            const scale = transform.a;
+            const translateX = transform.e;
+            const canvasWidth = dimsRef.current.width;
+
+            const minGraphX = -translateX / scale - 300;
+            const maxGraphX = (canvasWidth - translateX) / scale + 300;
+            const minYear = minGraphX / PIXELS_PER_YEAR + midYear;
+            const maxYear = maxGraphX / PIXELS_PER_YEAR + midYear;
 
             if (k < ZOOM_CENTURY_MAX) {
                 // Century bands
@@ -940,88 +943,134 @@ function FamilyGraphPanel() {
         ctx.save();
         ctx.resetTransform();
 
-        // Axis line at top
+        // Solid background plate for the timeline
+        ctx.fillStyle = isDark ? 'rgba(15,23,42,0.92)' : 'rgba(255,255,255,0.92)';
+        ctx.fillRect(0, 0, canvasWidth, 64);
+
+        // Axis line at bottom of timeline plate
         ctx.beginPath();
-        ctx.moveTo(0, 48);
-        ctx.lineTo(canvasWidth, 48);
-        ctx.strokeStyle = isDark ? 'rgba(148,163,184,0.25)' : 'rgba(71,85,105,0.25)';
+        ctx.moveTo(0, 64);
+        ctx.lineTo(canvasWidth, 64);
+        ctx.strokeStyle = isDark ? 'rgba(148,163,184,0.4)' : 'rgba(71,85,105,0.4)';
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        const labelColor = isDark ? 'rgba(148,163,184,0.7)' : 'rgba(71,85,105,0.7)';
-        const tickColor = isDark ? 'rgba(148,163,184,0.3)' : 'rgba(71,85,105,0.3)';
+        const labelColor = isDark ? 'rgba(241,245,249,0.95)' : 'rgba(15,23,42,0.95)';
+        const tickColor = isDark ? 'rgba(148,163,184,0.5)' : 'rgba(71,85,105,0.5)';
 
-        let minYear = bounds.minYear;
-        let maxYear = bounds.maxYear;
-        const zoomState = zoomStateRef.current;
-        if (zoomState) {
-            const { cx } = zoomState;
-            const visibleWidthGraph = canvasWidth / k;
-            const minGraphX = cx - visibleWidthGraph / 2 - 200;
-            const maxGraphX = cx + visibleWidthGraph / 2 + 200;
-            minYear = minGraphX / PIXELS_PER_YEAR + midYear;
-            maxYear = maxGraphX / PIXELS_PER_YEAR + midYear;
-        }
+        const minGraphX = -translateX / scale - 300;
+        const maxGraphX = (canvasWidth - translateX) / scale + 300;
+        const minYear = minGraphX / PIXELS_PER_YEAR + midYear;
+        const maxYear = maxGraphX / PIXELS_PER_YEAR + midYear;
 
         if (k < ZOOM_CENTURY_MAX) {
             // Century labels
-            ctx.font = '14px sans-serif';
+            ctx.font = 'bold 18px sans-serif';
+            ctx.textBaseline = 'bottom';
             ctx.textAlign = 'center';
             ctx.fillStyle = labelColor;
             const centuryStart = Math.floor(minYear / 100) * 100;
             for (let century = centuryStart; century <= maxYear; century += 100) {
                 const graphX = yearToX(century, midYear);
                 const screenX = scale * graphX + translateX;
-                if (screenX < -60 || screenX > canvasWidth + 60) continue;
+                if (screenX < -80 || screenX > canvasWidth + 80) continue;
                 // Tick mark
                 ctx.beginPath();
-                ctx.moveTo(screenX, 42);
-                ctx.lineTo(screenX, 48);
+                ctx.moveTo(screenX, 54);
+                ctx.lineTo(screenX, 64);
                 ctx.strokeStyle = tickColor;
-                ctx.lineWidth = 1;
+                ctx.lineWidth = 2;
                 ctx.stroke();
-                ctx.fillText(`${century}`, screenX, 36);
+                ctx.fillText(`${century}`, screenX, 48);
             }
         } else if (k < ZOOM_DECADE_MAX) {
             // Decade labels
-            ctx.font = '13px sans-serif';
+            ctx.font = '600 15px sans-serif';
+            ctx.textBaseline = 'bottom';
             ctx.textAlign = 'center';
             ctx.fillStyle = labelColor;
             const decadeStart = Math.floor(minYear / 10) * 10;
             for (let decade = decadeStart; decade <= maxYear; decade += 10) {
                 const graphX = yearToX(decade, midYear);
                 const screenX = scale * graphX + translateX;
-                if (screenX < -40 || screenX > canvasWidth + 40) continue;
+                if (screenX < -60 || screenX > canvasWidth + 60) continue;
                 ctx.beginPath();
-                ctx.moveTo(screenX, 42);
-                ctx.lineTo(screenX, 48);
+                ctx.moveTo(screenX, 56);
+                ctx.lineTo(screenX, 64);
                 ctx.strokeStyle = tickColor;
-                ctx.lineWidth = 1;
+                ctx.lineWidth = 1.5;
                 ctx.stroke();
-                ctx.fillText(`${decade}s`, screenX, 36);
+                ctx.fillText(`${decade}s`, screenX, 50);
             }
         } else {
             // Year labels
-            ctx.font = '12px sans-serif';
+            ctx.font = '500 13px sans-serif';
+            ctx.textBaseline = 'bottom';
             ctx.textAlign = 'center';
             ctx.fillStyle = labelColor;
             const yearStart = Math.floor(minYear);
             for (let yr = yearStart; yr <= maxYear; yr++) {
                 const graphX = yearToX(yr, midYear);
                 const screenX = scale * graphX + translateX;
-                if (screenX < -30 || screenX > canvasWidth + 30) continue;
+                if (screenX < -40 || screenX > canvasWidth + 40) continue;
                 ctx.beginPath();
-                ctx.moveTo(screenX, 44);
-                ctx.lineTo(screenX, 48);
+                ctx.moveTo(screenX, 58);
+                ctx.lineTo(screenX, 64);
                 ctx.strokeStyle = tickColor;
-                ctx.lineWidth = 0.5;
+                ctx.lineWidth = 1;
                 ctx.stroke();
-                ctx.fillText(`${yr}`, screenX, 36);
+                ctx.fillText(`${yr}`, screenX, 52);
             }
         }
 
         ctx.restore();
     }, [isDark]);
+
+    const getParentChildLinkColor = useCallback((link: any) => {
+        if (link.type !== 'parent_child') return 'transparent';
+        const srcId = typeof link.source === 'object' ? link.source.id : link.source;
+        const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
+
+        const hasFilt = matchingIds !== null;
+        const bothMatch = hasFilt ? (matchingIds.has(srcId) && matchingIds.has(tgtId)) : true;
+
+        const hasRoot = genLevels !== null;
+        const bothInLineage = hasRoot ? (genLevels.has(srcId) && genLevels.has(tgtId)) : true;
+
+        let alpha = isDark ? 0.35 : 0.3;
+        if (hasFilt && !bothMatch) alpha = 0.04;
+        if (hasRoot && !bothInLineage) alpha = Math.min(alpha, 0.04);
+
+        if (hasRoot && bothInLineage) {
+            alpha = isDark ? 0.85 : 0.75;
+            return isDark ? `rgba(167,139,250,${alpha})` : `rgba(139,92,246,${alpha})`;
+        }
+
+        return isDark ? `rgba(148,163,184,${alpha})` : `rgba(71,85,105,${alpha})`;
+    }, [matchingIds, genLevels, isDark]);
+
+    const getParentChildArrowColor = useCallback((link: any) => {
+        if (link.type !== 'parent_child') return 'transparent';
+        const srcId = typeof link.source === 'object' ? link.source.id : link.source;
+        const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
+
+        const hasFilt = matchingIds !== null;
+        const bothMatch = hasFilt ? (matchingIds.has(srcId) && matchingIds.has(tgtId)) : true;
+
+        const hasRoot = genLevels !== null;
+        const bothInLineage = hasRoot ? (genLevels.has(srcId) && genLevels.has(tgtId)) : true;
+
+        let alpha = isDark ? 0.45 : 0.4;
+        if (hasFilt && !bothMatch) alpha = 0.05;
+        if (hasRoot && !bothInLineage) alpha = Math.min(alpha, 0.05);
+
+        if (hasRoot && bothInLineage) {
+            alpha = isDark ? 0.95 : 0.85;
+            return isDark ? `rgba(167,139,250,${alpha})` : `rgba(139,92,246,${alpha})`;
+        }
+
+        return isDark ? `rgba(148,163,184,${alpha})` : `rgba(71,85,105,${alpha})`;
+    }, [matchingIds, genLevels, isDark]);
 
     const handleNodeClick = useCallback(
         (node: NodeObject) => navigate({ to: '/people/$id', params: { id: String(node.id) } }),
@@ -1260,19 +1309,11 @@ function FamilyGraphPanel() {
                         nodeRelSize={NODE_R}
                         nodeCanvasObject={drawNode}
                         nodeCanvasObjectMode={() => 'replace'}
-                        linkColor={(link: any) =>
-                            link.type === 'parent_child'
-                                ? (isDark ? 'rgba(148,163,184,0.35)' : 'rgba(71,85,105,0.3)')
-                                : 'transparent'
-                        }
+                        linkColor={getParentChildLinkColor}
                         linkWidth={(link: any) => link.type === 'parent_child' ? 1.5 : 0}
                         linkDirectionalArrowLength={(link: any) => link.type === 'parent_child' ? 5 : 0}
                         linkDirectionalArrowRelPos={1}
-                        linkDirectionalArrowColor={(link: any) =>
-                            link.type === 'parent_child'
-                                ? (isDark ? 'rgba(148,163,184,0.45)' : 'rgba(71,85,105,0.4)')
-                                : 'transparent'
-                        }
+                        linkDirectionalArrowColor={getParentChildArrowColor}
                         linkCanvasObject={drawLink}
                         linkCanvasObjectMode={(link: any) => link.type === 'spouse' ? 'replace' : undefined}
                         onNodeClick={handleNodeClick}
