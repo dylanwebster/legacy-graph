@@ -142,8 +142,8 @@ function computeGenerationLevels(
     for (const n of nodes) { parentIds.set(n.id, []); childIds.set(n.id, []); }
     for (const l of links) {
         if (l.type !== 'parent_child') continue;
-        const childId = getId(l.source);
-        const parentId = getId(l.target);
+        const childId = getId(l.target); // swapped: target is child
+        const parentId = getId(l.source); // swapped: source is parent
         parentIds.get(childId)?.push(parentId);
         childIds.get(parentId)?.push(childId);
     }
@@ -233,8 +233,8 @@ function computeFamilyClusterY(
     }
     for (const l of links) {
         if (l.type !== 'parent_child') continue;
-        const cId = getId(l.source);
-        const pId = getId(l.target);
+        const cId = getId(l.target); // swapped: target is child
+        const pId = getId(l.source); // swapped: source is parent
         parentIds.get(cId)?.push(pId);
         childIds.get(pId)?.push(cId);
         adj.get(cId)?.add(pId);
@@ -472,11 +472,22 @@ function FamilyGraphPanel() {
                 }
                 return { ...n, effectiveBirthYear, x: fixedX, fx: fixedX };
             }),
-            links: graphData.links.map((l) => ({
-                ...l,
-                source: typeof l.source === 'object' ? (l.source as { id: string }).id : l.source,
-                target: typeof l.target === 'object' ? (l.target as { id: string }).id : l.target,
-            })),
+            links: graphData.links.map((l) => {
+                const s = typeof l.source === 'object' ? (l.source as { id: string }).id : l.source;
+                const t = typeof l.target === 'object' ? (l.target as { id: string }).id : l.target;
+                if (l.type === 'parent_child') {
+                    return {
+                        ...l,
+                        source: t, // Swap source to be parent
+                        target: s, // Swap target to be child
+                    };
+                }
+                return {
+                    ...l,
+                    source: s,
+                    target: t,
+                };
+            }),
         };
     }, [graphData]);
 
