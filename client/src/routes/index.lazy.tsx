@@ -777,6 +777,25 @@ function FamilyGraphPanel() {
         setHoveredNodeId(id);
     }, []);
 
+    // ── Pre-compute child -> parents map for routing ───────────────────────
+    const childParentsMapRef = useRef<Map<string, SimNode[]>>(new Map());
+    useEffect(() => {
+        if (!stableGraphData) return;
+        const cpMap = new Map<string, SimNode[]>();
+        for (const l of stableGraphData.links) {
+            if (l.type === 'parent_child') {
+                const childId = typeof l.target === 'object' ? (l.target as SimNode).id : l.target;
+                const parentId = typeof l.source === 'object' ? (l.source as SimNode).id : l.source;
+                const parentNode = (stableGraphData.nodes as SimNode[]).find(n => n.id === parentId);
+                if (parentNode && childId) {
+                    if (!cpMap.has(childId as string)) cpMap.set(childId as string, []);
+                    cpMap.get(childId as string)!.push(parentNode);
+                }
+            }
+        }
+        childParentsMapRef.current = cpMap;
+    }, [stableGraphData]);
+
     // ── Canvas drawing ─────────────────────────────────────────────────────
     const isDark = theme === 'dark';
 
@@ -864,41 +883,156 @@ function FamilyGraphPanel() {
     const drawLink = useCallback(
         (link: LinkObject, ctx: CanvasRenderingContext2D, globalScale: number) => {
             const l = link as SimLink;
-            if (l.type !== 'spouse') return;
-            const src = typeof l.source === 'object' ? (l.source as SimNode) : null;
-            const tgt = typeof l.target === 'object' ? (l.target as SimNode) : null;
-            if (!src || !tgt) return;
+            if (l.type === 'spouse') {
+                const src = typeof l.source === 'object' ? (l.source as SimNode) : null;
+                const tgt = typeof l.target === 'object' ? (l.target as SimNode) : null;
+                if (!src || !tgt) return;
 
-            const hasFilt = matchingIds !== null;
-            const bothMatch = hasFilt
-                ? (matchingIds!.has(src.id as string) && matchingIds!.has(tgt.id as string))
-                : true;
-            const hasRoot = genLevels !== null;
-            const bothInLineage = hasRoot
-                ? (genLevels!.has(src.id as string) && genLevels!.has(tgt.id as string))
-                : true;
-            const isEnded = l.status === 'divorced' || l.status === 'widowed';
+                const hasFilt = matchingIds !== null;
+                const bothMatch = hasFilt
+                    ? (matchingIds!.has(src.id as string) && matchingIds!.has(tgt.id as string))
+                    : true;
+                const hasRoot = genLevels !== null;
+                const bothInLineage = hasRoot
+                    ? (genLevels!.has(src.id as string) && genLevels!.has(tgt.id as string))
+                    : true;
+                const isEnded = l.status === 'divorced' || l.status === 'widowed';
 
-            let alpha = 0.8;
-            if (hasFilt && !bothMatch) alpha = 0.08;
-            if (hasRoot && !bothInLineage) alpha = Math.min(alpha, 0.08);
+                let alpha = 0.8;
+                if (hasFilt && !bothMatch) alpha = 0.08;
+                if (hasRoot && !bothInLineage) alpha = Math.min(alpha, 0.08);
 
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            ctx.beginPath();
-            ctx.moveTo(src.x ?? 0, src.y ?? 0);
-            ctx.lineTo(tgt.x ?? 0, tgt.y ?? 0);
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.beginPath();
+                ctx.moveTo(src.x ?? 0, src.y ?? 0);
+                ctx.lineTo(tgt.x ?? 0, tgt.y ?? 0);
 
-            // Determine line width based on globalScale so it remains visible when zoomed out
-            const lineWidth = Math.max(1.5, 1.5 / globalScale);
+                // Determine line width based on globalScale so it remains visible when zoomed out
+                const lineWidth = Math.max(1.5, 1.5 / globalScale);
 
-            ctx.setLineDash(isEnded ? [5 * lineWidth, 5 * lineWidth] : []);
-            ctx.strokeStyle = isEnded ? 'rgba(251,146,60,0.75)' : 'rgba(251,191,36,0.85)';
-            ctx.lineWidth = lineWidth;
-            ctx.stroke();
-            ctx.restore();
+                ctx.setLineDash(isEnded ? [5 * lineWidth, 5 * lineWidth] : []);
+                ctx.strokeStyle = isEnded ? 'rgba(251,146,60,0.75)' : 'rgba(251,191,36,0.85)';
+                ctx.lineWidth = lineWidth;
+                ctx.stroke();
+                ctx.restore();
+            } else if (l.type === 'parent_child') {
+                const src = typeof l.source === 'object' ? (l.source as SimNode) : null;
+                const tgt = typeof l.target === 'object' ? (l.target as SimNode) : null;
+                if (!src || !tgt) return;
+
+                const parentNodes = childParentsMapRef.current.get(tgt.id as string);
+                if (!parentNodes || parentNodes.length === 0) return;
+
+                // Only draw the consolidated link ONCE
+                if (parentNodes[0].id !== src.id) return;
+
+                // Compute midpoint of all parents
+                let startX = 0; let startY = 0;
+                for (const p of parentNodes) {
+                    startX += (p.x ?? 0);
+                    startY += (p.y ?? 0);
+                }
+                startX /= parentNodes.length;
+                startY /= parentNodes.length;
+
+                const endX = tgt.x ?? 0;
+                const endY = tgt.y ?? 0;
+
+                const hasFilt = matchingIds !== null;
+                const tgtId = tgt.id as string;
+                let bothMatch = false;
+                if (hasFilt) {
+                    for (const p of parentNodes) {
+                        if (matchingIds.has(p.id as string) && matchingIds.has(tgtId)) {
+                            bothMatch = true;
+                            break;
+                        }
+                    }
+                } else {
+                    bothMatch = true;
+                }
+
+                const hasRoot = genLevels !== null;
+                let bothInLineage = false;
+                if (hasRoot) {
+                    for (const p of parentNodes) {
+                        if (genLevels.has(p.id as string) && genLevels.has(tgtId)) {
+                            bothInLineage = true;
+                            break;
+                        }
+                    }
+                } else {
+                    bothInLineage = true;
+                }
+
+                let alpha = isDark ? 0.35 : 0.3;
+                if (hasFilt && !bothMatch) alpha = 0.04;
+                if (hasRoot && !bothInLineage) alpha = Math.min(alpha, 0.04);
+
+                let isLineageFocus = false;
+                if (hasRoot && bothInLineage) {
+                    alpha = isDark ? 0.85 : 0.75;
+                    isLineageFocus = true;
+                }
+
+                const color = isDark ?
+                    (isLineageFocus ? `rgba(167,139,250,${alpha})` : `rgba(148,163,184,${alpha})`) :
+                    (isLineageFocus ? `rgba(139,92,246,${alpha})` : `rgba(71,85,105,${alpha})`);
+
+                let arrAlpha = isDark ? 0.45 : 0.4;
+                if (hasFilt && !bothMatch) arrAlpha = 0.05;
+                if (hasRoot && !bothInLineage) arrAlpha = Math.min(arrAlpha, 0.05);
+                if (hasRoot && bothInLineage) arrAlpha = isDark ? 0.95 : 0.85;
+
+                const arrowColor = isDark ?
+                    (isLineageFocus ? `rgba(167,139,250,${arrAlpha})` : `rgba(148,163,184,${arrAlpha})`) :
+                    (isLineageFocus ? `rgba(139,92,246,${arrAlpha})` : `rgba(71,85,105,${arrAlpha})`);
+
+                ctx.save();
+
+                const lineWidth = Math.max(1.5, 1.5 / globalScale);
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+
+                const cp1X = startX + (endX - startX) * 0.5;
+                const cp1Y = startY;
+                const cp2X = endX - (endX - startX) * 0.5;
+                const cp2Y = endY;
+
+                ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, endX, endY);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = lineWidth;
+                ctx.stroke();
+
+                if (globalScale > 0.15 && arrowColor !== 'transparent') {
+                    let angle = 0;
+                    if (Math.abs(endX - startX) < 5) {
+                        angle = Math.atan2(endY - startY, endX - startX);
+                    } else {
+                        angle = Math.atan2(endY - cp2Y, endX - cp2X);
+                    }
+
+                    const r = Math.max(NODE_R, 2.5 / globalScale) + Math.max(2, 2 / globalScale);
+                    const tipX = endX - r * Math.cos(angle);
+                    const tipY = endY - r * Math.sin(angle);
+
+                    const arrowLen = Math.max(4, 5 / globalScale);
+                    const arrowAngle = Math.PI / 7;
+
+                    ctx.beginPath();
+                    ctx.moveTo(tipX, tipY);
+                    ctx.lineTo(tipX - arrowLen * Math.cos(angle - arrowAngle), tipY - arrowLen * Math.sin(angle - arrowAngle));
+                    ctx.lineTo(tipX - arrowLen * Math.cos(angle + arrowAngle), tipY - arrowLen * Math.sin(angle + arrowAngle));
+                    ctx.closePath();
+                    ctx.fillStyle = arrowColor;
+                    ctx.fill();
+                }
+
+                ctx.restore();
+            }
         },
-        [matchingIds, genLevels],
+        [matchingIds, genLevels, isDark],
     );
 
     const drawBackground = useCallback(
@@ -1358,12 +1492,12 @@ function FamilyGraphPanel() {
                         nodeCanvasObject={drawNode}
                         nodeCanvasObjectMode={() => 'replace'}
                         linkColor={getParentChildLinkColor}
-                        linkWidth={(link: any) => link.type === 'parent_child' ? 1.5 : 0}
-                        linkDirectionalArrowLength={(link: any) => link.type === 'parent_child' ? 5 : 0}
+                        linkWidth={() => 0}
+                        linkDirectionalArrowLength={() => 0}
                         linkDirectionalArrowRelPos={1}
                         linkDirectionalArrowColor={getParentChildArrowColor}
                         linkCanvasObject={drawLink}
-                        linkCanvasObjectMode={(link: any) => link.type === 'spouse' ? 'replace' : undefined}
+                        linkCanvasObjectMode={(link: any) => (link.type === 'spouse' || link.type === 'parent_child') ? 'replace' : undefined}
                         onNodeClick={handleNodeClick}
                         onNodeDragEnd={handleNodeDragEnd}
                         onNodeHover={handleNodeHover}
