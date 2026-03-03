@@ -360,31 +360,17 @@ function computeFamilyClusterY(
     return result;
 }
 
-// ─── Lineage Y Force ("Gravity Trunk") ────────────────────────────────────────
-// When a focal person is set: pulls the focal person strongly to Y=0,
-// direct ancestors/descendants with medium strength, and ignores everyone else.
-// When no focal person: very weak global centering to keep things on screen.
+// ─── Centering Y Force ────────────────────────────────────────────────────────
+// Provides a very weak global centering force to keep the graph from drifting
+// too far from the Y=0 axis, without distorting the family structure.
 
-function makeLineageYForce(
-    focalId: string | null,
-    lineageIds: Map<string, number> | null,
-) {
+function makeCenteringYForce() {
     let nodes: SimNode[] = [];
     function force(alpha: number) {
         for (const node of nodes) {
             if (node.vy === undefined || node.y === undefined) continue;
-            const id = node.id as string;
-            let strength: number;
-            if (focalId && lineageIds) {
-                if (id === focalId) strength = 0.5;
-                else if (lineageIds.has(id)) strength = 0.2;
-                else strength = 0; // branches float free
-            } else {
-                strength = 0.02; // weak global centering
-            }
-            if (strength > 0) {
-                node.vy += (0 - node.y) * strength * alpha;
-            }
+            // Weak global centering
+            node.vy += (0 - node.y) * 0.02 * alpha;
         }
     }
     (force as any).initialize = (n: SimNode[]) => { nodes = n; };
@@ -570,10 +556,10 @@ function FamilyGraphPanel() {
             existingLink.strength?.((link: any) => link.type === 'spouse' ? 0.8 : 0.3);
         }
 
-        // 4. Lineage gravity trunk (replaces generation bands + centerY)
-        const rootId = rootPersonIdRef.current;
-        fgAny.d3Force('lineageY', makeLineageYForce(rootId, genLevels));
+        // 4. Global centering force (keeps everything on screen without distortion)
+        fgAny.d3Force('lineageY', makeCenteringYForce());
 
+        const rootId = rootPersonIdRef.current;
         // ── Reheat on root change or reset ──
         if (shouldReheatRef.current) {
             shouldReheatRef.current = false;
@@ -724,15 +710,26 @@ function FamilyGraphPanel() {
 
     // ── Root person callbacks ──────────────────────────────────────────────
     const handleSetRoot = useCallback((id: string | null) => {
-        // Signal the forces useEffect to re-layout the graph on next render
-        shouldReheatRef.current = true;
+        // We no longer reheat on root change — keep the stable topological layout
+        // and just update the visual highlighting and camera focus.
         rootPersonIdRef.current = id;
-        setRootPersonId(id);  // triggers forces useEffect via dep array
+        setRootPersonId(id);
         setRootSearch('');
         setRootFocused(false);
 
         const gd = stableGraphDataRef.current;
-        if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, id);
+        if (gd) {
+            saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, id);
+
+            // Focus camera on the new focal node immediately
+            if (id && fgRef.current) {
+                const node = (gd.nodes as SimNode[]).find(n => n.id === id);
+                if (node && typeof node.x === 'number' && typeof node.y === 'number') {
+                    fgRef.current.centerAt(node.x, node.y, 600);
+                    fgRef.current.zoom(1.4, 600);
+                }
+            }
+        }
     }, []);
 
     const rootDropdownNodes = useMemo<SimNode[]>(() => {
