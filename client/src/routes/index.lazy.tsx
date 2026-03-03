@@ -777,11 +777,14 @@ function FamilyGraphPanel() {
         setHoveredNodeId(id);
     }, []);
 
-    // ── Pre-compute child -> parents map for routing ───────────────────────
-    const childParentsMapRef = useRef<Map<string, SimNode[]>>(new Map());
+    // ── Pre-compute routing maps ───────────────────────────────────────────
+    const childParentsMapRef = useRef<Map<string, SimNode[]>>(new Map()); // childId -> parents
+    const spouseToChildrenMapRef = useRef<Map<string, string[]>>(new Map()); // "p1|p2" -> childIds
     useEffect(() => {
         if (!stableGraphData) return;
         const cpMap = new Map<string, SimNode[]>();
+        const stcMap = new Map<string, string[]>();
+
         for (const l of stableGraphData.links) {
             if (l.type === 'parent_child') {
                 const childId = typeof l.target === 'object' ? (l.target as SimNode).id : l.target;
@@ -793,7 +796,21 @@ function FamilyGraphPanel() {
                 }
             }
         }
+
+        // Now populate spouse-to-children
+        for (const [childId, parents] of cpMap.entries()) {
+            if (parents.length >= 2) {
+                // Ensure consistent key ordering
+                const p1 = parents[0].id as string;
+                const p2 = parents[1].id as string;
+                const key = p1 < p2 ? `${p1}|${p2}` : `${p2}|${p1}`;
+                if (!stcMap.has(key)) stcMap.set(key, []);
+                stcMap.get(key)!.push(childId);
+            }
+        }
+
         childParentsMapRef.current = cpMap;
+        spouseToChildrenMapRef.current = stcMap;
     }, [stableGraphData]);
 
     // ── Canvas drawing ─────────────────────────────────────────────────────
@@ -912,11 +929,28 @@ function FamilyGraphPanel() {
                 const normalColor = isEnded ? 'rgba(251,146,60,0.75)' : 'rgba(251,191,36,0.85)';
                 const lineageFocusColor = isDark ? `rgba(167,139,250,0.85)` : `rgba(139,92,246,0.75)`;
 
+                // Does this marriage have children in the lineage?
+                let hasLineageChildren = false;
+                if (hasRoot) {
+                    const sid = src.id as string;
+                    const tid = tgt.id as string;
+                    const key = sid < tid ? `${sid}|${tid}` : `${tid}|${sid}`;
+                    const children = spouseToChildrenMapRef.current.get(key);
+                    if (children) {
+                        for (const childId of children) {
+                            if (genLevels.has(childId)) {
+                                hasLineageChildren = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 ctx.save();
                 ctx.setLineDash(dash);
                 ctx.lineWidth = lineWidth;
 
-                if (hasRoot && srcInLineage !== tgtInLineage) {
+                if (hasRoot && srcInLineage !== tgtInLineage && hasLineageChildren) {
                     // Split drawing: exactly one spouse is in the lineage
                     let srcAlpha = srcInLineage ? 1 : 0.08;
                     if (hasFilt && !srcMatch) srcAlpha = 0.08;
