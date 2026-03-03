@@ -10,3 +10,4 @@ test-results/
 .graph-cache.json
 .search-index.json
 .claude
+SCRATCH.md

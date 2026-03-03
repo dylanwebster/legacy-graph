@@ -684,23 +684,22 @@ Searchable, sortable table/list of all people in the graph. Entry point from the
 The landing page. Overview of the family graph.
 
 - **Stats Panel**: Cards showing Total People, Total Families (derived from marriage events), Last Edited File (from git log or `last_modified`), System Status.
+
 - **Visualization Mode Toggle**: Three switchable views, toggled by a segmented control (icons + labels):
 
-  #### Mode 1: Force Graph (Physics)
+  #### Mode 1: Force Graph
   - **Library**: `react-force-graph-2d`.
   - Nodes = people, edges = parent-child + spouse relationships.
-  - **Y-Axis Gravity ("Gravity Bands")**: Nodes pulled to horizontal bands by birth year, creating generational layers.
-  - **X-Axis Clustering**: Immediate families naturally cluster together.
   - **Interaction**: Click node → navigate to `/people/:id`. Drag to rearrange (springs back on release).
   - Spouse bonds visually distinguished: **solid edge** (active marriage) vs **dashed edge** (divorced/widowed).
-
+  
   #### Mode 2: Fan Chart
   - **Ancestor semi-circle** radiating from a selected root person.
   - Each generation occupies a ring; root person at the center.
   - **Color-coded by lineage** (paternal vs. maternal branches use distinct hues).
   - Click a segment → navigate to `/people/:id` or re-root the chart.
   - Root person selector: search input to pick the focal ancestor.
-
+  
   #### Mode 3: Pedigree Chart
   - **Standard rigid horizontal tree** (root person on left, ancestors branch right).
   - Generations as columns; each person as a card node.
