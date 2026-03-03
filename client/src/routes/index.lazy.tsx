@@ -1,6 +1,7 @@
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import ForceGraph2D from 'react-force-graph-2d';
 import type { ForceGraphMethods, NodeObject, LinkObject } from 'react-force-graph-2d';
+import { forceCollide } from 'd3-force-3d';
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useGraphData, usePerson } from '@/api/hooks';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
@@ -43,10 +44,13 @@ function sexColor(sex: string): string {
 
 // Fixed scale: 1 year = 14 canvas units (decade = 140 units wide — gives better temporal spread)
 const PIXELS_PER_YEAR = 14;
-// Vertical gap between consecutive generations when a root person is set
-const GENERATION_GAP = 140;
-// Vertical gap between separate family clusters in no-root mode
-const CLUSTER_GAP = 60;
+// Vertical spacing for topological pre-sort
+const GENERATION_GAP = 80;
+// Vertical gap between separate family clusters
+const CLUSTER_GAP = 100;
+// Semantic link distances
+const SPOUSE_LINK_DIST = 12;
+const PARENT_CHILD_LINK_DIST = 50;
 
 function yearToX(year: number, midYear: number): number {
     return (year - midYear) * PIXELS_PER_YEAR;
@@ -210,9 +214,10 @@ function saveGraphState(
     try { localStorage.setItem(LS_KEY, JSON.stringify({ positions, zoom, rootPersonId })); } catch { }
 }
 
-// ─── Family Cluster Y Layout ──────────────────────────────────────────────────
-// Assigns initial Y positions by grouping connected families into vertical clusters.
-// Parents are placed above children. Separate family trees get separate Y bands.
+// ─── Topological Y Pre-Sorter ─────────────────────────────────────────────────
+// Deterministic initial Y placement that minimizes edge crossings before the
+// physics simulation starts. Sorts siblings by birth year, keeps spouses
+// adjacent, and gives disjoint family clusters non-overlapping Y bands.
 
 function computeFamilyClusterY(
     nodes: Array<{ id: string; effectiveBirthYear?: number | null }>,
@@ -222,32 +227,36 @@ function computeFamilyClusterY(
         return typeof ref === 'object' ? (ref as { id: string }).id : ref;
     }
 
-    // Build adjacency for parent_child only
+    const nodeMap = new Map<string, { id: string; effectiveBirthYear?: number | null }>();
+    for (const n of nodes) nodeMap.set(n.id, n);
+
+    // Build adjacency maps
     const parentIds = new Map<string, string[]>();
     const childIds = new Map<string, string[]>();
+    const spouseIds = new Map<string, string[]>();
     const adj = new Map<string, Set<string>>();
     for (const n of nodes) {
         parentIds.set(n.id, []);
         childIds.set(n.id, []);
+        spouseIds.set(n.id, []);
         adj.set(n.id, new Set());
     }
     for (const l of links) {
-        if (l.type !== 'parent_child') continue;
-        const cId = getId(l.target); // swapped: target is child
-        const pId = getId(l.source); // swapped: source is parent
-        parentIds.get(cId)?.push(pId);
-        childIds.get(pId)?.push(cId);
-        adj.get(cId)?.add(pId);
-        adj.get(pId)?.add(cId);
-    }
-
-    // Also connect spouses
-    for (const l of links) {
-        if (l.type !== 'spouse') continue;
-        const a = getId(l.source);
-        const b = getId(l.target);
-        adj.get(a)?.add(b);
-        adj.get(b)?.add(a);
+        if (l.type === 'parent_child') {
+            const cId = getId(l.target); // target is child (already swapped in stableGraphData)
+            const pId = getId(l.source); // source is parent
+            parentIds.get(cId)?.push(pId);
+            childIds.get(pId)?.push(cId);
+            adj.get(cId)?.add(pId);
+            adj.get(pId)?.add(cId);
+        } else if (l.type === 'spouse') {
+            const a = getId(l.source);
+            const b = getId(l.target);
+            spouseIds.get(a)?.push(b);
+            spouseIds.get(b)?.push(a);
+            adj.get(a)?.add(b);
+            adj.get(b)?.add(a);
+        }
     }
 
     // Find connected components
@@ -269,101 +278,111 @@ function computeFamilyClusterY(
         components.push(comp);
     }
 
-    // Within each component, assign depth via BFS from roots (nodes with no parents)
-    const result = new Map<string, number>();
-    let clusterOffset = 0;
-
     // Sort components by size descending so the largest family is centered
     components.sort((a, b) => b.length - a.length);
 
+    const result = new Map<string, number>();
+    let clusterOffset = 0;
+
     for (const comp of components) {
+        // Topological sort within each component:
+        // Start from roots (no parents), BFS downward, sorting siblings by birth year
         const roots = comp.filter(id => (parentIds.get(id) ?? []).length === 0);
         const starts = roots.length > 0 ? roots : [comp[0]];
-        const depth = new Map<string, number>();
 
-        // BFS assigning depth: parents = 0, their children = 1, etc.
-        const queue: Array<{ id: string; d: number }> = [];
-        for (const s of starts) {
-            depth.set(s, 0);
-            queue.push({ id: s, d: 0 });
-        }
+        // Sort starting roots by birth year
+        starts.sort((a, b) => {
+            const ya = nodeMap.get(a)?.effectiveBirthYear ?? 9999;
+            const yb = nodeMap.get(b)?.effectiveBirthYear ?? 9999;
+            return ya - yb;
+        });
+
+        const placed = new Map<string, number>(); // id → local Y slot
+        let nextSlot = 0;
+
+        // Place a node and its spouse(s) at the current slot
+        const placeNodeWithSpouse = (id: string) => {
+            if (placed.has(id)) return;
+            placed.set(id, nextSlot);
+
+            // Place spouses at the same slot
+            for (const sid of spouseIds.get(id) ?? []) {
+                if (!placed.has(sid)) {
+                    placed.set(sid, nextSlot);
+                }
+            }
+            nextSlot++;
+        };
+
+        // BFS: process parents first, then children sorted by birth year
+        const queue = [...starts];
+        for (const s of starts) placeNodeWithSpouse(s);
+
         while (queue.length > 0) {
-            const { id, d } = queue.shift()!;
-            // Children get depth d+1
-            for (const cid of childIds.get(id) ?? []) {
-                if (!depth.has(cid)) {
-                    depth.set(cid, d + 1);
-                    queue.push({ id: cid, d: d + 1 });
-                }
+            const id = queue.shift()!;
+
+            // Get children, sort by birth year (older → higher/earlier slot)
+            const children = (childIds.get(id) ?? []).filter(cid => !placed.has(cid));
+            children.sort((a, b) => {
+                const ya = nodeMap.get(a)?.effectiveBirthYear ?? 9999;
+                const yb = nodeMap.get(b)?.effectiveBirthYear ?? 9999;
+                return ya - yb;
+            });
+
+            for (const cid of children) {
+                placeNodeWithSpouse(cid);
+                queue.push(cid);
             }
-            // Parents get depth d-1 (if reached from a non-root)
-            for (const pid of parentIds.get(id) ?? []) {
-                if (!depth.has(pid)) {
-                    depth.set(pid, d - 1);
-                    queue.push({ id: pid, d: d - 1 });
-                }
-            }
         }
-        // Assign any remaining unvisited nodes in this component
+
+        // Catch any unvisited nodes in this component
         for (const id of comp) {
-            if (!depth.has(id)) depth.set(id, 0);
+            if (!placed.has(id)) placeNodeWithSpouse(id);
         }
 
-        // Normalize depth so minimum is 0
-        const depths = [...depth.values()];
-        const minD = Math.min(...depths);
-        const maxD = Math.max(...depths);
-        const span = maxD - minD;
-
-        for (const id of comp) {
-            const d = (depth.get(id) ?? 0) - minD;
-            result.set(id, clusterOffset + d * GENERATION_GAP);
+        // Convert slots to pixel positions
+        for (const [id, slot] of placed) {
+            result.set(id, clusterOffset + slot * GENERATION_GAP);
         }
 
-        clusterOffset += (span + 1) * GENERATION_GAP + CLUSTER_GAP;
+        clusterOffset += nextSlot * GENERATION_GAP + CLUSTER_GAP;
     }
 
     // Center everything around Y=0
     const allY = [...result.values()];
-    const centerY = (Math.min(...allY) + Math.max(...allY)) / 2;
-    for (const [id, y] of result) {
-        result.set(id, y - centerY);
+    if (allY.length > 0) {
+        const centerY = (Math.min(...allY) + Math.max(...allY)) / 2;
+        for (const [id, y] of result) {
+            result.set(id, y - centerY);
+        }
     }
 
     return result;
 }
 
-// ─── Generation Y Force ───────────────────────────────────────────────────────
-// Pulls each node toward targetY = level * generationGap.
-// Only affects nodes present in the levels map.
+// ─── Lineage Y Force ("Gravity Trunk") ────────────────────────────────────────
+// When a focal person is set: pulls the focal person strongly to Y=0,
+// direct ancestors/descendants with medium strength, and ignores everyone else.
+// When no focal person: very weak global centering to keep things on screen.
 
-function makeGenerationYForce(
-    levels: Map<string, number>,
-    generationGap: number,
-    strength = 0.2,
+function makeLineageYForce(
+    focalId: string | null,
+    lineageIds: Map<string, number> | null,
 ) {
     let nodes: SimNode[] = [];
     function force(alpha: number) {
         for (const node of nodes) {
-            const level = levels.get(node.id as string);
-            if (level === undefined || node.vy === undefined || node.y === undefined) continue;
-            node.vy += (level * generationGap - node.y) * strength * alpha;
-        }
-    }
-    (force as any).initialize = (n: SimNode[]) => { nodes = n; };
-    return force;
-}
-
-// ─── Center-Y Force ───────────────────────────────────────────────────────────
-// Softly pulls all nodes (or a subset when excludeIds is given) toward Y=0.
-// Used in no-root mode to prevent the graph from drifting too far vertically.
-
-function makeCenterYForce(excludeIds: Set<string> | null = null, strength = 0.04) {
-    let nodes: SimNode[] = [];
-    function force(alpha: number) {
-        for (const node of nodes) {
-            if (excludeIds?.has(node.id as string)) continue;
-            if (node.vy !== undefined && node.y !== undefined) {
+            if (node.vy === undefined || node.y === undefined) continue;
+            const id = node.id as string;
+            let strength: number;
+            if (focalId && lineageIds) {
+                if (id === focalId) strength = 0.5;
+                else if (lineageIds.has(id)) strength = 0.2;
+                else strength = 0; // branches float free
+            } else {
+                strength = 0.02; // weak global centering
+            }
+            if (strength > 0) {
                 node.vy += (0 - node.y) * strength * alpha;
             }
         }
@@ -527,33 +546,40 @@ function FamilyGraphPanel() {
         const fg = fgRef.current;
         const bounds = yearBoundsRef.current ?? { midYear: 1900, minYear: 1800, maxYear: 2000 };
 
-        // Reduce charge and link forces — X is fixed so we only need Y-axis settling
-        fg.d3Force('charge')?.strength?.(-200);
-        fg.d3Force('link')?.distance?.(60);
-
-        // Remove old forces from previous versions
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const fgAny = fg as any;
+
+        // 1. Kill chaotic 2D forces — in a 1D-constrained layout they cause permanent tangles
+        fg.d3Force('charge')?.strength?.(-15); // Very weak residual repulsion
+
+        // Remove legacy forces
         fgAny.d3Force('xGravity', null);
         fgAny.d3Force('yGravity', null);
         fgAny.d3Force('hierarchy', null);
+        fgAny.d3Force('generationY', null);
+        fgAny.d3Force('centerY', null);
 
-        // ── Y force: generation-based when root set, cluster-based otherwise ──
-        const rootId = rootPersonIdRef.current;
-        if (rootId && genLevels) {
-            fgAny.d3Force('generationY', makeGenerationYForce(genLevels, GENERATION_GAP, 0.3));
-            fgAny.d3Force('centerY', makeCenterYForce(new Set(genLevels.keys()), 0.04));
-        } else {
-            fgAny.d3Force('generationY', null);
-            fgAny.d3Force('centerY', makeCenterYForce(null, 0.06));
+        // 2. Strict Y-collision to prevent node overlap without chaos
+        fgAny.d3Force('collide', forceCollide(NODE_R * 2.5).iterations(3));
+
+        // 3. Semantic link forces: spouses close together, generations spread
+        // Configure the existing link force (don't create a new one — react-force-graph manages node refs)
+        const existingLink = fg.d3Force('link');
+        if (existingLink) {
+            existingLink.distance?.((link: any) => link.type === 'spouse' ? SPOUSE_LINK_DIST : PARENT_CHILD_LINK_DIST);
+            existingLink.strength?.((link: any) => link.type === 'spouse' ? 0.8 : 0.3);
         }
+
+        // 4. Lineage gravity trunk (replaces generation bands + centerY)
+        const rootId = rootPersonIdRef.current;
+        fgAny.d3Force('lineageY', makeLineageYForce(rootId, genLevels));
 
         // ── Reheat on root change or reset ──
         if (shouldReheatRef.current) {
             shouldReheatRef.current = false;
 
-            // Compute initial Y positions from cluster layout or generation levels
-            const clusterY = rootId ? null : computeFamilyClusterY(
+            // Deterministic initial Y from topological pre-sorter
+            const clusterY = computeFamilyClusterY(
                 stableGraphData.nodes as SimNode[],
                 stableGraphData.links as Array<{ source: string | object; target: string | object; type: string }>,
             );
@@ -564,21 +590,13 @@ function FamilyGraphPanel() {
                 n.fx = fixedX;  // Always lock X to birth year
                 n.x = fixedX;
                 delete n.fy;    // Free Y for simulation
-
-                if (genLevels) {
-                    const level = genLevels.get(n.id as string);
-                    n.y = level !== undefined ? level * GENERATION_GAP : (Math.random() - 0.5) * GENERATION_GAP * 3;
-                } else if (clusterY) {
-                    n.y = (clusterY.get(n.id as string) ?? 0) + (Math.random() - 0.5) * 20;
-                } else {
-                    n.y = (Math.random() - 0.5) * 600;
-                }
+                n.y = (clusterY.get(n.id as string) ?? 0) + (Math.random() - 0.5) * 10;
                 n.vx = 0;
                 n.vy = 0;
             }
             fg.d3ReheatSimulation();
 
-            // Center view on root node after simulation settles
+            // Center view on focal node after simulation settles
             if (rootId) {
                 setTimeout(() => {
                     const rootNode = (stableGraphDataRef.current?.nodes as SimNode[] | undefined)
@@ -1133,13 +1151,18 @@ function FamilyGraphPanel() {
         shouldReheatRef.current = true;
         const gd = stableGraphDataRef.current;
         if (gd && fgRef.current) {
+            // Use topological pre-sorter for deterministic initial placement
+            const clusterY = computeFamilyClusterY(
+                gd.nodes as SimNode[],
+                gd.links as Array<{ source: string | object; target: string | object; type: string }>,
+            );
             const bounds = yearBoundsRef.current;
             for (const node of gd.nodes) {
                 const n = node as SimNode & { fx?: number; fy?: number };
                 const fixedX = bounds ? yearToX(n.effectiveBirthYear ?? bounds.midYear, bounds.midYear) : 0;
                 n.x = fixedX;
                 n.fx = fixedX;  // Keep X locked to birth year
-                n.y = (Math.random() - 0.5) * 500;
+                n.y = (clusterY.get(n.id as string) ?? 0) + (Math.random() - 0.5) * 10;
                 n.vx = 0;
                 n.vy = 0;
                 delete n.fy;  // Free Y for simulation
@@ -1147,7 +1170,7 @@ function FamilyGraphPanel() {
             fgRef.current.d3ReheatSimulation();
             fgRef.current.zoomToFit(600, 80);
         }
-        // Preserve root person across refresh — save it back after removeItem
+        // Preserve focal person across refresh — save it back after removeItem
         try { localStorage.setItem(LS_KEY, JSON.stringify({ positions: {}, zoom: null, rootPersonId: rootPersonIdRef.current })); } catch { /* empty */ }
         refetch();
     }, [refetch]);
@@ -1182,7 +1205,7 @@ function FamilyGraphPanel() {
                 {!isLoading && !isError && nodeCount > 0 && (
                     <div ref={rootPickerRef} className="relative ml-auto">
                         <div className="flex items-center gap-1.5 h-7 rounded-md border border-border bg-muted/30 px-2 focus-within:border-ring/50 focus-within:bg-muted/50 transition-colors">
-                            <span className="text-[10px] text-muted-foreground font-mono shrink-0 uppercase tracking-wider">Root</span>
+                            <span className="text-[10px] text-muted-foreground font-mono shrink-0 uppercase tracking-wider">Focal</span>
                             <input
                                 type="text"
                                 value={rootFocused ? rootSearch : (rootPersonId ? rootNodeLabel : '')}
