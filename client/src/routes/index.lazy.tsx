@@ -49,8 +49,8 @@ const GENERATION_GAP = 80;
 // Vertical gap between separate family clusters
 const CLUSTER_GAP = 100;
 // Semantic link distances
-const SPOUSE_LINK_DIST = 12;
-const PARENT_CHILD_LINK_DIST = 50;
+const SPOUSE_LINK_DIST = 5;
+const PARENT_CHILD_LINK_DIST = 100;
 
 function yearToX(year: number, midYear: number): number {
     return (year - midYear) * PIXELS_PER_YEAR;
@@ -536,7 +536,7 @@ function FamilyGraphPanel() {
         const fgAny = fg as any;
 
         // 1. Kill chaotic 2D forces — in a 1D-constrained layout they cause permanent tangles
-        fg.d3Force('charge')?.strength?.(-15); // Very weak residual repulsion
+        fg.d3Force('charge')?.strength?.(-5); // Very weak residual repulsion
 
         // Remove legacy forces
         fgAny.d3Force('xGravity', null);
@@ -546,14 +546,14 @@ function FamilyGraphPanel() {
         fgAny.d3Force('centerY', null);
 
         // 2. Strict Y-collision to prevent node overlap without chaos
-        fgAny.d3Force('collide', forceCollide(NODE_R * 2.5).iterations(3));
+        fgAny.d3Force('collide', forceCollide(NODE_R * 8).iterations(5));
 
         // 3. Semantic link forces: spouses close together, generations spread
         // Configure the existing link force (don't create a new one — react-force-graph manages node refs)
         const existingLink = fg.d3Force('link');
         if (existingLink) {
             existingLink.distance?.((link: any) => link.type === 'spouse' ? SPOUSE_LINK_DIST : PARENT_CHILD_LINK_DIST);
-            existingLink.strength?.((link: any) => link.type === 'spouse' ? 0.8 : 0.3);
+            existingLink.strength?.((link: any) => link.type === 'spouse' ? 0.9 : 0.2);
         }
 
         // 4. Global centering force (keeps everything on screen without distortion)
