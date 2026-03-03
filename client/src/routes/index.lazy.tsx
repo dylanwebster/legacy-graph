@@ -889,32 +889,70 @@ function FamilyGraphPanel() {
                 if (!src || !tgt) return;
 
                 const hasFilt = matchingIds !== null;
-                const bothMatch = hasFilt
-                    ? (matchingIds!.has(src.id as string) && matchingIds!.has(tgt.id as string))
-                    : true;
+                const srcMatch = hasFilt ? matchingIds!.has(src.id as string) : true;
+                const tgtMatch = hasFilt ? matchingIds!.has(tgt.id as string) : true;
+                const bothMatch = srcMatch && tgtMatch;
+
                 const hasRoot = genLevels !== null;
-                const bothInLineage = hasRoot
-                    ? (genLevels!.has(src.id as string) && genLevels!.has(tgt.id as string))
-                    : true;
+                const srcInLineage = hasRoot ? genLevels!.has(src.id as string) : true;
+                const tgtInLineage = hasRoot ? genLevels!.has(tgt.id as string) : true;
+                const bothInLineage = srcInLineage && tgtInLineage;
+
                 const isEnded = l.status === 'divorced' || l.status === 'widowed';
 
-                let alpha = 0.8;
-                if (hasFilt && !bothMatch) alpha = 0.08;
-                if (hasRoot && !bothInLineage) alpha = Math.min(alpha, 0.08);
+                const startX = src.x ?? 0;
+                const startY = src.y ?? 0;
+                const endX = tgt.x ?? 0;
+                const endY = tgt.y ?? 0;
+                const midX = (startX + endX) / 2;
+                const midY = (startY + endY) / 2;
+
+                const lineWidth = Math.max(1.5, 1.5 / globalScale);
+                const dash = isEnded ? [5 * lineWidth, 5 * lineWidth] : [];
+                const normalColor = isEnded ? 'rgba(251,146,60,0.75)' : 'rgba(251,191,36,0.85)';
+                const lineageFocusColor = isDark ? `rgba(167,139,250,0.85)` : `rgba(139,92,246,0.75)`;
 
                 ctx.save();
-                ctx.globalAlpha = alpha;
-                ctx.beginPath();
-                ctx.moveTo(src.x ?? 0, src.y ?? 0);
-                ctx.lineTo(tgt.x ?? 0, tgt.y ?? 0);
-
-                // Determine line width based on globalScale so it remains visible when zoomed out
-                const lineWidth = Math.max(1.5, 1.5 / globalScale);
-
-                ctx.setLineDash(isEnded ? [5 * lineWidth, 5 * lineWidth] : []);
-                ctx.strokeStyle = isEnded ? 'rgba(251,146,60,0.75)' : 'rgba(251,191,36,0.85)';
+                ctx.setLineDash(dash);
                 ctx.lineWidth = lineWidth;
-                ctx.stroke();
+
+                if (hasRoot && srcInLineage !== tgtInLineage) {
+                    // Split drawing: exactly one spouse is in the lineage
+                    let srcAlpha = srcInLineage ? 1 : 0.08;
+                    if (hasFilt && !srcMatch) srcAlpha = 0.08;
+
+                    let tgtAlpha = tgtInLineage ? 1 : 0.08;
+                    if (hasFilt && !tgtMatch) tgtAlpha = 0.08;
+
+                    // Src to Mid
+                    ctx.globalAlpha = srcAlpha;
+                    ctx.beginPath();
+                    ctx.moveTo(startX, startY);
+                    ctx.lineTo(midX, midY);
+                    ctx.strokeStyle = srcInLineage ? lineageFocusColor : normalColor;
+                    ctx.stroke();
+
+                    // Mid to Tgt
+                    ctx.globalAlpha = tgtAlpha;
+                    ctx.beginPath();
+                    ctx.moveTo(midX, midY);
+                    ctx.lineTo(endX, endY);
+                    ctx.strokeStyle = tgtInLineage ? lineageFocusColor : normalColor;
+                    ctx.stroke();
+                } else {
+                    let alpha = 0.8;
+                    if (hasFilt && !bothMatch) alpha = 0.08;
+                    if (hasRoot && !bothInLineage) alpha = Math.min(alpha, 0.08);
+
+                    ctx.globalAlpha = alpha;
+                    ctx.beginPath();
+                    ctx.moveTo(startX, startY);
+                    ctx.lineTo(endX, endY);
+                    // Use lineage color if BOTH are in lineage, otherwise fallback to normal
+                    ctx.strokeStyle = (hasRoot && bothInLineage) ? lineageFocusColor : normalColor;
+                    ctx.stroke();
+                }
+
                 ctx.restore();
             } else if (l.type === 'parent_child') {
                 const src = typeof l.source === 'object' ? (l.source as SimNode) : null;
