@@ -60,10 +60,10 @@ export function CommandPalette() {
         navigate({ to: '/search', search: { q } });
     }, [debouncedQuery, navigate, setSearchOpen]);
 
-    // Extract result categories from the search response
-    const people = data?.results?.filter((r: Record<string, unknown>) => r.type === 'person') ?? [];
-    const stories = data?.results?.filter((r: Record<string, unknown>) => r.type === 'story') ?? [];
-    const places = data?.results?.filter((r: Record<string, unknown>) => r.type === 'place') ?? [];
+    // Extract result categories from the search response { people, stories, places }
+    const people: Record<string, unknown>[] = data?.people ?? [];
+    const stories: Record<string, unknown>[] = data?.stories ?? [];
+    const places: Record<string, unknown>[] = data?.places ?? [];
 
     return (
         <CommandDialog
@@ -94,27 +94,34 @@ export function CommandPalette() {
 
                 {people.length > 0 && (
                     <CommandGroup heading="People">
-                        {people.map((person: Record<string, unknown>) => (
-                            <CommandItem
-                                key={person.id as string}
-                                value={`person-${person.id}`}
-                                onSelect={() => handleSelect(person.id as string)}
-                                className="flex items-center gap-3 py-2"
-                            >
-                                <CustomAvatar
-                                    firstName={(person.name as string)?.split(' ')[0]}
-                                    lastName={(person.name as string)?.split(' ').slice(-1)[0]}
-                                    className="h-8 w-8"
-                                />
-                                <div className="flex flex-col min-w-0">
-                                    <span className="font-medium truncate">{person.name as string}</span>
-                                    {!!person.snippet && (
-                                        <span className="text-xs text-muted-foreground truncate">{String(person.snippet)}</span>
-                                    )}
-                                </div>
-                                <Users className="ml-auto h-4 w-4 text-muted-foreground shrink-0" />
-                            </CommandItem>
-                        ))}
+                        {people.map((person: Record<string, unknown>) => {
+                            const names = person.names as Array<Record<string, string>> ?? [];
+                            const n = names[0] ?? {};
+                            const firstName = n.first || n.given || '';
+                            const lastName = n.last || n.surname || '';
+                            const displayName = `${firstName} ${lastName}`.trim() || 'Unknown';
+                            return (
+                                <CommandItem
+                                    key={person.id as string}
+                                    value={`person-${person.id}-${displayName}`}
+                                    onSelect={() => handleSelect(person.id as string)}
+                                    className="flex items-center gap-3 py-2"
+                                >
+                                    <CustomAvatar
+                                        firstName={firstName}
+                                        lastName={lastName}
+                                        className="h-8 w-8"
+                                    />
+                                    <div className="flex flex-col min-w-0">
+                                        <span className="font-medium truncate">{displayName}</span>
+                                        {!!person.birthDate && (
+                                            <span className="text-xs text-muted-foreground truncate">b. {String(person.birthDate)}</span>
+                                        )}
+                                    </div>
+                                    <Users className="ml-auto h-4 w-4 text-muted-foreground shrink-0" />
+                                </CommandItem>
+                            );
+                        })}
                     </CommandGroup>
                 )}
 

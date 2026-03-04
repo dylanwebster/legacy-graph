@@ -22,7 +22,7 @@ test.describe('CUJ 3: Responsive Layout', () => {
 
         // Sidebar with labels should now be visible
         await expect(page.getByText('LegacyGraph')).toBeVisible({ timeout: 3_000 });
-        await expect(page.getByText('Dashboard')).toBeVisible({ timeout: 3_000 });
+        await expect(page.getByRole('link', { name: 'Dashboard' })).toBeVisible({ timeout: 3_000 });
     });
 
     test('desktop viewport shows full sidebar with labels', async ({ page }) => {
@@ -35,9 +35,8 @@ test.describe('CUJ 3: Responsive Layout', () => {
         const hamburger = page.locator('button').filter({ has: page.locator('.lucide-menu') }).first();
         await expect(hamburger).not.toBeVisible();
 
-        // Sidebar renders with "LG" abbreviation when icon-only
-        // At desktop the sidebar is always visible (md:flex), even if icon-only
-        await expect(page.getByText('LG')).toBeVisible({ timeout: 5_000 });
+        // Sidebar defaults open on desktop — full "LegacyGraph" label should be visible
+        await expect(page.getByText('LegacyGraph')).toBeVisible({ timeout: 5_000 });
     });
 
     test('desktop with sidebar open shows full labels and 3-column layout on person page', async ({ page }) => {
