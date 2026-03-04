@@ -9,12 +9,10 @@ test.describe('CUJ 2: Search Navigation', () => {
     });
 
     test('opens command palette, searches, and navigates to person detail', async ({ page }) => {
-        await page.goto('/');
+        // beforeEach already navigated to '/' and waited 2s — no need to re-navigate
 
-        // 1. Open command palette with Cmd+K (Mac) / Ctrl+K
-        // Click body first to ensure the page has keyboard focus
-        await page.locator('body').click();
-        await page.keyboard.press('ControlOrMeta+K');
+        // 1. Open command palette via the search button in the top bar
+        await page.getByRole('button', { name: /search/i }).first().click();
 
         // The command palette / search dialog should open
         // The CommandPalette uses a cmdk dialog
