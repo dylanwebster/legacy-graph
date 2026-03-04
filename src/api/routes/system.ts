@@ -155,9 +155,10 @@ export async function systemRoutes(server: FastifyInstance) {
                 primaryAsset: p.assets?.[0] ?? null
             });
 
-            // Parent-child edges: child → parent
+            // Parent-child edges: child → parent (only emit if both nodes exist in graph)
             const parents: Array<{ id: string }> = p.relationships?.parents ?? [];
             for (const parent of parents) {
+                if (!graph.hasNode(parent.id)) continue;
                 const key = `pc:${nodeId}:${parent.id}`;
                 if (!edgeSet.has(key)) {
                     edgeSet.add(key);

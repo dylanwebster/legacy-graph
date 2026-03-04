@@ -549,7 +549,7 @@ describe('Fastify API Server', () => {
         });
     });
 
-    describe('POST /api/import/gedcom', () => {
+    describe('POST /api/import/gedcom (additive vs replace modes)', () => {
         const testDataDir = './tests/fixtures/data';
         const peopleDir = path.join(testDataDir, 'people');
         const FIXTURE_PERSON_ID = 'N_test-import-2000-fixture';

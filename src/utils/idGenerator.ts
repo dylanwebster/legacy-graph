@@ -38,7 +38,7 @@ export function generatePersonId(person: {
     const birthYear = birthYearMatch ? birthYearMatch[1] : '';
 
     const parts = [first, last, birthYear].filter(Boolean);
-    const prefix = parts.join('-').slice(0, 24).replace(/-+$/g, '');
+    const prefix = (parts.join('-').slice(0, 24).replace(/-+$/g, '')) || 'unknown';
 
     return `N_${prefix}-${nanoid8()}`;
 }

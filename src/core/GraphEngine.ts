@@ -645,11 +645,14 @@ export class GraphEngine extends EventEmitter {
 
         try {
             const content = await fs.readFile(filePath, 'utf8');
-            const raw = yaml.load(content) as Record<string, unknown>;
+            const rawLoaded = yaml.load(content);
+            const raw: Record<string, unknown> = (rawLoaded && typeof rawLoaded === 'object')
+                ? rawLoaded as Record<string, unknown>
+                : {};
 
             // Auto-ID: if the file has no id (e.g. user dropped a handwritten YAML),
             // generate one, fill in required metadata, write the file back, and rename it.
-            if (!raw || typeof raw !== 'object' || !raw.id) {
+            if (!raw.id) {
                 const now = new Date().toISOString();
                 if (!raw.version) raw.version = '5.0';
                 if (!raw.created) raw.created = now;

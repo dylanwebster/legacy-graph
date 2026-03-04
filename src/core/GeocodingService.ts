@@ -54,21 +54,24 @@ export class GeocodingService {
     /**
      * Search for place candidates. Returns up to `limit` results (default 5).
      * No caching — transient, for type-ahead use.
+     * Runs through the rate limiter to respect Nominatim's 1 req/s policy.
      */
     public async search(query: string, limit = 5): Promise<Place[]> {
-        try {
-            const url = `${NOMINATIM_BASE}?q=${encodeURIComponent(query)}&format=jsonv2&addressdetails=1&limit=${limit + 2}`;
-            const response = await this.fetchFn(url, {
-                headers: { 'User-Agent': USER_AGENT },
-            });
+        return this.enqueue(async () => {
+            try {
+                const url = `${NOMINATIM_BASE}?q=${encodeURIComponent(query)}&format=jsonv2&addressdetails=1&limit=${limit + 2}`;
+                const response = await this.fetchFn(url, {
+                    headers: { 'User-Agent': USER_AGENT },
+                });
 
-            if (!response.ok) return [];
+                if (!response.ok) return [];
 
-            const items: NominatimResult[] = await response.json();
-            return items.slice(0, limit).map(item => this.itemToPlace(item, query));
-        } catch {
-            return [];
-        }
+                const items: NominatimResult[] = await response.json();
+                return items.slice(0, limit).map(item => this.itemToPlace(item, query));
+            } catch {
+                return [];
+            }
+        });
     }
 
     // ─── Private ────────────────────────────────────────────────────────────

@@ -220,10 +220,15 @@ export async function peopleRoutes(server: FastifyInstance) {
                 _gedcom: heavyFields?._gedcom,
             };
 
-            // Merge the incoming patch with the existing full person, then validate
+            // Merge the incoming patch with the existing full person, then validate.
+            // Strip immutable fields from patch to prevent id/filename mismatches.
+            const { id: _pid, created: _pc, version: _pv, ...safePatch } = patch as Record<string, unknown>;
             const merged: Person = {
                 ...currentPerson,
-                ...patch,
+                ...safePatch,
+                id,
+                created: currentPerson.created,
+                version: currentPerson.version,
                 last_modified: new Date().toISOString(),
             };
 
