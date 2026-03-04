@@ -1,0 +1,102 @@
+import { apiFetch } from './client';
+
+export interface StoryMetadata {
+    title: string;
+    date?: string;
+    place?: string;
+    private: boolean;
+    people: string[];
+    tags: string[];
+    assets: string[];
+}
+
+export interface StoryFeedItem {
+    id: string;
+    title: string;
+    date?: string;
+    place?: string;
+    people: string[];
+    excerpt: string;
+    firstAsset?: string;
+    private: boolean;
+}
+
+export interface FullStory {
+    id: string;
+    metadata: StoryMetadata;
+    content: string;
+    mentions: string[];
+}
+
+export interface PaginatedStoriesResponse {
+    stories: StoryFeedItem[];
+    totalCount: number;
+}
+
+export interface CreateStoryInput {
+    title: string;
+    content?: string;
+    date?: string;
+    place?: string;
+    people?: string[];
+    tags?: string[];
+    private?: boolean;
+}
+
+export interface UpdateStoryInput {
+    title?: string;
+    content?: string;
+    date?: string;
+    place?: string;
+    people?: string[];
+    tags?: string[];
+    assets?: string[];
+    private?: boolean;
+}
+
+export const storiesApi = {
+    getStories: (params?: { limit?: number; offset?: number; sort?: string }) => {
+        const searchParams = new URLSearchParams();
+        if (params?.limit !== undefined) searchParams.append('limit', String(params.limit));
+        if (params?.offset !== undefined) searchParams.append('offset', String(params.offset));
+        if (params?.sort) searchParams.append('sort', params.sort);
+        const q = searchParams.toString();
+        return apiFetch<PaginatedStoriesResponse>(`/stories${q ? `?${q}` : ''}`);
+    },
+
+    getStory: (id: string) => apiFetch<FullStory>(`/stories/${id}`),
+
+    createStory: (data: CreateStoryInput) =>
+        apiFetch<FullStory>('/stories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        }),
+
+    updateStory: (id: string, data: UpdateStoryInput) =>
+        apiFetch<FullStory>(`/stories/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        }),
+
+    deleteStory: async (id: string) => {
+        const response = await fetch(`/api/stories/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+            throw new Error(`Failed to delete story: ${response.statusText}`);
+        }
+    },
+
+    uploadMedia: async (id: string, file: File): Promise<FullStory> => {
+        const formData = new FormData();
+        formData.append('file', file);
+        const response = await fetch(`/api/stories/${id}/media`, {
+            method: 'PUT',
+            body: formData,
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to upload media: ${response.statusText}`);
+        }
+        return response.json();
+    },
+};

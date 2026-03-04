@@ -40,6 +40,7 @@
 | 4.20 | Timeline Virtualizer Reload Fix: `h-full` layout chain + `timelineKey` remount |
 | 4.21 | Sibling Dual-Parent Selection: multi-select checkboxes for all current person's parents |
 | 4.22 | Strict Date Input Validation: explicit fuzzy-prefix regex replaces catch-all `\b(\d{4})\b` |
+| 5.1 | Stories System: `StorySchema` extended (`date`, `place`, `private`, `people`); `StoryFeedItem` + `FullStory` types; full CRUD API (`GET/POST/PUT/DELETE /api/stories`, `PUT /api/stories/:id/media`); 18 backend tests; `/stories` feed page (virtualised, sort, search, delete); `/stories/:id` reader (Merriweather, filmstrip, `@N_xxx`→PersonChip rendering); `/stories/new` + edit mode (split-pane textarea+preview, @mention type-ahead, `/image`+`/person` slash commands, 3s auto-save, drag-and-drop upload); Stories added to sidebar (BookOpen icon) |
 
 ---
 

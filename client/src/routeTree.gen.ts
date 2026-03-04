@@ -16,7 +16,9 @@ const SettingsLazyRouteImport = createFileRoute('/settings')()
 const SearchLazyRouteImport = createFileRoute('/search')()
 const ImportLazyRouteImport = createFileRoute('/import')()
 const IndexLazyRouteImport = createFileRoute('/')()
+const StoriesIndexLazyRouteImport = createFileRoute('/stories/')()
 const PeopleIndexLazyRouteImport = createFileRoute('/people/')()
+const StoriesIdLazyRouteImport = createFileRoute('/stories/$id')()
 const PeopleIdLazyRouteImport = createFileRoute('/people/$id')()
 
 const SettingsLazyRoute = SettingsLazyRouteImport.update({
@@ -39,11 +41,21 @@ const IndexLazyRoute = IndexLazyRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/index.lazy').then((d) => d.Route))
+const StoriesIndexLazyRoute = StoriesIndexLazyRouteImport.update({
+  id: '/stories/',
+  path: '/stories/',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/stories/index.lazy').then((d) => d.Route))
 const PeopleIndexLazyRoute = PeopleIndexLazyRouteImport.update({
   id: '/people/',
   path: '/people/',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/people/index.lazy').then((d) => d.Route))
+const StoriesIdLazyRoute = StoriesIdLazyRouteImport.update({
+  id: '/stories/$id',
+  path: '/stories/$id',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/stories/$id.lazy').then((d) => d.Route))
 const PeopleIdLazyRoute = PeopleIdLazyRouteImport.update({
   id: '/people/$id',
   path: '/people/$id',
@@ -56,7 +68,9 @@ export interface FileRoutesByFullPath {
   '/search': typeof SearchLazyRoute
   '/settings': typeof SettingsLazyRoute
   '/people/$id': typeof PeopleIdLazyRoute
+  '/stories/$id': typeof StoriesIdLazyRoute
   '/people/': typeof PeopleIndexLazyRoute
+  '/stories/': typeof StoriesIndexLazyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexLazyRoute
@@ -64,7 +78,9 @@ export interface FileRoutesByTo {
   '/search': typeof SearchLazyRoute
   '/settings': typeof SettingsLazyRoute
   '/people/$id': typeof PeopleIdLazyRoute
+  '/stories/$id': typeof StoriesIdLazyRoute
   '/people': typeof PeopleIndexLazyRoute
+  '/stories': typeof StoriesIndexLazyRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -73,7 +89,9 @@ export interface FileRoutesById {
   '/search': typeof SearchLazyRoute
   '/settings': typeof SettingsLazyRoute
   '/people/$id': typeof PeopleIdLazyRoute
+  '/stories/$id': typeof StoriesIdLazyRoute
   '/people/': typeof PeopleIndexLazyRoute
+  '/stories/': typeof StoriesIndexLazyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -83,9 +101,19 @@ export interface FileRouteTypes {
     | '/search'
     | '/settings'
     | '/people/$id'
+    | '/stories/$id'
     | '/people/'
+    | '/stories/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/import' | '/search' | '/settings' | '/people/$id' | '/people'
+  to:
+    | '/'
+    | '/import'
+    | '/search'
+    | '/settings'
+    | '/people/$id'
+    | '/stories/$id'
+    | '/people'
+    | '/stories'
   id:
     | '__root__'
     | '/'
@@ -93,7 +121,9 @@ export interface FileRouteTypes {
     | '/search'
     | '/settings'
     | '/people/$id'
+    | '/stories/$id'
     | '/people/'
+    | '/stories/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -102,7 +132,9 @@ export interface RootRouteChildren {
   SearchLazyRoute: typeof SearchLazyRoute
   SettingsLazyRoute: typeof SettingsLazyRoute
   PeopleIdLazyRoute: typeof PeopleIdLazyRoute
+  StoriesIdLazyRoute: typeof StoriesIdLazyRoute
   PeopleIndexLazyRoute: typeof PeopleIndexLazyRoute
+  StoriesIndexLazyRoute: typeof StoriesIndexLazyRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -135,11 +167,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexLazyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/stories/': {
+      id: '/stories/'
+      path: '/stories'
+      fullPath: '/stories/'
+      preLoaderRoute: typeof StoriesIndexLazyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/people/': {
       id: '/people/'
       path: '/people'
       fullPath: '/people/'
       preLoaderRoute: typeof PeopleIndexLazyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/stories/$id': {
+      id: '/stories/$id'
+      path: '/stories/$id'
+      fullPath: '/stories/$id'
+      preLoaderRoute: typeof StoriesIdLazyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/people/$id': {
@@ -158,7 +204,9 @@ const rootRouteChildren: RootRouteChildren = {
   SearchLazyRoute: SearchLazyRoute,
   SettingsLazyRoute: SettingsLazyRoute,
   PeopleIdLazyRoute: PeopleIdLazyRoute,
+  StoriesIdLazyRoute: StoriesIdLazyRoute,
   PeopleIndexLazyRoute: PeopleIndexLazyRoute,
+  StoriesIndexLazyRoute: StoriesIndexLazyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
