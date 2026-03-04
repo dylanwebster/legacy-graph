@@ -108,7 +108,7 @@ export function CommandPalette() {
                                 />
                                 <div className="flex flex-col min-w-0">
                                     <span className="font-medium truncate">{person.name as string}</span>
-                                    {person.snippet && (
+                                    {!!person.snippet && (
                                         <span className="text-xs text-muted-foreground truncate">{String(person.snippet)}</span>
                                     )}
                                 </div>
@@ -132,7 +132,7 @@ export function CommandPalette() {
                                     <BookOpen className="h-5 w-5 text-muted-foreground shrink-0" />
                                     <div className="flex flex-col min-w-0">
                                         <span className="font-medium truncate">{story.name as string}</span>
-                                        {story.snippet && (
+                                        {!!story.snippet && (
                                             <span className="text-xs text-muted-foreground truncate">{String(story.snippet)}</span>
                                         )}
                                     </div>

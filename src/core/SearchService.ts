@@ -35,6 +35,7 @@ export interface SearchResponse {
 
 interface PersonIndexDoc {
     id: string;
+    fullName: string;
     names: any[];
     bio: string;
     locations: string;
@@ -62,6 +63,7 @@ export class SearchService {
             document: {
                 id: "id",
                 index: [
+                    "fullName",
                     "names:first",
                     "names:last",
                     "names:nickname",
@@ -144,14 +146,21 @@ export class SearchService {
 
         // Flatten locations for full-text search
         const locations = p.events
-            .map(e => e.location)
+            .map(e => e.location?.name)
             .filter(Boolean)
             .join(" ");
 
         const bioText = bio ?? ((p as any).scrapbook_md || '');
 
+        // Build a composite full-name string so multi-word queries like "Helen Tan"
+        // match across first + last name fields (FlexSearch searches each field independently).
+        const fullName = p.names
+            .map((n: any) => `${n.first || n.given || ''} ${n.last || n.surname || ''}`.trim())
+            .join(' ');
+
         this.personIndex.add({
             id: p.id,
+            fullName,
             names: p.names,
             bio: bioText,
             locations: locations
@@ -208,51 +217,74 @@ export class SearchService {
         const limit = Math.min(options?.limit ?? 50, 200);
         const offset = options?.offset ?? 0;
 
-        // 1. Search People
-        // Note: FlexSearch's limit is per-field, not per-result. Passing limit here would
-        // produce inaccurate totalCounts after cross-field deduplication. For exact totalCounts,
-        // we collect all matches and slice. At 50K+ nodes, consider a two-pass strategy:
-        // un-enriched count query + enriched paginated query.
-        const personResults = await this.personIndex.searchAsync(query, {
-            enrich: true,
-        });
+        // Split the query into individual words so that multi-word queries like "Helen Tan"
+        // work even though FlexSearch indexes fields independently. We search each word
+        // separately and intersect the result sets, so only documents matching every word
+        // (across any field) are returned.
+        const words = query.trim().split(/\s+/).filter(Boolean);
 
-        const peopleMap = new Map<string, SearchResult>();
-        personResults.forEach(fieldResult => {
-            fieldResult.result.forEach((item: any) => {
-                if (!peopleMap.has(item.id)) {
-                    const rawNames = item.doc.names;
-                    const primary = rawNames.find((n: any) => n.primary) || rawNames[0];
-                    const displayName = `${primary.first} ${primary.last}`;
+        // 1. Search People — one pass per word, intersect after each pass
+        let peopleMap: Map<string, SearchResult> | null = null;
 
-                    peopleMap.set(item.id, {
-                        id: item.id as string,
-                        type: 'person',
-                        name: displayName
-                    });
-                }
+        for (const word of words) {
+            const wordResults = await this.personIndex.searchAsync(word, { enrich: true });
+
+            const wordMap = new Map<string, SearchResult>();
+            wordResults.forEach(fieldResult => {
+                fieldResult.result.forEach((item: any) => {
+                    if (!wordMap.has(item.id)) {
+                        const rawNames = item.doc.names;
+                        const primary = rawNames.find((n: any) => n.primary) || rawNames[0];
+                        wordMap.set(item.id, {
+                            id: item.id as string,
+                            type: 'person',
+                            name: `${primary.first} ${primary.last}`.trim()
+                        });
+                    }
+                });
             });
-        });
-        const allPeople = Array.from(peopleMap.values());
 
-        // 2. Search Stories
-        const storyResults = await this.storyIndex.searchAsync(query, {
-            enrich: true,
-        });
-
-        const storyMap = new Map<string, SearchResult>();
-        storyResults.forEach(fieldResult => {
-            fieldResult.result.forEach((item: any) => {
-                if (!storyMap.has(item.id)) {
-                    storyMap.set(item.id, {
-                        id: item.id as string,
-                        type: 'story',
-                        name: item.doc.title || item.id
-                    });
+            if (peopleMap === null) {
+                peopleMap = wordMap;
+            } else {
+                // Intersect: retain only IDs that matched this word too
+                for (const id of [...peopleMap.keys()]) {
+                    if (!wordMap.has(id)) peopleMap.delete(id);
                 }
+            }
+        }
+
+        const allPeople = Array.from((peopleMap ?? new Map()).values());
+
+        // 2. Search Stories — same word-by-word intersection
+        let storyMap: Map<string, SearchResult> | null = null;
+
+        for (const word of words) {
+            const wordResults = await this.storyIndex.searchAsync(word, { enrich: true });
+
+            const wordMap = new Map<string, SearchResult>();
+            wordResults.forEach(fieldResult => {
+                fieldResult.result.forEach((item: any) => {
+                    if (!wordMap.has(item.id)) {
+                        wordMap.set(item.id, {
+                            id: item.id as string,
+                            type: 'story',
+                            name: item.doc.title || item.id
+                        });
+                    }
+                });
             });
-        });
-        const allStories = Array.from(storyMap.values());
+
+            if (storyMap === null) {
+                storyMap = wordMap;
+            } else {
+                for (const id of [...storyMap.keys()]) {
+                    if (!wordMap.has(id)) storyMap.delete(id);
+                }
+            }
+        }
+
+        const allStories = Array.from((storyMap ?? new Map()).values());
 
         // 3. Search Places (case-insensitive substring match)
         // Scaling note: O(n) where n = unique locations. Bounded by location count, not people.
@@ -286,11 +318,12 @@ export class SearchService {
      */
     private extractPlaces(p: Person): void {
         p.events.forEach(e => {
-            if (e.location) {
-                if (!this.placeMap.has(e.location)) {
-                    this.placeMap.set(e.location, new Set());
+            const locName = e.location?.name;
+            if (locName) {
+                if (!this.placeMap.has(locName)) {
+                    this.placeMap.set(locName, new Set());
                 }
-                this.placeMap.get(e.location)!.add(p.id);
+                this.placeMap.get(locName)!.add(p.id);
             }
         });
     }

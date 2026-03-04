@@ -2,6 +2,9 @@
   "name": "client",
   "private": true,
   "version": "0.0.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +13,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-query": "^5.90.21",
     "@tanstack/react-router": "^1.161.3",
     "@tanstack/react-virtual": "^3.13.18",
@@ -21,13 +25,17 @@
     "radix-ui": "^1.4.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-force-graph-2d": "^1.29.1",
+    "react-markdown": "^10.1.0",
     "react-resizable-panels": "^4.6.5",
+    "remark-gfm": "^4.0.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/vite": "^4.2.0",
     "@tanstack/router-plugin": "^1.161.3",
     "@types/node": "^24.10.13",

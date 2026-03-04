@@ -1,6 +1,7 @@
 # Generate test data/caches
 data/
 auth-data/
+e2e-data/
 temp_watch_test/
 temp_media_test/
 thumbnails-test/

@@ -1,5 +1,14 @@
 import { apiFetch } from './client';
 
+export interface Place {
+    name: string;
+    historicalName?: string;
+    lat?: number;
+    lng?: number;
+    countryCode?: string;
+    resolvedAt?: string;
+}
+
 export interface PersonName {
     primary?: boolean;
     first?: string;
@@ -16,6 +25,7 @@ export interface SlimPersonSummary {
     deathDate?: string;
     tags: string[];
     assetCount: number;
+    primaryAsset?: string;
     last_modified: string;
 }
 
@@ -46,7 +56,20 @@ export interface PaginatedPeopleResponse {
     totalCount: number;
 }
 
+export interface CreatePersonInput {
+    names: Array<{ first?: string; last?: string; primary?: boolean }>;
+    sex: string;
+}
+
 export const peopleApi = {
+    createPerson: async (data: CreatePersonInput) => {
+        return apiFetch<PersonDetail>('/people', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+    },
+
     getPeople: async (params?: { limit?: number; offset?: number; sort?: string; order?: string }) => {
         const searchParams = new URLSearchParams();
         if (params?.limit !== undefined) searchParams.append('limit', String(params.limit));

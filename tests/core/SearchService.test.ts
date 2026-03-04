@@ -18,8 +18,8 @@ describe('SearchService', () => {
         tags: ["mathematician", "war hero"],
         relationships: { parents: [] },
         events: [
-            { id: "E1", type: "birth", date: "1912", sort_date: "1912-06-23", location: "London", assets: [] },
-            { id: "E2", type: "death", date: "1954", sort_date: "1954-06-07", location: "Wilmslow", assets: [], cause: "Cyanide" }
+            { id: "E1", type: "birth", date: "1912", sort_date: "1912-06-23", location: { name: "London" }, assets: [] },
+            { id: "E2", type: "death", date: "1954", sort_date: "1954-06-07", location: { name: "Wilmslow" }, assets: [], cause: "Cyanide" }
         ],
         assets: [],
         scrapbook_md: "Father of theoretical computer science."
@@ -35,7 +35,7 @@ describe('SearchService', () => {
         tags: ["navy", "cobol"],
         relationships: { parents: [] },
         events: [
-             { id: "E3", type: "education", date: "1928", sort_date: "1928-01-01", location: "Vassar College", assets: [], institution: "Vassar" }
+             { id: "E3", type: "education", date: "1928", sort_date: "1928-01-01", location: { name: "Vassar College" }, assets: [], institution: "Vassar" }
         ],
         assets: [],
         scrapbook_md: "Grand Lady of Software."
@@ -145,7 +145,7 @@ describe('SearchService', () => {
             tags: [],
             relationships: { parents: [] },
             events: [
-                { id: "E4", type: "birth", date: "1815", sort_date: "1815-12-10", location: "London", assets: [] }
+                { id: "E4", type: "birth", date: "1815", sort_date: "1815-12-10", location: { name: "London" }, assets: [] }
             ],
             assets: [],
             scrapbook_md: ""

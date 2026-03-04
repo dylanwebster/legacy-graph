@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { nanoid } from 'nanoid';
+import { generatePersonId } from '../../utils/idGenerator';
 import * as nodeFs from 'fs';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -48,6 +49,7 @@ export async function peopleRoutes(server: FastifyInstance) {
                     deathDate: p.events?.find((e: any) => e.type === 'death')?.date,
                     tags: p.tags,
                     assetCount: p.assets?.length || 0,
+                    primaryAsset: p.assets?.[0],
                     last_modified: p.last_modified
                 });
             }
@@ -155,7 +157,7 @@ export async function peopleRoutes(server: FastifyInstance) {
 
             const newPerson: Person = {
                 version: '5.0',
-                id: `N_${nanoid()}`,
+                id: generatePersonId({ names: body.names, events: body.events }),
                 created: new Date().toISOString(),
                 last_modified: new Date().toISOString(),
                 names: body.names,
@@ -194,10 +196,10 @@ export async function peopleRoutes(server: FastifyInstance) {
 
     server.put<{
         Params: { id: string },
-        Body: Person
+        Body: Partial<Person>
     }>('/api/people/:id', async (request, reply) => {
         const { id } = request.params;
-        const updates = request.body;
+        const patch = request.body;
         const graph = graphEngine.getGraph();
 
         if (!graph.hasNode(id)) {
@@ -210,20 +212,39 @@ export async function peopleRoutes(server: FastifyInstance) {
         try {
             const oldSlim = graph.getNodeAttributes(id).data as SlimPerson;
 
-            updates.last_modified = new Date().toISOString();
-            PersonSchema.parse(updates);
+            // Load heavy fields so we can reconstruct the full person before merging
+            const heavyFields = await graphEngine.loadHeavyFields(id);
+            const currentPerson: Person = {
+                ...oldSlim,
+                scrapbook_md: heavyFields?.scrapbook_md ?? '',
+                _gedcom: heavyFields?._gedcom,
+            };
+
+            // Merge the incoming patch with the existing full person, then validate.
+            // Strip immutable fields from patch to prevent id/filename mismatches.
+            const { id: _pid, created: _pc, version: _pv, ...safePatch } = patch as Record<string, unknown>;
+            const merged: Person = {
+                ...currentPerson,
+                ...safePatch,
+                id,
+                created: currentPerson.created,
+                version: currentPerson.version,
+                last_modified: new Date().toISOString(),
+            };
+
+            PersonSchema.parse(merged);
 
             const relativePath = path.join('people', `${id}.yaml`);
-            const primaryName = updates.names?.[0];
+            const primaryName = merged.names?.[0];
             const label = primaryName ? `${primaryName.first} ${primaryName.last}` : id;
-            await txManager.writeFile(relativePath, yaml.dump(updates), label);
+            await txManager.writeFile(relativePath, yaml.dump(merged), label);
 
-            const newSlim = toSlimPerson(updates);
+            const newSlim = toSlimPerson(merged);
             graph.setNodeAttribute(id, 'data', newSlim);
 
-            graphEngine.applyWriteSideEffects(id, oldSlim, newSlim, updates.scrapbook_md || '');
+            graphEngine.applyWriteSideEffects(id, oldSlim, newSlim, merged.scrapbook_md || '');
 
-            return updates;
+            return merged;
         } catch (error: any) {
             console.error('[API] Error updating person:', error);
             return reply.status(400).send({
@@ -310,5 +331,58 @@ export async function peopleRoutes(server: FastifyInstance) {
                 details: error.message
             });
         }
+    });
+
+    server.delete<{
+        Params: { id: string; filename: string }
+    }>('/api/people/:id/media/:filename', async (request, reply) => {
+        const { id, filename } = request.params;
+        const graph = graphEngine.getGraph();
+
+        if (!graph.hasNode(id)) {
+            return reply.status(404).send({
+                error: 'Person not found',
+                code: 'PERSON_NOT_FOUND'
+            });
+        }
+
+        const heavyFields = await graphEngine.loadHeavyFields(id);
+        const slimData = graph.getNodeAttributes(id).data as SlimPerson;
+        const fullPerson: Person = {
+            ...slimData,
+            scrapbook_md: heavyFields?.scrapbook_md ?? '',
+            _gedcom: heavyFields?._gedcom,
+        } as Person;
+
+        if (!fullPerson.assets.includes(filename)) {
+            return reply.status(404).send({
+                error: 'Asset not found',
+                code: 'ASSET_NOT_FOUND'
+            });
+        }
+
+        // Delete the file from disk (silent if already gone)
+        const assetPath = path.join(dataDir, 'assets', filename);
+        try {
+            await fs.unlink(assetPath);
+        } catch {
+            // File already gone — proceed
+        }
+
+        // Remove from assets array and persist
+        const oldSlim = graph.getNodeAttributes(id).data as SlimPerson;
+        fullPerson.assets = fullPerson.assets.filter(a => a !== filename);
+        fullPerson.last_modified = new Date().toISOString();
+
+        const relativePath = path.join('people', `${id}.yaml`);
+        const primaryName = fullPerson.names?.[0];
+        const label = primaryName ? `${primaryName.first} ${primaryName.last}` : id;
+        await txManager.writeFile(relativePath, yaml.dump(fullPerson), label);
+
+        const newSlim = toSlimPerson(fullPerson);
+        graph.setNodeAttribute(id, 'data', newSlim);
+        graphEngine.applyWriteSideEffects(id, oldSlim, newSlim, fullPerson.scrapbook_md || '');
+
+        return reply.status(204).send();
     });
 }

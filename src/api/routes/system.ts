@@ -124,6 +124,63 @@ export async function systemRoutes(server: FastifyInstance) {
         }
     });
 
+    server.get('/api/graph', async () => {
+        const graph = graphEngine.getGraph();
+        const nodes: Array<{ id: string; label: string; sex: string; birthYear: number | null; primaryAsset: string | null }> = [];
+        const edgeSet = new Set<string>();
+        const edges: Array<{ source: string; target: string; type: 'parent_child' | 'spouse'; status?: string }> = [];
+
+        graph.forEachNode((nodeId, attributes) => {
+            if (attributes.type !== 'person') return;
+            const p = attributes.data;
+            const name = p.names?.[0];
+            const label = name ? `${name.first ?? ''} ${name.last ?? ''}`.trim() : nodeId;
+            const birthEvent = p.events?.find((e: any) => e.type === 'birth');
+            let birthYear: number | null = null;
+            if (birthEvent) {
+                // Prefer sort_date (always ISO YYYY-MM-DD) over display date
+                // which may be in GEDCOM format ("15 JAN 1920" → slice(0,4) = "15 J" → 15).
+                const dateStr: string = birthEvent.sort_date || birthEvent.date || '';
+                const match = dateStr.match(/\b(\d{4})\b/);
+                if (match) {
+                    const yr = parseInt(match[1], 10);
+                    if (yr > 999 && yr < 2200) birthYear = yr;
+                }
+            }
+            nodes.push({
+                id: nodeId,
+                label,
+                sex: p.sex ?? 'U',
+                birthYear,
+                primaryAsset: p.assets?.[0] ?? null
+            });
+
+            // Parent-child edges: child → parent (only emit if both nodes exist in graph)
+            const parents: Array<{ id: string }> = p.relationships?.parents ?? [];
+            for (const parent of parents) {
+                if (!graph.hasNode(parent.id)) continue;
+                const key = `pc:${nodeId}:${parent.id}`;
+                if (!edgeSet.has(key)) {
+                    edgeSet.add(key);
+                    edges.push({ source: nodeId, target: parent.id, type: 'parent_child' });
+                }
+            }
+
+            // Spouse edges from marriage events (deduplicated)
+            const marriageEvents = (p.events ?? []).filter((e: any) => e.type === 'marriage' && e.partner_id);
+            for (const ev of marriageEvents) {
+                const [a, b] = [nodeId, ev.partner_id].sort();
+                const key = `sp:${a}:${b}`;
+                if (!edgeSet.has(key)) {
+                    edgeSet.add(key);
+                    edges.push({ source: a, target: b, type: 'spouse', status: ev.status ?? 'married' });
+                }
+            }
+        });
+
+        return { nodes, edges };
+    });
+
     server.post<{
         Body: { name?: string }
     }>('/api/system/snapshot', async (request, reply) => {

@@ -49,7 +49,7 @@ describe('GEDCOM Robustness', () => {
             expect(result.people[0].events[0].sort_date).toBe('1850-01-01');
         });
 
-        it('should parse ranges (BET/AND) and take the start date', async () => {
+        it('should parse ranges (BET/AND) and return the midpoint date', async () => {
             const input = `
 0 HEAD
 0 @I1@ INDI
@@ -59,7 +59,7 @@ describe('GEDCOM Robustness', () => {
 0 TRLR
 `;
             const result = await reader.parse(input);
-            expect(result.people[0].events[0].sort_date).toBe('1900-01-01');
+            expect(result.people[0].events[0].sort_date).toBe('1905-06-01');
         });
     });
 

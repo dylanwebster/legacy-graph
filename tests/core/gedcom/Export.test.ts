@@ -26,7 +26,7 @@ describe('GedcomExporter', () => {
                     type: "birth",
                     date: "10 JAN 1980",
                     sort_date: "1980-01-10",
-                    location: "Springfield, IL",
+                    location: { name: "Springfield, IL" },
                     assets: []
                 }
             ],
@@ -70,7 +70,7 @@ describe('GedcomExporter', () => {
                     type: "marriage",
                     date: "1 JUN 2000",
                     sort_date: "2000-06-01",
-                    location: "Boston, MA",
+                    location: { name: "Boston, MA" },
                     assets: [],
                     partner_id: "N_jane",
                     status: "married"
@@ -95,7 +95,7 @@ describe('GedcomExporter', () => {
                     type: "marriage",
                     date: "1 JUN 2000",
                     sort_date: "2000-06-01",
-                    location: "Boston, MA",
+                    location: { name: "Boston, MA" },
                     assets: [],
                     partner_id: "N_john",
                     status: "married"
@@ -213,10 +213,10 @@ describe('GedcomExporter', () => {
             tags: [],
             relationships: { parents: [] },
             events: [
-                { id: "1", type: "birth", date: "1900", sort_date: "1900-01-01", location: "", assets: [] },
-                { id: "2", type: "death", date: "1980", sort_date: "1980-01-01", location: "", assets: [], cause: "Old age" },
-                { id: "3", type: "baptism", date: "1901", sort_date: "1901-01-01", location: "", assets: [] },
-                { id: "4", type: "burial", date: "1981", sort_date: "1981-01-01", location: "", assets: [] },
+                { id: "1", type: "birth", date: "1900", sort_date: "1900-01-01", assets: [] },
+                { id: "2", type: "death", date: "1980", sort_date: "1980-01-01", assets: [], cause: "Old age" },
+                { id: "3", type: "baptism", date: "1901", sort_date: "1901-01-01", assets: [] },
+                { id: "4", type: "burial", date: "1981", sort_date: "1981-01-01", assets: [] },
             ],
             assets: [],
             scrapbook_md: "",

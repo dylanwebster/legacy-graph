@@ -168,8 +168,11 @@ export function computeAllRelationships(graph: Graph): void {
 }
 
 /**
- * Invalidate and recompute _computed for a node AND all its immediate neighbors.
- * Called after hot-patch changes.
+ * Invalidate and recompute _computed for a node AND all its immediate neighbors,
+ * plus any siblings (2 hops away through shared parents). Called after hot-patch changes.
+ *
+ * Siblings are not direct graph neighbors but their _computed.siblings lists change
+ * whenever a node gains or loses a parent edge.
  */
 export function invalidateComputed(graph: Graph, nodeId: string): void {
     if (!graph.hasNode(nodeId)) return;
@@ -186,6 +189,17 @@ export function invalidateComputed(graph: Graph, nodeId: string): void {
     for (const neighbor of neighbors) {
         if (graph.getNodeAttributes(neighbor).type === 'person') {
             computeRelationships(graph, neighbor);
+        }
+    }
+
+    // Recompute siblings: when parent edges change, existing siblings' _computed.siblings
+    // must also update (they gain or lose nodeId as a sibling). Siblings are 2 hops away
+    // (nodeId → parent → sibling) and therefore not in the neighbors set above.
+    const siblings = getSiblings(graph, nodeId);
+    for (const sibling of siblings) {
+        if (!neighbors.has(sibling) && graph.hasNode(sibling) &&
+            graph.getNodeAttributes(sibling).type === 'person') {
+            computeRelationships(graph, sibling);
         }
     }
 }

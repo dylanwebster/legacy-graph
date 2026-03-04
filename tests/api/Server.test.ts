@@ -295,6 +295,88 @@ describe('Fastify API Server', () => {
         });
     });
 
+    describe('DELETE /api/people/:id/media/:filename', () => {
+        const pngBuffer = Buffer.from([
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+            0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+            0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+            0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+            0x42, 0x60, 0x82
+        ]);
+
+        it('should delete asset file and return 204', async () => {
+            const createResponse = await request.post('/api/people').send({
+                names: [{ first: 'Delete', last: 'Asset', primary: true }],
+                sex: 'F'
+            });
+            const personId = createResponse.body.id;
+
+            const uploadResponse = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', pngBuffer, 'test.png');
+            const { filename } = uploadResponse.body;
+
+            const deleteResponse = await request.delete(`/api/people/${personId}/media/${filename}`);
+            expect(deleteResponse.status).toBe(204);
+        });
+
+        it('should remove file from disk after deletion', async () => {
+            const createResponse = await request.post('/api/people').send({
+                names: [{ first: 'Delete', last: 'Disk', primary: true }],
+                sex: 'M'
+            });
+            const personId = createResponse.body.id;
+
+            const uploadResponse = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', pngBuffer, 'test.png');
+            const { filename } = uploadResponse.body;
+
+            await request.delete(`/api/people/${personId}/media/${filename}`);
+
+            const assetPath = path.join('./tests/fixtures/data', 'assets', filename);
+            expect(fs.existsSync(assetPath)).toBe(false);
+        });
+
+        it('should remove filename from person assets array', async () => {
+            const createResponse = await request.post('/api/people').send({
+                names: [{ first: 'Delete', last: 'Yaml', primary: true }],
+                sex: 'M'
+            });
+            const personId = createResponse.body.id;
+
+            const uploadResponse = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', pngBuffer, 'test.png');
+            const { filename } = uploadResponse.body;
+
+            await request.delete(`/api/people/${personId}/media/${filename}`);
+
+            const getResponse = await request.get(`/api/people/${personId}`);
+            expect(getResponse.body.assets).not.toContain(filename);
+        });
+
+        it('should return 404 for non-existent person', async () => {
+            const response = await request.delete('/api/people/N_nonexistent/media/file.png');
+            expect(response.status).toBe(404);
+        });
+
+        it('should return 404 when filename not in person assets', async () => {
+            const createResponse = await request.post('/api/people').send({
+                names: [{ first: 'Delete', last: 'NotFound', primary: true }],
+                sex: 'U'
+            });
+            const personId = createResponse.body.id;
+
+            const response = await request.delete(`/api/people/${personId}/media/nonexistent.png`);
+            expect(response.status).toBe(404);
+        });
+    });
+
     describe('POST /api/import/gedcom', () => {
         it('should import GEDCOM and replace existing data', async () => {
             const gedcomContent = `0 HEAD
@@ -464,6 +546,187 @@ describe('Fastify API Server', () => {
                 .send({});
 
             expect(response.status).toBe(400);
+        });
+    });
+
+    describe('POST /api/import/gedcom (additive vs replace modes)', () => {
+        const testDataDir = './tests/fixtures/data';
+        const peopleDir = path.join(testDataDir, 'people');
+        const FIXTURE_PERSON_ID = 'N_test-import-2000-fixture';
+        const FIXTURE_PERSON_YAML = `version: '5.0'
+id: ${FIXTURE_PERSON_ID}
+created: '2026-01-01T00:00:00.000Z'
+last_modified: '2026-01-01T00:00:00.000Z'
+names:
+  - first: Test
+    last: Import
+    primary: true
+events:
+  - id: fixture-birth-event
+    type: birth
+    date: 1 JAN 2000
+    sort_date: '2000-01-01'
+    assets: []
+assets: []
+relationships:
+  parents: []
+sex: M
+tags:
+  - gedcom
+scrapbook_md: ''
+_gedcom: {}
+`;
+
+        beforeEach(async () => {
+            // Ensure a clean, known fixture state for each test in this block.
+            // Remove any stale files from previous test runs, then write the canonical fixture person.
+            // Then rebuild the graph so the in-memory state matches disk.
+            fs.mkdirSync(peopleDir, { recursive: true });
+            const allFiles = fs.readdirSync(peopleDir).filter(f => f.endsWith('.yaml'));
+            for (const f of allFiles) {
+                try { fs.unlinkSync(path.join(peopleDir, f)); } catch { /* ignore */ }
+            }
+            fs.writeFileSync(path.join(peopleDir, `${FIXTURE_PERSON_ID}.yaml`), FIXTURE_PERSON_YAML, 'utf8');
+            // Force re-hydration so graph matches disk
+            await request.post('/api/system/rebuild');
+        });
+
+        // Minimal valid GEDCOM with one person: first=Jane, last=Doe, born 1990
+        const JANE_GED = `0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Jane /Doe/
+1 SEX F
+1 BIRT
+2 DATE 15 JUN 1990
+0 TRLR`;
+
+        // Minimal valid GEDCOM with one person: first=Test, last=Import, born 2000
+        // Matches the fixture person N_test-import-2000-* already in tests/fixtures/data/people/
+        const DUPLICATE_GED = `0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Test /Import/
+1 SEX M
+1 BIRT
+2 DATE 1 JAN 2000
+0 TRLR`;
+
+        it('replace mode wipes existing people and writes imported ones', async () => {
+            const response = await request
+                .post('/api/import/gedcom')
+                .field('mode', 'replace')
+                .attach('file', Buffer.from(JANE_GED), { filename: 'test.ged', contentType: 'text/plain' });
+
+            expect(response.status).toBe(200);
+            expect(response.body.imported).toBe(1);
+            // The fixture person should be gone — verify Jane is the only person
+            const people = await request.get('/api/people');
+            expect(people.body.totalCount).toBe(1);
+            expect(people.body.people[0].names[0].first).toBe('Jane');
+        });
+
+        it('additive mode adds new people without removing existing ones', async () => {
+            const before = await request.get('/api/people');
+            const countBefore: number = before.body.totalCount;
+
+            const response = await request
+                .post('/api/import/gedcom')
+                .field('mode', 'additive')
+                .attach('file', Buffer.from(JANE_GED), { filename: 'test.ged', contentType: 'text/plain' });
+
+            expect(response.status).toBe(200);
+            expect(response.body.imported).toBe(1);
+            expect(response.body.skipped).toBe(0);
+
+            const after = await request.get('/api/people');
+            expect(after.body.totalCount).toBe(countBefore + 1);
+        });
+
+        it('additive mode skips duplicate matched by name + birth year', async () => {
+            const before = await request.get('/api/people');
+            const countBefore: number = before.body.totalCount;
+
+            const response = await request
+                .post('/api/import/gedcom')
+                .field('mode', 'additive')
+                .attach('file', Buffer.from(DUPLICATE_GED), { filename: 'dup.ged', contentType: 'text/plain' });
+
+            expect(response.status).toBe(200);
+            expect(response.body.imported).toBe(0);
+            expect(response.body.skipped).toBe(1);
+
+            const after = await request.get('/api/people');
+            expect(after.body.totalCount).toBe(countBefore);
+        });
+
+        it('rejects unknown mode with 400', async () => {
+            const response = await request
+                .post('/api/import/gedcom')
+                .field('mode', 'nuke')
+                .attach('file', Buffer.from(JANE_GED), { filename: 'test.ged', contentType: 'text/plain' });
+
+            expect(response.status).toBe(400);
+            expect(response.body.code).toBe('INVALID_MODE');
+        });
+    });
+
+    describe('GET /api/graph', () => {
+        it('should return nodes and edges arrays', async () => {
+            const response = await request.get('/api/graph');
+            expect(response.status).toBe(200);
+            expect(response.body).toHaveProperty('nodes');
+            expect(response.body).toHaveProperty('edges');
+            expect(Array.isArray(response.body.nodes)).toBe(true);
+            expect(Array.isArray(response.body.edges)).toBe(true);
+        });
+
+        it('should include required node fields', async () => {
+            // Create a person so we have at least one node
+            const createRes = await request.post('/api/people').send({
+                names: [{ first: 'Graph', last: 'Node', primary: true }],
+                sex: 'M',
+                events: [{ type: 'birth', date: '1980-01-01', sort_date: '1980-01-01' }]
+            });
+            expect(createRes.status).toBe(201);
+
+            const response = await request.get('/api/graph');
+            expect(response.status).toBe(200);
+            expect(response.body.nodes.length).toBeGreaterThan(0);
+
+            const node = response.body.nodes.find((n: any) => n.id === createRes.body.id);
+            expect(node).toBeDefined();
+            expect(node).toHaveProperty('id');
+            expect(node).toHaveProperty('label');
+            expect(node).toHaveProperty('sex');
+            expect(node.birthYear).toBe(1980);
+        });
+
+        it('should include parent_child edges for related people', async () => {
+            const parentRes = await request.post('/api/people').send({
+                names: [{ first: 'Graph', last: 'Parent', primary: true }],
+                sex: 'F',
+                events: []
+            });
+            const childRes = await request.post('/api/people').send({
+                names: [{ first: 'Graph', last: 'Child', primary: true }],
+                sex: 'M',
+                events: [],
+                relationships: { parents: [{ id: parentRes.body.id, type: 'biological' }] }
+            });
+            expect(parentRes.status).toBe(201);
+            expect(childRes.status).toBe(201);
+
+            const response = await request.get('/api/graph');
+            expect(response.status).toBe(200);
+
+            const edge = response.body.edges.find(
+                (e: any) => e.source === childRes.body.id && e.target === parentRes.body.id
+            );
+            expect(edge).toBeDefined();
+            expect(edge.type).toBe('parent_child');
         });
     });
 });

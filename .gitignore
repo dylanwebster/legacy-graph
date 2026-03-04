@@ -6,6 +6,8 @@ coverage
 data/
 temp_data
 temp_repo
-tests/fixtures/auth-data
+test-results/
 .graph-cache.json
 .search-index.json
+.claude
+SCRATCH.md

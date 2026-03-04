@@ -1,9 +1,11 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 import {
     Dialog,
     DialogContent,
@@ -11,11 +13,16 @@ import {
     DialogTitle,
     DialogDescription,
 } from '@/components/ui/dialog';
-import { Upload, AlertTriangle, Loader2 } from 'lucide-react';
+import { Upload, AlertTriangle, Loader2, CheckCircle2 } from 'lucide-react';
 
 export const Route = createLazyFileRoute('/import')({
     component: ImportPage,
 });
+
+const MODE_DESCRIPTIONS = {
+    replace: 'All existing people will be permanently deleted and replaced with records from this file. Git history is preserved, so you can revert if needed.',
+    additive: 'People from this file will be added to your existing data. Duplicates are detected by matching first name, last name, and birth year — matched records will be skipped to preserve any hand-crafted edits. Name or date discrepancies may still result in duplicates.',
+} as const;
 
 function ImportPage() {
     const [file, setFile] = useState<File | null>(null);
@@ -23,6 +30,9 @@ function ImportPage() {
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [progress, setProgress] = useState<{ phase?: string; percent?: number } | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [mode, setMode] = useState<'replace' | 'additive'>('replace');
+    const [importResult, setImportResult] = useState<{ imported: number; skipped?: number } | null>(null);
+    const evtSourceRef = useRef<EventSource | null>(null);
     const navigate = useNavigate();
 
     const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -40,10 +50,12 @@ function ImportPage() {
         setConfirmOpen(false);
         setUploading(true);
         setError(null);
+        setImportResult(null);
 
         try {
             const formData = new FormData();
             formData.append('file', file);
+            formData.append('mode', mode);
 
             const response = await fetch('/api/import/gedcom', {
                 method: 'POST',
@@ -55,8 +67,11 @@ function ImportPage() {
                 throw new Error(err.error || 'Upload failed');
             }
 
+            const result = await response.json();
+
             // Listen to hydration stream for progress
             const evtSource = new EventSource('/api/system/hydration/stream');
+            evtSourceRef.current = evtSource;
 
             evtSource.addEventListener('progress', (e) => {
                 try {
@@ -67,12 +82,18 @@ function ImportPage() {
 
             evtSource.addEventListener('complete', () => {
                 evtSource.close();
+                evtSourceRef.current = null;
                 setUploading(false);
-                navigate({ to: '/' });
+                if (mode === 'additive') {
+                    setImportResult({ imported: result.imported, skipped: result.skipped });
+                } else {
+                    navigate({ to: '/' });
+                }
             });
 
             evtSource.addEventListener('error', () => {
                 evtSource.close();
+                evtSourceRef.current = null;
                 setUploading(false);
                 setError('Import completed but hydration stream disconnected.');
             });
@@ -80,7 +101,13 @@ function ImportPage() {
             setUploading(false);
             setError(err instanceof Error ? err.message : 'Upload failed');
         }
-    }, [file, navigate]);
+    }, [file, mode, navigate]);
+
+    useEffect(() => {
+        return () => {
+            evtSourceRef.current?.close();
+        };
+    }, []);
 
     return (
         <div className="flex flex-col items-center justify-center h-full p-6">
@@ -99,7 +126,7 @@ function ImportPage() {
                 >
                     <Upload className="h-10 w-10 text-muted-foreground" />
                     <div className="text-center">
-                        <p className="text-sm font-medium">{file ? file.name : 'Click to select or drag a .ged file'}</p>
+                        <p className="text-sm font-medium">{file ? file.name : 'Click to select a .ged file'}</p>
                         {file && (
                             <p className="text-xs text-muted-foreground mt-1">
                                 {(file.size / 1024).toFixed(1)} KB
@@ -115,10 +142,49 @@ function ImportPage() {
                     />
                 </label>
 
+                {/* Mode selector */}
+                <div className="space-y-3">
+                    <p id="import-mode-label" className="text-sm font-medium">Import mode</p>
+                    <RadioGroup value={mode} onValueChange={(v) => {
+                        if (v === 'replace' || v === 'additive') setMode(v);
+                    }} aria-labelledby="import-mode-label" className="space-y-2">
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="replace" id="mode-replace" />
+                            <Label htmlFor="mode-replace" className="cursor-pointer">Replace existing people</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="additive" id="mode-additive" />
+                            <Label htmlFor="mode-additive" className="cursor-pointer">Add to existing people</Label>
+                        </div>
+                    </RadioGroup>
+                    <p className="text-xs text-muted-foreground">
+                        {MODE_DESCRIPTIONS[mode]}
+                    </p>
+                </div>
+
                 {error && (
                     <Badge variant="destructive" className="w-full justify-center py-2">
                         {error}
                     </Badge>
+                )}
+
+                {/* Additive import result banner */}
+                {importResult && (
+                    <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-4">
+                        <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+                        <div className="space-y-1">
+                            <p className="text-sm font-medium">Import complete</p>
+                            <p className="text-xs text-muted-foreground">
+                                {importResult.imported} {importResult.imported === 1 ? 'person' : 'people'} added
+                                {importResult.skipped != null && importResult.skipped > 0
+                                    ? `, ${importResult.skipped} duplicate${importResult.skipped === 1 ? '' : 's'} skipped`
+                                    : ''}
+                            </p>
+                        </div>
+                        <Button variant="outline" size="sm" className="ml-auto shrink-0" onClick={() => navigate({ to: '/' })}>
+                            Go to dashboard
+                        </Button>
+                    </div>
                 )}
 
                 {/* Upload progress */}
@@ -140,7 +206,7 @@ function ImportPage() {
                 <Button
                     className="w-full"
                     size="lg"
-                    disabled={!file || uploading}
+                    disabled={!file || uploading || !!importResult}
                     onClick={() => setConfirmOpen(true)}
                 >
                     {uploading ? (
@@ -157,17 +223,21 @@ function ImportPage() {
                     <DialogContent>
                         <DialogHeader>
                             <DialogTitle className="flex items-center gap-2">
-                                <AlertTriangle className="h-5 w-5 text-amber-500" />
-                                Destructive Action
+                                {mode === 'replace' && <AlertTriangle className="h-5 w-5 text-amber-500" />}
+                                {mode === 'replace' ? 'Destructive Action' : 'Add to Existing Data'}
                             </DialogTitle>
                             <DialogDescription>
-                                This will replace all existing data in the graph with the contents of the uploaded GEDCOM file.
-                                Git history is preserved, so you can revert if needed. Are you sure?
+                                {MODE_DESCRIPTIONS[mode]}
                             </DialogDescription>
                         </DialogHeader>
                         <div className="flex justify-end gap-3 pt-4">
                             <Button variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
-                            <Button variant="destructive" onClick={handleUpload}>Yes, Import</Button>
+                            <Button
+                                variant={mode === 'replace' ? 'destructive' : 'default'}
+                                onClick={handleUpload}
+                            >
+                                {mode === 'replace' ? 'Yes, Replace All' : 'Yes, Import'}
+                            </Button>
                         </div>
                     </DialogContent>
                 </Dialog>

@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import type { AppInstance } from '../types';
 
 export async function searchRoutes(server: FastifyInstance) {
-    const { graphEngine } = (server as AppInstance).appServices;
+    const { graphEngine, geocodingService } = (server as AppInstance).appServices;
 
     server.get<{
         Querystring: { q?: string; limit?: string; offset?: string }
@@ -35,7 +35,40 @@ export async function searchRoutes(server: FastifyInstance) {
 
         try {
             const results = await graphEngine.searchService.search(q, { limit, offset });
-            return results;
+
+            // Enrich person results with slim person data from the graph
+            const graph = graphEngine.getGraph();
+            const enrichedPeople = results.people.map((p) => {
+                const nodeAttrs = graph.hasNode(p.id) ? graph.getNodeAttributes(p.id) : null;
+                const slim = nodeAttrs?.data as any;
+                if (!slim) {
+                    return {
+                        id: p.id,
+                        names: [{ first: p.name }],
+                        sex: 'U',
+                        tags: [] as string[],
+                        assetCount: 0,
+                        primaryAsset: undefined as string | undefined,
+                        last_modified: ''
+                    };
+                }
+                return {
+                    id: slim.id,
+                    names: slim.names,
+                    sex: slim.sex,
+                    birthDate: slim.events?.find((e: any) => e.type === 'birth')?.date as string | undefined,
+                    deathDate: slim.events?.find((e: any) => e.type === 'death')?.date as string | undefined,
+                    tags: slim.tags ?? [],
+                    assetCount: slim.assets?.length ?? 0,
+                    primaryAsset: slim.assets?.[0] as string | undefined,
+                    last_modified: slim.last_modified ?? ''
+                };
+            });
+
+            return {
+                ...results,
+                people: enrichedPeople
+            };
         } catch (error: any) {
             console.error('[API] Search error:', error);
             return reply.status(500).send({
@@ -44,5 +77,31 @@ export async function searchRoutes(server: FastifyInstance) {
                 details: error.message
             });
         }
+    });
+
+    // GET /api/places/search?q=
+    server.get<{ Querystring: { q?: string } }>('/api/places/search', async (request, reply) => {
+        const { q } = request.query;
+        if (!q || q.trim().length < 2) {
+            return reply.status(400).send({
+                error: 'Query parameter "q" must be at least 2 characters',
+                code: 'VALIDATION_ERROR'
+            });
+        }
+        const results = await geocodingService.search(q.trim(), 5);
+        return results;
+    });
+
+    // POST /api/places/resolve
+    server.post<{ Body: { name?: string } }>('/api/places/resolve', async (request, reply) => {
+        const { name } = request.body ?? {};
+        if (!name || !name.trim()) {
+            return reply.status(400).send({
+                error: 'Request body must include "name"',
+                code: 'VALIDATION_ERROR'
+            });
+        }
+        const result = await geocodingService.resolve(name.trim());
+        return result;
     });
 }
