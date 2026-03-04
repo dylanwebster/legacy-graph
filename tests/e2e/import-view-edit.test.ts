@@ -8,7 +8,7 @@ test.describe('CUJ 1: Import → View → Edit → Persist', () => {
         // 1. Navigate to /import
         await page.goto('/import');
         await expect(page).toHaveURL(/\/import/);
-        await expect(page.getByText('Import GEDCOM')).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Import GEDCOM' })).toBeVisible();
 
         // 2. Upload the sample .ged file
         const fileInput = page.locator('input[type="file"][accept=".ged"]');
@@ -20,7 +20,7 @@ test.describe('CUJ 1: Import → View → Edit → Persist', () => {
         await expect(page.getByText('Destructive Action')).toBeVisible();
 
         // 4. Confirm import
-        await page.getByRole('button', { name: 'Yes, Import' }).click();
+        await page.getByRole('button', { name: 'Yes, Replace All' }).click();
 
         // 5. Wait for import to complete and redirect to dashboard
         await page.waitForURL('/', { timeout: 30_000 });
@@ -29,15 +29,10 @@ test.describe('CUJ 1: Import → View → Edit → Persist', () => {
         await page.goto('/people');
         await expect(page).toHaveURL(/\/people/);
 
-        // Wait for people to load
-        await page.waitForSelector('table tbody tr, [data-testid="person-row"]', { timeout: 10_000 }).catch(() => {
-            // fallback: just wait for any link to /people/
-        });
-
-        // Find a link to a person detail page
-        const personLink = page.locator('a[href*="/people/N_"]').first();
-        await expect(personLink).toBeVisible({ timeout: 10_000 });
-        await personLink.click();
+        // Wait for the first virtualized row to appear (people table uses divs, not anchors)
+        const firstRow = page.locator('[data-index="0"]').first();
+        await expect(firstRow).toBeVisible({ timeout: 10_000 });
+        await firstRow.click();
 
         // 7. We're on a person detail page
         await page.waitForURL(/\/people\/N_/, { timeout: 10_000 });
@@ -56,14 +51,14 @@ test.describe('CUJ 1: Import → View → Edit → Persist', () => {
         // Press Enter to save
         await firstNameInput.press('Enter');
 
-        // Name should update
-        await expect(page.locator('h2')).toContainText('EditedJohann', { timeout: 5_000 });
+        // Name should update (target the person name h2, not the dialog title h2)
+        await expect(page.locator('h2.text-xl')).toContainText('EditedJohann', { timeout: 5_000 });
 
         // 9. Hard reload
         await page.reload();
         await page.waitForURL(/\/people\/N_/);
 
         // 10. Name should still be updated after reload
-        await expect(page.locator('h2')).toContainText('EditedJohann', { timeout: 10_000 });
+        await expect(page.locator('h2.text-xl')).toContainText('EditedJohann', { timeout: 10_000 });
     });
 });

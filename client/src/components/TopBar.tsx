@@ -11,20 +11,27 @@ import {
 } from '@/components/ui/breadcrumb';
 
 export function TopBar() {
-    const { toggleSidebar, setSearchOpen, theme, toggleTheme } = useUIStore();
+    const { sidebarOpen, toggleSidebar, setSearchOpen, theme, toggleTheme } = useUIStore();
 
     return (
         <div className="flex h-14 items-center justify-between border-b border-border bg-background px-4 lg:px-6 z-10 w-full shrink-0">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+                {/* Mobile: hamburger opens the sidebar. Hidden on desktop. */}
                 <Button
                     variant="ghost"
                     size="icon"
                     className="md:hidden shrink-0"
                     onClick={toggleSidebar}
+                    aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+                    aria-expanded={sidebarOpen}
                 >
                     <Menu className="h-5 w-5" />
-                    <span className="sr-only">Toggle sidebar</span>
                 </Button>
+
+                {/* Mobile: "LG" brand shown when sidebar is closed */}
+                {!sidebarOpen && (
+                    <span className="md:hidden font-bold text-base tracking-tight select-none">LG</span>
+                )}
 
                 <div className="hidden sm:block">
                     <Breadcrumb>
