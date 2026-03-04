@@ -14,7 +14,7 @@ test.describe('CUJ 2: Search Navigation', () => {
         // 1. Open command palette with Cmd+K (Mac) / Ctrl+K
         // Click body first to ensure the page has keyboard focus
         await page.locator('body').click();
-        await page.keyboard.press('Meta+k');
+        await page.keyboard.press('ControlOrMeta+K');
 
         // The command palette / search dialog should open
         // The CommandPalette uses a cmdk dialog

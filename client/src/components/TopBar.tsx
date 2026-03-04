@@ -22,7 +22,8 @@ export function TopBar() {
                     size="icon"
                     className="md:hidden shrink-0"
                     onClick={toggleSidebar}
-                    aria-label="Open sidebar"
+                    aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+                    aria-expanded={sidebarOpen}
                 >
                     <Menu className="h-5 w-5" />
                 </Button>

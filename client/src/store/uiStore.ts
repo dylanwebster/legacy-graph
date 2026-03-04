@@ -12,7 +12,7 @@ interface UIState {
 export const useUIStore = create<UIState>((set) => ({
     sidebarOpen: typeof window !== 'undefined' && window.innerWidth >= 768,
     searchOpen: false,
-    theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light',
+    theme: typeof document !== 'undefined' && document.documentElement.classList.contains('dark') ? 'dark' : 'light',
     toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
     setSearchOpen: (open) => set({ searchOpen: open }),
     toggleTheme: () => set((state) => {

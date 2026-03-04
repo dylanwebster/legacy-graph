@@ -52,7 +52,7 @@ export function Sidebar() {
                             <button
                                 onClick={toggleSidebar}
                                 className="hidden md:flex items-center justify-center h-7 w-7 mr-3 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0"
-                                title="Collapse sidebar"
+                                aria-label="Collapse sidebar"
                             >
                                 <ChevronLeft className="h-4 w-4" />
                             </button>
@@ -62,7 +62,7 @@ export function Sidebar() {
                         <button
                             onClick={toggleSidebar}
                             className="mx-auto flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                            title="Expand sidebar"
+                            aria-label="Expand sidebar"
                         >
                             <ChevronRight className="h-4 w-4" />
                         </button>
