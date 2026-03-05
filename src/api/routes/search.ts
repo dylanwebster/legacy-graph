@@ -38,6 +38,15 @@ export async function searchRoutes(server: FastifyInstance) {
 
             // Enrich person results with slim person data from the graph
             const graph = graphEngine.getGraph();
+
+            // Helper to resolve @N_xxx IDs to display names for excerpts
+            const resolvePersonName = (personId: string): string => {
+                const nodeAttrs = graph.hasNode(personId) ? graph.getNodeAttributes(personId) : null;
+                const slim = nodeAttrs?.data as any;
+                if (!slim?.names?.[0]) return personId;
+                const n = slim.names[0];
+                return [n.first, n.last].filter(Boolean).join(' ') || personId;
+            };
             const enrichedPeople = results.people.map((p) => {
                 const nodeAttrs = graph.hasNode(p.id) ? graph.getNodeAttributes(p.id) : null;
                 const slim = nodeAttrs?.data as any;
@@ -65,9 +74,43 @@ export async function searchRoutes(server: FastifyInstance) {
                 };
             });
 
+            // Enrich story results with full StoryFeedItem data from the graph.
+            // Story graph node IDs are filenames (e.g. "my-story-abc.md"),
+            // but the API-facing story id strips .md.
+            const enrichedStories = results.stories.map((s) => {
+                // s.id from FlexSearch = the original story.id = filename (with .md)
+                const nodeAttrs = graph.hasNode(s.id) ? graph.getNodeAttributes(s.id) : null;
+                // API-facing id = strip .md
+                const apiId = s.id.endsWith('.md') ? s.id.slice(0, -3) : s.id;
+                const storyData = nodeAttrs?.data as any;
+                if (!storyData) {
+                    return { id: apiId, title: s.name, people: [] as string[], private: false, excerpt: s.snippet };
+                }
+                const content: string = storyData.content ?? '';
+                const bodyText = content
+                    .replace(/@N_[a-zA-Z0-9_-]+/g, (match) => resolvePersonName(match.slice(1)))
+                    .replace(/\[\[N_[a-zA-Z0-9_-]+\]\]/g, (match) => resolvePersonName(match.slice(2, -2)))
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                return {
+                    id: apiId,
+                    title: storyData.metadata?.title ?? s.name,
+                    date: storyData.metadata?.date,
+                    place: storyData.metadata?.place,
+                    people: Array.from(new Set([
+                        ...(storyData.metadata?.people ?? []),
+                        ...(storyData.mentions ?? [])
+                    ])) as string[],
+                    excerpt: bodyText.length > 200 ? bodyText.slice(0, 200) : bodyText,
+                    firstAsset: storyData.metadata?.assets?.[0],
+                    private: storyData.metadata?.private ?? false,
+                };
+            });
+
             return {
                 ...results,
-                people: enrichedPeople
+                people: enrichedPeople,
+                stories: enrichedStories,
             };
         } catch (error: any) {
             console.error('[API] Search error:', error);

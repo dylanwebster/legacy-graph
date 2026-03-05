@@ -1,11 +1,12 @@
 import {
-    useState, useEffect, useRef, useCallback, useDeferredValue,
+    useState, useEffect, useRef, useCallback,
 } from 'react';
 import { createLazyFileRoute, useNavigate, useSearch as useRouterSearch } from '@tanstack/react-router';
-import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia } from '@/api/hooks';
-import { useSearch } from '@/api/hooks';
+import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia, usePlacesSearch } from '@/api/hooks';
 import { PersonChip } from '@/components/PersonChip';
+import { InlinePersonMention } from '@/components/InlinePersonMention';
 import { TiptapEditor } from '@/components/TiptapEditor';
+import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -14,10 +15,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
     Pencil, Eye, Save, ArrowLeft, MapPin, CalendarDays,
-    Upload, X, Lock, Unlock, Users,
+    Upload, X, Lock, Unlock, Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { SlimPersonSummary } from '@/api/people';
+import type { Place } from '@/api/people';
 import type { UpdateStoryInput } from '@/api/stories';
 
 export const Route = createLazyFileRoute('/stories/$id')({
@@ -30,13 +31,23 @@ interface FrontmatterState {
     title: string;
     date: string;
     place: string;
-    people: string[];
     isPrivate: boolean;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-// Custom ReactMarkdown text renderer that converts @N_xxx → PersonChip
+/** Extract person IDs from @N_xxx and [[N_xxx]] patterns in markdown content. */
+function extractMentionIds(content: string): string[] {
+    const ids = new Set<string>();
+    const regex = /(?:@|(?:\[\[))(N_[a-zA-Z0-9_-]+)(?:\]\])?/g;
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(content)) !== null) {
+        ids.add(m[1]);
+    }
+    return Array.from(ids);
+}
+
+// Custom ReactMarkdown text renderer that converts @N_xxx → InlinePersonMention
 function MarkdownPersonMentions({ children }: { children: string }) {
     const parts = children.split(/(@N_[a-zA-Z0-9_-]+|\[\[N_[a-zA-Z0-9_-]+\]\])/g);
     return (
@@ -45,10 +56,90 @@ function MarkdownPersonMentions({ children }: { children: string }) {
                 const atMatch = part.match(/^@(N_[a-zA-Z0-9_-]+)$/);
                 const wikiMatch = part.match(/^\[\[(N_[a-zA-Z0-9_-]+)\]\]$/);
                 const id = atMatch?.[1] ?? wikiMatch?.[1];
-                if (id) return <PersonChip key={i} id={id} />;
+                if (id) return <InlinePersonMention key={i} id={id} />;
                 return <span key={i}>{part}</span>;
             })}
         </>
+    );
+}
+
+// ── PlaceSearchCombobox ──────────────────────────────────────────────────────
+
+function PlaceSearchCombobox({
+    value,
+    onChange,
+}: {
+    value: string;
+    onChange: (name: string) => void;
+}) {
+    const [debouncedQuery, setDebouncedQuery] = useState('');
+    const [showDropdown, setShowDropdown] = useState(false);
+    const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
+
+    useEffect(() => {
+        const t = setTimeout(() => setDebouncedQuery(value), 200);
+        return () => clearTimeout(t);
+    }, [value]);
+
+    const { data: places, isFetching } = usePlacesSearch(debouncedQuery);
+
+    const handleSelect = (place: Place) => {
+        onChange(place.name);
+        setSelectedPlace(place);
+        setShowDropdown(false);
+    };
+
+    const handleChange = (query: string) => {
+        onChange(query);
+        setSelectedPlace(null);
+        setShowDropdown(true);
+    };
+
+    const displayLat = selectedPlace?.lat != null
+        ? `${Math.abs(selectedPlace.lat).toFixed(2)}°${selectedPlace.lat >= 0 ? 'N' : 'S'}, ${Math.abs(selectedPlace.lng ?? 0).toFixed(2)}°${(selectedPlace.lng ?? 0) >= 0 ? 'E' : 'W'}`
+        : null;
+
+    const isSearching = isFetching && debouncedQuery.length >= 2;
+
+    return (
+        <div>
+            <div className="flex items-center gap-1.5">
+                <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-1.5" />
+                <div className="relative">
+                    <Input
+                        placeholder="Place (city, country…)"
+                        value={value}
+                        onChange={(e) => handleChange(e.target.value)}
+                        onFocus={() => setShowDropdown(true)}
+                        onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+                        className="h-7 text-sm w-56 border-muted pr-7"
+                    />
+                    {isSearching && (
+                        <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 animate-spin text-muted-foreground" />
+                    )}
+                    {showDropdown && debouncedQuery.length >= 2 && (places ?? []).length > 0 && (
+                        <div className="absolute z-50 w-64 mt-1 bg-popover border border-border rounded-md shadow-md max-h-48 overflow-auto">
+                            {(places ?? []).map((place, i) => (
+                                <button
+                                    key={i}
+                                    type="button"
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 text-left"
+                                    onMouseDown={() => handleSelect(place)}
+                                >
+                                    <span className="truncate flex-1">{place.name}</span>
+                                    {!!place.countryCode && (
+                                        <span className="text-muted-foreground shrink-0">{place.countryCode}</span>
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+            {!!displayLat && (
+                <p className="text-[10px] text-green-600 dark:text-green-400 mt-0.5 ml-5">{displayLat}</p>
+            )}
+        </div>
     );
 }
 
@@ -72,7 +163,6 @@ function StoryPage() {
         title: '',
         date: '',
         place: '',
-        people: [],
         isPrivate: false,
     });
 
@@ -82,15 +172,7 @@ function StoryPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [isDragOver, setIsDragOver] = useState(false);
 
-    // People search for frontmatter "Tagged People"
-    const [peopleQuery, setPeopleQuery] = useState('');
-    const deferredPeopleQuery = useDeferredValue(peopleQuery);
-
     const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    // Search for frontmatter people picker
-    const { data: peopleSearchData } = useSearch(deferredPeopleQuery, { limit: 8 });
-    const peopleResults: SlimPersonSummary[] = (peopleSearchData as any)?.people ?? [];
 
     // Sync story data → local state on load
     useEffect(() => {
@@ -99,7 +181,6 @@ function StoryPage() {
             title: story.metadata.title ?? '',
             date: story.metadata.date ?? '',
             place: story.metadata.place ?? '',
-            people: story.metadata.people ?? [],
             isPrivate: story.metadata.private ?? false,
         });
         setContent(story.content ?? '');
@@ -121,12 +202,16 @@ function StoryPage() {
         if (!fm.title.trim()) { toast.error('Title is required'); return; }
         setIsSaving(true);
         try {
+            // Auto-extract @mentions from content → use as people array
+            const mentionedPeople = extractMentionIds(content);
+            // Store ISO date if parseable, otherwise store raw value (allows free-form date ranges)
+            const isoDate = parseToISO(fm.date) ?? (fm.date || undefined);
             const payload: UpdateStoryInput = {
                 title: fm.title,
                 content,
-                date: fm.date || undefined,
+                date: isoDate,
                 place: fm.place || undefined,
-                people: fm.people,
+                people: mentionedPeople,
                 private: fm.isPrivate,
             };
             if (isNew) {
@@ -181,20 +266,6 @@ function StoryPage() {
             toast.success('Asset uploaded and inserted');
         } catch { toast.error('Failed to upload asset'); }
     }, [isNew, handleImageUpload]);
-
-    // ── People tag management ────────────────────────────────────────────────
-
-    const addPersonToFm = (person: SlimPersonSummary) => {
-        if (fm.people.includes(person.id)) return;
-        setFm((prev) => ({ ...prev, people: [...prev.people, person.id] }));
-        setIsDirty(true);
-        setPeopleQuery('');
-    };
-
-    const removePersonFromFm = (pid: string) => {
-        setFm((prev) => ({ ...prev, people: prev.people.filter((p) => p !== pid) }));
-        setIsDirty(true);
-    };
 
     // ── Lightbox for filmstrip ────────────────────────────────────────────────
 
@@ -297,6 +368,9 @@ function StoryPage() {
     // ── Reader mode ───────────────────────────────────────────────────────────
 
     if (!isEditMode && story) {
+        // People shown = those mentioned in body
+        const mentionedPeople = story.metadata.people ?? [];
+
         return (
             <div className="flex flex-col h-full overflow-hidden">
                 {header}
@@ -329,11 +403,10 @@ function StoryPage() {
                             )}
                         </div>
 
-                        {/* Tagged people */}
-                        {story.metadata.people.length > 0 && (
+                        {/* People mentioned in story */}
+                        {mentionedPeople.length > 0 && (
                             <div className="flex flex-wrap items-center gap-1.5 mb-6 pb-4 border-b border-border">
-                                <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                {story.metadata.people.map((pid) => (
+                                {mentionedPeople.map((pid) => (
                                     <PersonChip key={pid} id={pid} />
                                 ))}
                             </div>
@@ -433,34 +506,29 @@ function StoryPage() {
                     className="text-lg font-semibold h-9 border-0 bg-transparent shadow-none px-0 focus-visible:ring-0 placeholder:text-muted-foreground/60"
                 />
 
-                {/* Meta row */}
-                <div className="flex flex-wrap items-center gap-3">
-                    {/* Date */}
+                {/* Meta row: date + place + private */}
+                <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
+                    {/* Date with SmartDateInput */}
                     <div className="flex items-center gap-1.5">
-                        <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                        <Input
-                            placeholder="Date range (e.g. 1939–1945)"
+                        <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-1.5" />
+                        <SmartDateInput
                             value={fm.date}
-                            onChange={(e) => { setFm((p) => ({ ...p, date: e.target.value })); setIsDirty(true); }}
-                            className="h-7 text-sm w-48 border-muted"
+                            onChange={(display) => { setFm((p) => ({ ...p, date: display })); setIsDirty(true); }}
+                            placeholder="Date (e.g. 15 Jun 1944)"
+                            className="h-7 text-sm w-52 border-muted"
                         />
                     </div>
 
-                    {/* Place */}
-                    <div className="flex items-center gap-1.5">
-                        <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                        <Input
-                            placeholder="Place"
-                            value={fm.place}
-                            onChange={(e) => { setFm((p) => ({ ...p, place: e.target.value })); setIsDirty(true); }}
-                            className="h-7 text-sm w-40 border-muted"
-                        />
-                    </div>
+                    {/* Place with geo search */}
+                    <PlaceSearchCombobox
+                        value={fm.place}
+                        onChange={(name) => { setFm((p) => ({ ...p, place: name })); setIsDirty(true); }}
+                    />
 
                     {/* Private toggle */}
                     <button
                         onClick={() => { setFm((p) => ({ ...p, isPrivate: !p.isPrivate })); setIsDirty(true); }}
-                        className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors ${
+                        className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors mt-0.5 ${
                             fm.isPrivate
                                 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
                                 : 'text-muted-foreground hover:bg-muted'
@@ -471,46 +539,9 @@ function StoryPage() {
                     </button>
                 </div>
 
-                {/* Tagged people */}
-                <div className="flex flex-wrap items-center gap-1.5 relative">
-                    <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    {fm.people.map((pid) => (
-                        <span key={pid} className="flex items-center gap-0.5">
-                            <PersonChip id={pid} />
-                            <button
-                                onClick={() => removePersonFromFm(pid)}
-                                className="text-muted-foreground hover:text-destructive ml-0.5"
-                            >
-                                <X className="h-3 w-3" />
-                            </button>
-                        </span>
-                    ))}
-                    <div className="relative">
-                        <Input
-                            placeholder="Tag person…"
-                            value={peopleQuery}
-                            onChange={(e) => setPeopleQuery(e.target.value)}
-                            className="h-6 text-xs w-28 border-muted"
-                        />
-                        {deferredPeopleQuery.length >= 2 && peopleResults.length > 0 && (
-                            <div className="absolute top-full mt-1 left-0 z-50 bg-popover border border-border rounded-md shadow-md w-52 max-h-48 overflow-y-auto">
-                                {peopleResults.map((person) => {
-                                    const n = person.names?.[0];
-                                    const label = [n?.first, n?.last].filter(Boolean).join(' ') || person.id;
-                                    return (
-                                        <button
-                                            key={person.id}
-                                            onMouseDown={(e) => { e.preventDefault(); addPersonToFm(person); }}
-                                            className="w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors"
-                                        >
-                                            {label}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
-                </div>
+                <p className="text-[10px] text-muted-foreground/60">
+                    Tip: type <kbd className="font-mono bg-muted px-0.5 rounded">@</kbd> in the body to mention a person — they'll be linked automatically.
+                </p>
             </div>
 
             {/* Tiptap rich editor */}
@@ -531,7 +562,7 @@ function StoryPage() {
                 <TiptapEditor
                     content={content}
                     onChange={(md) => { setContent(md); setIsDirty(true); }}
-                    placeholder={`Write your story here…\n\nType @ to mention a person`}
+                    placeholder="Write your story here… Type @ to mention a person"
                     onImageUpload={handleImageUpload}
                     className="h-full"
                     minHeight="300px"

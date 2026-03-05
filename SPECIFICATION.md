@@ -640,7 +640,7 @@ The integrated feed of life events, stories, and gaps. **Virtualized** — only 
 Tabbed panel with three tabs:
 
 1. **Assets**: Grid of thumbnails (from `/assets/` static delivery). Click to expand/lightbox. Drag-and-drop upload via `PUT /people/:id/media`. Each thumbnail uses `object-cover` within a square aspect-ratio container (crops to square). Lightbox/full-size view uses `object-contain` to show the full image without cropping. Each thumbnail has a **delete button (×)** — clicking opens a confirmation dialog ("Delete this file permanently? This cannot be undone."). On confirm, calls `DELETE /api/people/:id/media/:filename`; asset removed from YAML and binary deleted from disk. **Optimistic update**: on confirm, immediately remove the asset from the local React Query cache before the API response (reverts on error). If the deleted asset was the primary photo, the avatar in the Identity Panel must immediately fall back to generated initials — no page reload required.
-2. **Notebook**: Rendered Markdown view of `scrapbook_md` (lazy-loaded per spec 2.3B). In view mode, renders Markdown to HTML via `react-markdown` + `remark-gfm`, styled with Tailwind `prose` class. **Theme-aware prose**: use `prose-invert` only when dark mode is active; do not use it in light mode (it would make text invisible on a light background). Click to switch to edit mode — plain `<textarea>` (Phase 4) / Tiptap rich editor (Phase 5.1). Saves via `PUT /people/:id` with optimistic update.
+2. **Notebook**: Rendered Markdown view of `scrapbook_md` (lazy-loaded per spec 2.3B). In view mode, renders Markdown to HTML via `react-markdown` + `remark-gfm`, styled with Tailwind `prose` class. **Theme-aware prose**: use `prose-invert` only when dark mode is active. Click "Edit" button → plain `<textarea>` editor with Save/Cancel. Saves via `PUT /people/:id` with optimistic update.
 3. **Raw YAML**: Read-only syntax-highlighted view of the source YAML file. Useful for power users and debugging.
 
 #### **6.5.5 Event Editor**
@@ -751,21 +751,30 @@ Clean reading experience for a single story.
 - **Edit Button**: "Edit Story" in top-right → switches to editor mode (same URL, `?mode=edit`).
 - **Back Navigation**: Breadcrumb `Stories / [Title]` in Top Bar.
 
+#### **6.9.2 Story Reader (`/stories/:id` — view mode)** (updated)
+
+- **Body**: `@N_xxx` and `[[N_xxx]]` mentions rendered as `InlinePersonMention` — inline-flex chips with person's display name and HoverCard preview. No block-level avatar; renders inline within prose text.
+- **People header**: Shows people derived from `people` frontmatter field (auto-populated from @mentions on save).
+
 #### **6.9.3 Story Editor (`/stories/:id?mode=edit` or `/stories/new`)**
 
-Split-pane editing experience.
+Rich WYSIWYG editing experience powered by Tiptap.
 
-- **Layout**: 50/50 split — Markdown textarea on left, live preview on right.
-  - Preview uses same rendering pipeline as Story Reader.
-  - Panels resizable via drag handle.
-- **Frontmatter Fields** (above editor): Title, Date range, Tagged People (searchable selector), Tagged Place.
-- **Slash Commands**: Type `/` in the textarea to open an insertion menu:
-  - `/image` → opens asset picker, inserts `![alt](../assets/filename)` syntax
-  - `/person` → same as `@mention` (convenience alias)
-- **@Mentions**: Type `@` to open a live type-ahead of people. Select → inserts `@N_xxx` tag. Rendered in preview as a `PersonChip`.
-- **Asset Attachment**: Drag-and-drop zone at the bottom of the editor — uploads via `PUT /stories/:id/media` (new endpoint, Phase 5.1).
-- **Save**: `PUT /stories/:id` (or `POST /stories` for new). Optimistic update. Saves Markdown frontmatter + body to disk.
-- **Auto-save**: Debounced 3-second auto-save while editing (shows "Saving…" indicator).
+- **Layout**: Full-width Tiptap editor (replaces split-pane textarea+preview).
+- **Editor**: Tiptap with `StarterKit` + `tiptap-markdown` (Markdown round-trip). Content stored as Markdown on disk.
+- **Frontmatter Fields** (above editor): Title, Date (SmartDateInput with ISO parsing hint), Place (PlaceSearchCombobox with Nominatim geocoding type-ahead and lat/lng badge).
+- **@Mentions**: Type `@` to open suggestion dropdown (queries `GET /api/search?q=`). Shows person name + birth year. Inserting a mention:
+  - Displays as inline chip with person's name in editor
+  - Serializes to `@N_xxx` in the Markdown file
+  - On save: all `@N_xxx` mentions auto-extracted and stored in the `people` frontmatter array (no separate people-tag UI needed)
+- **People linking**: Stored `people` array drives story→person association for timelines and search. Populated from @mentions in body; backend also merges `mentions` from AST extraction.
+- **Asset Attachment**: Drag-and-drop onto editor — uploads via `PUT /stories/:id/media`, inserts `![name](/assets/filename)`.
+- **Save**: `PUT /stories/:id` (or `POST /stories` for new). Auto-extracts @mentions → `people` array.
+- **Auto-save**: Debounced 3-second auto-save while editing.
+
+#### **6.9.4 Notebook Tab (Person Detail)**
+
+- Plain textarea with Edit/Save/Cancel toggle (not Tiptap). Renders via `react-markdown` + `remark-gfm` in view mode.
 
 ---
 

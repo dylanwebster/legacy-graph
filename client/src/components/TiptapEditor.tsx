@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEditor, EditorContent, ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
+import type { NodeViewProps } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
 import { Placeholder } from '@tiptap/extension-placeholder';
 import { Mention } from '@tiptap/extension-mention';
@@ -8,6 +9,36 @@ import { createRoot } from 'react-dom/client';
 import { MentionList } from './MentionList';
 import type { MentionListHandle } from './MentionList';
 import type { SlimPersonSummary } from '@/api/people';
+
+/** React node view for a mention chip — resolves the person name from the API
+ *  if the node's label was not resolved during markdown parse (i.e. label === id). */
+function MentionNodeView({ node }: NodeViewProps) {
+    const id = node.attrs.id as string;
+    const storedLabel = node.attrs.label as string | undefined;
+    const needsResolution = !storedLabel || storedLabel === id;
+    const [displayName, setDisplayName] = useState(needsResolution ? id : (storedLabel ?? id));
+
+    useEffect(() => {
+        if (!needsResolution || !id) return;
+        let cancelled = false;
+        fetch(`/api/people/${encodeURIComponent(id)}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => {
+                if (cancelled || !data) return;
+                const n = data.names?.[0];
+                const name = [n?.first, n?.last].filter(Boolean).join(' ');
+                if (name) setDisplayName(name);
+            })
+            .catch(() => {});
+        return () => { cancelled = true; };
+    }, [id, needsResolution]);
+
+    return (
+        <NodeViewWrapper as="span" className="mention-chip" data-id={id}>
+            @{displayName}
+        </NodeViewWrapper>
+    );
+}
 
 export interface TiptapEditorProps {
     content: string;
@@ -24,10 +55,14 @@ function getDisplayName(person: SlimPersonSummary): string {
     return [n?.first, n?.last].filter(Boolean).join(' ') || person.id;
 }
 
-// LegacyMention extends Mention with:
-// 1. Markdown serialization → @N_xxx format
-// 2. Markdown parsing → @N_xxx → mention node via markdown-it rule
+// LegacyMention extends Mention:
+// - Serializes to @N_xxx (for backend compatibility)
+// - Parses @N_xxx in markdown via markdown-it core rule
+// - renderText shows label (display name), falling back to id
 const LegacyMention = Mention.extend({
+    addNodeView() {
+        return ReactNodeViewRenderer(MentionNodeView);
+    },
     addStorage() {
         return {
             markdown: {
@@ -36,7 +71,7 @@ const LegacyMention = Mention.extend({
                 },
                 parse: {
                     setup(this: any, md: any) {
-                        // Add a markdown-it inline rule for @N_xxx → <span data-type="mention" ...>
+                        // markdown-it core rule: @N_xxx → <span data-type="mention" ...>
                         md.core.ruler.after('inline', 'legacy_mention', (state: any) => {
                             const AT_MENTION = /@(N_[a-zA-Z0-9_-]+)/g;
                             for (const token of state.tokens) {
@@ -88,128 +123,133 @@ export function TiptapEditor({
     readOnly = false,
     minHeight = '200px',
 }: TiptapEditorProps) {
-    const onChangeCbRef = useRef(onChange);
-    onChangeCbRef.current = onChange;
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
 
-    const contentRef = useRef(content);
-    // Track whether we're internally updating to avoid feedback loops
-    const isInternalUpdateRef = useRef(false);
+    // Track whether editor content has been initialized from the content prop
+    const initializedRef = useRef(false);
+    // Track last content we got from the editor to avoid feedback loops
+    const editorContentRef = useRef('');
+
+    // Build extensions once — do not put in render body to avoid editor recreation
+    const extensions = useMemo(() => [
+        StarterKit,
+        Markdown.configure({
+            html: true,
+            transformPastedText: true,
+        }),
+        Placeholder.configure({ placeholder }),
+        LegacyMention.configure({
+            HTMLAttributes: { class: 'mention-chip' },
+            // Show display label in editor; serialization (@N_xxx) is handled by addStorage
+            renderText: ({ node }: any) => node.attrs.label ?? `@${node.attrs.id ?? ''}`,
+            suggestion: {
+                char: '@',
+                items: async ({ query }: { query: string }) => {
+                    if (!query || query.length < 1) return [];
+                    try {
+                        const res = await fetch(
+                            `/api/search?q=${encodeURIComponent(query)}&limit=8`,
+                        );
+                        if (!res.ok) return [];
+                        const data = await res.json();
+                        return (data.people ?? []) as SlimPersonSummary[];
+                    } catch {
+                        return [];
+                    }
+                },
+                render: () => {
+                    let reactRoot: ReturnType<typeof createRoot> | null = null;
+                    let container: HTMLDivElement | null = null;
+                    let mentionListRef: MentionListHandle | null = null;
+
+                    return {
+                        onStart: (props: any) => {
+                            container = document.createElement('div');
+                            container.style.position = 'absolute';
+                            container.style.zIndex = '9999';
+                            document.body.appendChild(container);
+
+                            reactRoot = createRoot(container);
+                            reactRoot.render(
+                                <MentionList
+                                    ref={(r) => { mentionListRef = r; }}
+                                    items={props.items}
+                                    command={(item) => {
+                                        props.command({ id: item.id, label: getDisplayName(item) });
+                                    }}
+                                />,
+                            );
+
+                            if (props.clientRect) {
+                                const rect = props.clientRect();
+                                if (rect && container) {
+                                    container.style.left = `${rect.left}px`;
+                                    container.style.top = `${rect.bottom + window.scrollY + 4}px`;
+                                }
+                            }
+                        },
+                        onUpdate: (props: any) => {
+                            reactRoot?.render(
+                                <MentionList
+                                    ref={(r) => { mentionListRef = r; }}
+                                    items={props.items}
+                                    command={(item) => {
+                                        props.command({ id: item.id, label: getDisplayName(item) });
+                                    }}
+                                />,
+                            );
+                            if (props.clientRect) {
+                                const rect = props.clientRect();
+                                if (rect && container) {
+                                    container.style.left = `${rect.left}px`;
+                                    container.style.top = `${rect.bottom + window.scrollY + 4}px`;
+                                }
+                            }
+                        },
+                        onKeyDown: (props: any) => {
+                            if (props.event.key === 'Escape') {
+                                reactRoot?.unmount();
+                                container?.remove();
+                                return true;
+                            }
+                            return mentionListRef?.onKeyDown(props.event) ?? false;
+                        },
+                        onExit: () => {
+                            reactRoot?.unmount();
+                            container?.remove();
+                            reactRoot = null;
+                            container = null;
+                        },
+                    };
+                },
+            },
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    ], []); // intentionally empty deps — extensions are stable
 
     const editor = useEditor({
         editable: !readOnly,
-        extensions: [
-            StarterKit,
-            Markdown.configure({
-                html: true,
-                transformPastedText: true,
-            }),
-            Placeholder.configure({ placeholder }),
-            LegacyMention.configure({
-                HTMLAttributes: { class: 'mention-chip' },
-                renderText: ({ node }: any) => `@${node.attrs.id ?? ''}`,
-                suggestion: {
-                    char: '@',
-                    items: async ({ query }: { query: string }) => {
-                        if (!query || query.length < 1) return [];
-                        try {
-                            const res = await fetch(
-                                `/api/search?q=${encodeURIComponent(query)}&limit=8`,
-                            );
-                            if (!res.ok) return [];
-                            const data = await res.json();
-                            return (data.people ?? []) as SlimPersonSummary[];
-                        } catch {
-                            return [];
-                        }
-                    },
-                    render: () => {
-                        let reactRoot: ReturnType<typeof createRoot> | null = null;
-                        let container: HTMLDivElement | null = null;
-                        let mentionListRef: MentionListHandle | null = null;
-
-                        return {
-                            onStart: (props: any) => {
-                                container = document.createElement('div');
-                                container.style.position = 'absolute';
-                                container.style.zIndex = '9999';
-                                document.body.appendChild(container);
-
-                                reactRoot = createRoot(container);
-                                reactRoot.render(
-                                    <MentionList
-                                        ref={(r) => { mentionListRef = r; }}
-                                        items={props.items}
-                                        command={(item) => {
-                                            props.command({ id: item.id, label: getDisplayName(item) });
-                                        }}
-                                    />,
-                                );
-
-                                // Position the popup
-                                if (props.clientRect) {
-                                    const rect = props.clientRect();
-                                    if (rect && container) {
-                                        container.style.left = `${rect.left}px`;
-                                        container.style.top = `${rect.bottom + window.scrollY + 4}px`;
-                                    }
-                                }
-                            },
-                            onUpdate: (props: any) => {
-                                reactRoot?.render(
-                                    <MentionList
-                                        ref={(r) => { mentionListRef = r; }}
-                                        items={props.items}
-                                        command={(item) => {
-                                            props.command({ id: item.id, label: getDisplayName(item) });
-                                        }}
-                                    />,
-                                );
-                                if (props.clientRect) {
-                                    const rect = props.clientRect();
-                                    if (rect && container) {
-                                        container.style.left = `${rect.left}px`;
-                                        container.style.top = `${rect.bottom + window.scrollY + 4}px`;
-                                    }
-                                }
-                            },
-                            onKeyDown: (props: any) => {
-                                if (props.event.key === 'Escape') {
-                                    reactRoot?.unmount();
-                                    container?.remove();
-                                    return true;
-                                }
-                                return mentionListRef?.onKeyDown(props.event) ?? false;
-                            },
-                            onExit: () => {
-                                reactRoot?.unmount();
-                                container?.remove();
-                                reactRoot = null;
-                                container = null;
-                            },
-                        };
-                    },
-                },
-            }),
-        ],
+        extensions,
         content: '',
         onUpdate: ({ editor: ed }) => {
-            if (isInternalUpdateRef.current) return;
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const md = (ed.storage as any).markdown.getMarkdown();
-            contentRef.current = md;
-            onChangeCbRef.current(md);
+            editorContentRef.current = md;
+            onChangeRef.current(md);
         },
     });
 
-    // Sync external content → editor when it changes
+    // One-time initialization: load content into editor when it first becomes available
     useEffect(() => {
-        if (!editor) return;
-        if (content === contentRef.current) return;
-        contentRef.current = content;
-        isInternalUpdateRef.current = true;
-        // The Markdown extension intercepts setContent and parses Markdown → ProseMirror doc
-        editor.commands.setContent(content, { emitUpdate: false });
-        isInternalUpdateRef.current = false;
+        if (!editor || initializedRef.current) return;
+        if (!content) return; // wait until we have content to load
+        initializedRef.current = true;
+        // Parse markdown → HTML first, then set into editor
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const parsed = (editor.storage as any).markdown.parser.parse(content);
+        editor.commands.setContent(parsed, { emitUpdate: false });
+        editorContentRef.current = content;
     }, [editor, content]);
 
     // Drag-and-drop image upload

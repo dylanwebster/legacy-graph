@@ -852,8 +852,23 @@ export class GraphEngine extends EventEmitter {
      * Handle story file create/update from the watcher or direct invocation.
      * Parses story, updates graph node + edges, updates search index.
      */
+    /**
+     * Immediately update the graph for an API-written story file.
+     * Call this after writing a story via the API so the graph reflects the change
+     * without waiting for the file watcher. Also registers as a self-write so the
+     * watcher does not double-process the file.
+     */
+    public async applyStoryWriteSideEffects(filePath: string): Promise<void> {
+        this.registerSelfWrite(filePath);
+        await this.handleStoryUpdateCore(filePath);
+    }
+
     private async handleStoryUpdate(filePath: string): Promise<void> {
         if (this.consumeSelfWrite(filePath)) return;
+        await this.handleStoryUpdateCore(filePath);
+    }
+
+    private async handleStoryUpdateCore(filePath: string): Promise<void> {
 
         try {
             const story = await this.parseSingleStory(filePath);

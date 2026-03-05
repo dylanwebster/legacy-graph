@@ -32,9 +32,26 @@ function extractMentions(content: string): string[] {
 }
 
 /** Build a StoryFeedItem from raw story data. */
-function toFeedItem(id: string, metadata: any, content: string, mentions: string[]): StoryFeedItem {
+function toFeedItem(
+    id: string,
+    metadata: any,
+    content: string,
+    mentions: string[],
+    resolvePersonName?: (personId: string) => string,
+): StoryFeedItem {
     const people = Array.from(new Set([...(metadata.people ?? []), ...mentions]));
-    const bodyText = content.replace(/\s+/g, ' ').trim();
+    // Replace @N_xxx / [[N_xxx]] with resolved person names (or strip if resolver unavailable)
+    const bodyText = content
+        .replace(/@N_[a-zA-Z0-9_-]+/g, (match) => {
+            const personId = match.slice(1);
+            return resolvePersonName ? resolvePersonName(personId) : '';
+        })
+        .replace(/\[\[N_[a-zA-Z0-9_-]+\]\]/g, (match) => {
+            const personId = match.slice(2, -2);
+            return resolvePersonName ? resolvePersonName(personId) : '';
+        })
+        .replace(/\s+/g, ' ')
+        .trim();
     const excerpt = bodyText.length > 200 ? bodyText.slice(0, 200) : bodyText;
     return {
         id,
@@ -66,6 +83,18 @@ async function writeStoryFile(
     await fs.writeFile(filePath, fileContent, 'utf8');
     const mentions = extractMentions(content);
     return toFullStory(id, parsed, content, mentions);
+}
+
+/** Build a person-name resolver from the in-memory graph. */
+function makePersonNameResolver(graphEngine: AppInstance['appServices']['graphEngine']): (id: string) => string {
+    const graph = graphEngine.getGraph();
+    return (personId: string) => {
+        const nodeAttrs = graph.hasNode(personId) ? graph.getNodeAttributes(personId) : null;
+        const slim = nodeAttrs?.data as any;
+        if (!slim?.names?.[0]) return personId;
+        const n = slim.names[0];
+        return [n.first, n.last].filter(Boolean).join(' ') || personId;
+    };
 }
 
 export async function storiesRoutes(server: FastifyInstance) {
@@ -100,6 +129,7 @@ export async function storiesRoutes(server: FastifyInstance) {
             files = [];
         }
 
+        const resolvePersonName = makePersonNameResolver(graphEngine);
         const feedItems: StoryFeedItem[] = [];
         for (const file of files) {
             try {
@@ -107,7 +137,7 @@ export async function storiesRoutes(server: FastifyInstance) {
                 const { data, content } = matter(raw);
                 const metadata = StorySchema.parse(data);
                 const mentions = extractMentions(content);
-                feedItems.push(toFeedItem(filenameToId(file), metadata, content, mentions));
+                feedItems.push(toFeedItem(filenameToId(file), metadata, content, mentions, resolvePersonName));
             } catch {
                 // Skip malformed story files
             }
@@ -187,7 +217,7 @@ export async function storiesRoutes(server: FastifyInstance) {
         try {
             const story = await writeStoryFile(storiesDir, id, metadata, content);
             await txManager.trackFile(path.join('stories', `${id}.md`), `story ${id}`);
-            graphEngine.registerSelfWrite(path.join(dataDir, 'stories', `${id}.md`));
+            await graphEngine.applyStoryWriteSideEffects(path.join(dataDir, 'stories', `${id}.md`));
             return reply.status(201).send(story);
         } catch (error: any) {
             return reply.status(400).send({ error: 'Invalid story data', code: 'VALIDATION_ERROR', details: error.message });
@@ -239,7 +269,7 @@ export async function storiesRoutes(server: FastifyInstance) {
         try {
             const story = await writeStoryFile(storiesDir, id, metadata, content);
             await txManager.trackFile(path.join('stories', `${id}.md`), `story ${id}`);
-            graphEngine.registerSelfWrite(path.join(dataDir, 'stories', `${id}.md`));
+            await graphEngine.applyStoryWriteSideEffects(path.join(dataDir, 'stories', `${id}.md`));
             return reply.status(200).send(story);
         } catch (error: any) {
             return reply.status(400).send({ error: 'Invalid story data', code: 'VALIDATION_ERROR', details: error.message });
@@ -298,7 +328,7 @@ export async function storiesRoutes(server: FastifyInstance) {
 
         const story = await writeStoryFile(storiesDir, id, updatedMetadata, content);
         await txManager.trackFile(path.join('stories', `${id}.md`), `story ${id}`);
-        graphEngine.registerSelfWrite(path.join(dataDir, 'stories', `${id}.md`));
+        await graphEngine.applyStoryWriteSideEffects(path.join(dataDir, 'stories', `${id}.md`));
 
         return reply.status(200).send(story);
     });

@@ -80,8 +80,12 @@ export const MentionList = forwardRef<MentionListHandle, MentionListProps>(
                         }}
                         onMouseEnter={() => setSelectedIndex(index)}
                     >
-                        <span className="font-medium">{getDisplayName(person)}</span>
-                        <span className="text-muted-foreground truncate">{person.id}</span>
+                        <span className="font-medium flex-1">{getDisplayName(person)}</span>
+                        {person.birthDate && (
+                            <span className="text-muted-foreground text-[10px] shrink-0">
+                                b. {person.birthDate.slice(0, 4)}
+                            </span>
+                        )}
                     </button>
                 ))}
             </div>

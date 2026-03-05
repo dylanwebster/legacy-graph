@@ -11,3 +11,4 @@ test-results/
 .search-index.json
 .claude
 SCRATCH.md
+.playwright-cli

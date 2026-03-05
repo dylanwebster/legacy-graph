@@ -40,7 +40,7 @@
 | 4.20 | Timeline Virtualizer Reload Fix: `h-full` layout chain + `timelineKey` remount |
 | 4.21 | Sibling Dual-Parent Selection: multi-select checkboxes for all current person's parents |
 | 4.22 | Strict Date Input Validation: explicit fuzzy-prefix regex replaces catch-all `\b(\d{4})\b` |
-| 5.1 | Stories System: `StorySchema` extended (`date`, `place`, `private`, `people`); `StoryFeedItem` + `FullStory` types; full CRUD API (`GET/POST/PUT/DELETE /api/stories`, `PUT /api/stories/:id/media`); 18 backend tests; `/stories` feed page (virtualised, sort, search, delete); `/stories/:id` reader (Merriweather, filmstrip, `@N_xxx`→PersonChip rendering); `/stories/new` + edit mode (Tiptap WYSIWYG rich editor with `tiptap-markdown` for Markdown round-trip, `@N_xxx` mention serialization via `LegacyMention` extension, 3s auto-save, drag-and-drop upload); Person Notebook tab also uses TiptapEditor (always-on, auto-saves); `MentionList.tsx` suggestion dropdown; Stories added to sidebar (BookOpen icon); E2E test `story-tiptap-mention.test.ts` |
+| 5.1 | Stories System: `StorySchema` extended (`date`, `place`, `private`, `people`); `StoryFeedItem` + `FullStory` types; full CRUD API (`GET/POST/PUT/DELETE /api/stories`, `PUT /api/stories/:id/media`); 18 backend tests; `/stories` feed page (virtualised, sort, search with full enriched StoryFeedItem results, delete); `/stories/:id` reader (Merriweather, filmstrip, `@N_xxx`→`InlinePersonMention` with HoverCard); `/stories/new` + edit mode (Tiptap WYSIWYG + `tiptap-markdown` for Markdown round-trip, `LegacyMention` serializes as `@N_xxx`, `SmartDateInput` for date, `PlaceSearchCombobox` for geocoded place, @mentions auto-populate `people` array on save, 3s auto-save, drag-drop upload); `MentionList.tsx` dropdown shows name + birth year; Person Notebook uses classic textarea+edit-toggle (not Tiptap); Stories added to sidebar; E2E test `story-tiptap-mention.test.ts` |
 
 ---
 
@@ -48,26 +48,7 @@
 
 ### Phase 5 — Immersion, Narrative & Full Vision
 
-#### 5.1 Stories System (Backend + Frontend)
-
-**Backend:**
-1. Add `GET /api/stories` — paginated list: `{ stories: StoryFeedItem[], totalCount }`. `StoryFeedItem`: `{ id, title, date, people: string[], place?, excerpt, firstAsset? }`.
-2. Add `GET /api/stories/:id` — full story: frontmatter + body Markdown.
-3. Add `POST /api/stories` — create new Markdown file in `stories/`.
-4. Add `PUT /api/stories/:id` — update frontmatter + body.
-5. Add `DELETE /api/stories/:id` — delete Markdown file.
-6. Add `PUT /api/stories/:id/media` — attach asset to story (multipart).
-7. Extend `StorySchema` with `date` (date range string), `place`, `private` fields.
-8. TDD: `tests/api/Stories.test.ts` — CRUD round-trip, mention extraction, asset attachment.
-
-**Frontend:**
-1. `/stories` route (`client/src/routes/stories/index.lazy.tsx`) — virtualized `StoryFeedCard` list. Sort toggle. Inline search.
-2. `/stories/:id` route (`client/src/routes/stories/$id.lazy.tsx`) — Story Reader (Merriweather serif, filmstrip at bottom) + Editor toggle (split pane: Markdown left / preview right).
-3. Slash commands in editor: `/image` (asset picker) and `/person` (person selector).
-4. `@Mention` type-ahead: debounced `GET /api/search?q=` → inserts `@N_xxx` inline.
-5. Add Stories icon + link to sidebar nav.
-6. ✅ `npm install @tiptap/react @tiptap/starter-kit @tiptap/extension-mention tiptap-markdown` in `client/`. `TiptapEditor.tsx` + `MentionList.tsx` created; stories editor and person notebook replaced with Tiptap.
-7. ✅ E2E test: `tests/e2e/story-tiptap-mention.test.ts` — Create story → add @mention → verify appears on mentioned person's timeline.
+#### ~~5.1 Stories System~~ — COMPLETE (see Completed table)
 
 #### 5.2 The "Fly-Through" Timeline (3D Immersive Mode)
 1. `npm install three @react-three/fiber` in `client/`.

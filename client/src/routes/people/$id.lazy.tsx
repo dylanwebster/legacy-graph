@@ -1,4 +1,4 @@
-import { createLazyFileRoute } from '@tanstack/react-router';
+import { createLazyFileRoute, Link } from '@tanstack/react-router';
 import { usePerson, useUpdatePerson, useDeleteAsset } from '@/api/hooks';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { PersonChip } from '@/components/PersonChip';
@@ -27,9 +27,10 @@ import {
     Ship, ScrollText, FileText, Plus, ChevronRight, Image, BookOpen, Code,
     Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2,
 } from 'lucide-react';
-import { TiptapEditor } from '@/components/TiptapEditor';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -77,6 +78,10 @@ function PersonDetail() {
     const [eventInitialType, setEventInitialType] = useState<string | undefined>(undefined);
     const [relationshipDialogOpen, setRelationshipDialogOpen] = useState(false);
 
+    // Notebook editing state
+    const [editingNotebook, setEditingNotebook] = useState(false);
+    const [notebookContent, setNotebookContent] = useState('');
+
     // Drag state for asset upload
     const [isDragOver, setIsDragOver] = useState(false);
 
@@ -110,6 +115,7 @@ function PersonDetail() {
         setEditingEventIndex(undefined);
         setEventInitialType(undefined);
         setRelationshipDialogOpen(false);
+        setEditingNotebook(false);
         setLightboxAsset(null);
     }, [id]);
 
@@ -240,6 +246,23 @@ function PersonDetail() {
                 onError: () => toast.error('Failed to remove tag.'),
             }
         );
+    };
+
+    // --- Notebook editing ---
+    const startEditNotebook = () => {
+        setNotebookContent(person.scrapbook_md ?? '');
+        setEditingNotebook(true);
+    };
+
+    const saveNotebook = () => {
+        updatePerson.mutate(
+            { id, updates: { scrapbook_md: notebookContent } },
+            {
+                onSuccess: () => toast.success('Notebook saved.'),
+                onError: () => toast.error('Failed to save notebook.'),
+            }
+        );
+        setEditingNotebook(false);
     };
 
     // --- Asset upload (shared by drag-drop and file dialog) ---
@@ -662,21 +685,35 @@ function PersonDetail() {
                             )}
                         </TabsContent>
 
-                        {/* Notebook tab — always-on Tiptap editor */}
+                        {/* Notebook tab with edit toggle */}
                         <TabsContent value="notebook" className="flex-1 overflow-auto p-4 mt-0 flex flex-col gap-3">
-                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
-                            <TiptapEditor
-                                content={person.scrapbook_md ?? ''}
-                                onChange={(md) => {
-                                    updatePerson.mutate(
-                                        { id, updates: { scrapbook_md: md } },
-                                        { onError: () => toast.error('Failed to save notebook.') },
-                                    );
-                                }}
-                                placeholder="Add notes about this person…"
-                                className="flex-1 border border-input rounded-md"
-                                minHeight="200px"
-                            />
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
+                                {editingNotebook ? (
+                                    <div className="flex gap-1">
+                                        <Button size="sm" className="h-6 px-2 text-xs" onClick={saveNotebook}>Save</Button>
+                                        <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => setEditingNotebook(false)}>Cancel</Button>
+                                    </div>
+                                ) : (
+                                    <Button size="sm" variant="ghost" className="h-6 px-2 text-xs gap-1" onClick={startEditNotebook}>
+                                        <Pencil className="h-3 w-3" /> Edit
+                                    </Button>
+                                )}
+                            </div>
+                            {editingNotebook ? (
+                                <textarea
+                                    value={notebookContent}
+                                    onChange={(e) => setNotebookContent(e.target.value)}
+                                    rows={12}
+                                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] resize-none font-mono"
+                                />
+                            ) : (
+                                <div className="prose prose-sm dark:prose-invert max-w-none">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {person.scrapbook_md || '*No notebook entries. Click Edit to add notes.*'}
+                                    </ReactMarkdown>
+                                </div>
+                            )}
                         </TabsContent>
 
                         <TabsContent value="gedcom" className="flex-1 overflow-auto p-4 mt-0">
@@ -853,6 +890,26 @@ function VirtualizedTimeline({
                                 </span>
                                 <div className="h-px flex-1 bg-border" />
                             </div>
+                        ) : item.type === 'story' ? (
+                            <Link
+                                to="/stories/$id"
+                                params={{ id: String((item as Record<string, unknown>).id ?? '').replace(/\.md$/, '') }}
+                                className="flex gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors group"
+                            >
+                                <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/20">
+                                    <BookOpen className="h-4 w-4 text-primary" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-medium text-sm">{String((item as Record<string, unknown>).title ?? 'Story')}</span>
+                                        {!!(item as Record<string, unknown>).sort_date && (
+                                            <span className="text-xs text-muted-foreground font-mono">{String((item as Record<string, unknown>).sort_date)}</span>
+                                        )}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground mt-0.5">Mentioned in this story</p>
+                                </div>
+                                <ChevronRight className="h-4 w-4 text-muted-foreground self-center opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </Link>
                         ) : (
                             <button
                                 className="w-full flex gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 cursor-pointer transition-colors group text-left"
