@@ -163,3 +163,31 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
 }
+
+/* Tiptap editor */
+.tiptap-editor-wrapper .tiptap {
+    outline: none;
+    min-height: inherit;
+    padding: 1rem;
+}
+
+.tiptap-editor-wrapper .tiptap p.is-editor-empty:first-child::before {
+    color: var(--muted-foreground);
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+}
+
+.mention-chip {
+    display: inline-flex;
+    align-items: center;
+    background-color: color-mix(in srgb, var(--primary) 15%, transparent);
+    color: var(--primary);
+    border-radius: 0.25rem;
+    padding: 0 0.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+}

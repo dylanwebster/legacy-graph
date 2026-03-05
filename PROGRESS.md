@@ -40,7 +40,7 @@
 | 4.20 | Timeline Virtualizer Reload Fix: `h-full` layout chain + `timelineKey` remount |
 | 4.21 | Sibling Dual-Parent Selection: multi-select checkboxes for all current person's parents |
 | 4.22 | Strict Date Input Validation: explicit fuzzy-prefix regex replaces catch-all `\b(\d{4})\b` |
-| 5.1 | Stories System: `StorySchema` extended (`date`, `place`, `private`, `people`); `StoryFeedItem` + `FullStory` types; full CRUD API (`GET/POST/PUT/DELETE /api/stories`, `PUT /api/stories/:id/media`); 18 backend tests; `/stories` feed page (virtualised, sort, search, delete); `/stories/:id` reader (Merriweather, filmstrip, `@N_xxx`→PersonChip rendering); `/stories/new` + edit mode (split-pane textarea+preview, @mention type-ahead, `/image`+`/person` slash commands, 3s auto-save, drag-and-drop upload); Stories added to sidebar (BookOpen icon) |
+| 5.1 | Stories System: `StorySchema` extended (`date`, `place`, `private`, `people`); `StoryFeedItem` + `FullStory` types; full CRUD API (`GET/POST/PUT/DELETE /api/stories`, `PUT /api/stories/:id/media`); 18 backend tests; `/stories` feed page (virtualised, sort, search, delete); `/stories/:id` reader (Merriweather, filmstrip, `@N_xxx`→PersonChip rendering); `/stories/new` + edit mode (Tiptap WYSIWYG rich editor with `tiptap-markdown` for Markdown round-trip, `@N_xxx` mention serialization via `LegacyMention` extension, 3s auto-save, drag-and-drop upload); Person Notebook tab also uses TiptapEditor (always-on, auto-saves); `MentionList.tsx` suggestion dropdown; Stories added to sidebar (BookOpen icon); E2E test `story-tiptap-mention.test.ts` |
 
 ---
 
@@ -66,8 +66,8 @@
 3. Slash commands in editor: `/image` (asset picker) and `/person` (person selector).
 4. `@Mention` type-ahead: debounced `GET /api/search?q=` → inserts `@N_xxx` inline.
 5. Add Stories icon + link to sidebar nav.
-6. `npm install @tiptap/react @tiptap/starter-kit @tiptap/extension-mention` in `client/`.
-7. E2E test: Create story → add @mention → verify appears on mentioned person's timeline.
+6. ✅ `npm install @tiptap/react @tiptap/starter-kit @tiptap/extension-mention tiptap-markdown` in `client/`. `TiptapEditor.tsx` + `MentionList.tsx` created; stories editor and person notebook replaced with Tiptap.
+7. ✅ E2E test: `tests/e2e/story-tiptap-mention.test.ts` — Create story → add @mention → verify appears on mentioned person's timeline.
 
 #### 5.2 The "Fly-Through" Timeline (3D Immersive Mode)
 1. `npm install three @react-three/fiber` in `client/`.

@@ -5,20 +5,16 @@ import { createLazyFileRoute, useNavigate, useSearch as useRouterSearch } from '
 import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia } from '@/api/hooks';
 import { useSearch } from '@/api/hooks';
 import { PersonChip } from '@/components/PersonChip';
+import { TiptapEditor } from '@/components/TiptapEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-    ResizableHandle,
-    ResizablePanel,
-    ResizablePanelGroup,
-} from '@/components/ui/resizable';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
     Pencil, Eye, Save, ArrowLeft, MapPin, CalendarDays,
-    Upload, X, Lock, Unlock, Image as ImageIcon, Users,
+    Upload, X, Lock, Unlock, Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { SlimPersonSummary } from '@/api/people';
@@ -36,19 +32,6 @@ interface FrontmatterState {
     place: string;
     people: string[];
     isPrivate: boolean;
-}
-
-interface MentionPopover {
-    open: boolean;
-    query: string;
-    /** Character index in textarea where the `@` was typed */
-    triggerIndex: number;
-}
-
-interface SlashMenu {
-    open: boolean;
-    /** Character index in textarea where `/` was typed */
-    triggerIndex: number;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -99,24 +82,11 @@ function StoryPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [isDragOver, setIsDragOver] = useState(false);
 
-    // @mention popover
-    const [mention, setMention] = useState<MentionPopover>({ open: false, query: '', triggerIndex: -1 });
-    const deferredMentionQuery = useDeferredValue(mention.query);
-
-    // /slash menu
-    const [slashMenu, setSlashMenu] = useState<SlashMenu>({ open: false, triggerIndex: -1 });
-
     // People search for frontmatter "Tagged People"
     const [peopleQuery, setPeopleQuery] = useState('');
     const deferredPeopleQuery = useDeferredValue(peopleQuery);
 
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const mentionListRef = useRef<HTMLDivElement>(null);
     const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    // Search for @mention type-ahead
-    const { data: mentionSearchData } = useSearch(deferredMentionQuery, { limit: 8 });
-    const mentionResults: SlimPersonSummary[] = (mentionSearchData as any)?.people ?? [];
 
     // Search for frontmatter people picker
     const { data: peopleSearchData } = useSearch(deferredPeopleQuery, { limit: 8 });
@@ -183,94 +153,19 @@ function StoryPage() {
         }
     }, [fm, content, isNew, id, createStory, updateStory, navigate]);
 
-    // ── Textarea @mention + /slash handling ─────────────────────────────────
+    // ── Image upload handler ──────────────────────────────────────────────────
 
-    const handleTextareaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const value = e.target.value;
-        setContent(value);
-        setIsDirty(true);
-
-        const cursor = e.target.selectionStart ?? 0;
-        const textBefore = value.slice(0, cursor);
-
-        // Detect active @mention
-        const atMatch = textBefore.match(/@([a-zA-Z0-9_-]*)$/);
-        if (atMatch) {
-            setMention({ open: true, query: atMatch[1], triggerIndex: cursor - atMatch[0].length });
-            setSlashMenu({ open: false, triggerIndex: -1 });
-            return;
+    const handleImageUpload = useCallback(async (file: File): Promise<string> => {
+        if (isNew) {
+            toast.error('Save the story first before uploading media');
+            throw new Error('Save story first');
         }
-        setMention({ open: false, query: '', triggerIndex: -1 });
+        const updated = await uploadMedia.mutateAsync({ id, file });
+        const asset = updated.metadata.assets[updated.metadata.assets.length - 1];
+        return asset;
+    }, [id, isNew, uploadMedia]);
 
-        // Detect /command at start of word
-        const slashMatch = textBefore.match(/(?:^|\n)(\/[a-z]*)$/);
-        if (slashMatch) {
-            setSlashMenu({ open: true, triggerIndex: cursor - slashMatch[1].length });
-            return;
-        }
-        setSlashMenu({ open: false, triggerIndex: -1 });
-    }, []);
-
-    const handleTextareaKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        if (mention.open || slashMenu.open) {
-            if (e.key === 'Escape') {
-                setMention({ open: false, query: '', triggerIndex: -1 });
-                setSlashMenu({ open: false, triggerIndex: -1 });
-                e.preventDefault();
-            }
-        }
-    }, [mention.open, slashMenu.open]);
-
-    const insertMention = useCallback((person: SlimPersonSummary) => {
-        const ta = textareaRef.current;
-        if (!ta) return;
-        const before = content.slice(0, mention.triggerIndex);
-        const after = content.slice(ta.selectionStart);
-        const newContent = `${before}@${person.id}${after}`;
-        setContent(newContent);
-        setIsDirty(true);
-        setMention({ open: false, query: '', triggerIndex: -1 });
-        // Restore focus + move cursor after the inserted mention
-        requestAnimationFrame(() => {
-            ta.focus();
-            const pos = before.length + person.id.length + 1;
-            ta.setSelectionRange(pos, pos);
-        });
-    }, [content, mention.triggerIndex]);
-
-    const insertSlashCommand = useCallback((cmd: 'image' | 'person') => {
-        const ta = textareaRef.current;
-        if (!ta) return;
-        const before = content.slice(0, slashMenu.triggerIndex);
-        const after = content.slice(ta.selectionStart);
-        if (cmd === 'image') {
-            // Trigger file input
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = 'image/*';
-            input.onchange = async () => {
-                const file = input.files?.[0];
-                if (!file || isNew) return;
-                try {
-                    const updated = await uploadMedia.mutateAsync({ id, file });
-                    const asset = updated.metadata.assets[updated.metadata.assets.length - 1];
-                    const mdImg = `![${file.name}](../assets/${asset})`;
-                    const newContent = `${before}${mdImg}${after}`;
-                    setContent(newContent);
-                    setIsDirty(true);
-                } catch { toast.error('Failed to upload image'); }
-            };
-            input.click();
-        } else {
-            // /person → switch to @mention mode by inserting @
-            const newContent = `${before}@${after}`;
-            setContent(newContent);
-            setMention({ open: true, query: '', triggerIndex: slashMenu.triggerIndex });
-        }
-        setSlashMenu({ open: false, triggerIndex: -1 });
-    }, [content, slashMenu.triggerIndex, id, isNew, uploadMedia]);
-
-    // ── Drag & drop media ────────────────────────────────────────────────────
+    // ── Drag & drop media (wrapper div) ──────────────────────────────────────
 
     const handleDrop = useCallback(async (e: React.DragEvent) => {
         e.preventDefault();
@@ -279,14 +174,13 @@ function StoryPage() {
         const file = e.dataTransfer.files[0];
         if (!file) return;
         try {
-            const updated = await uploadMedia.mutateAsync({ id, file });
-            const asset = updated.metadata.assets[updated.metadata.assets.length - 1];
-            const mdImg = `\n![${file.name}](../assets/${asset})\n`;
+            const asset = await handleImageUpload(file);
+            const mdImg = `\n![${file.name}](/assets/${asset})\n`;
             setContent((prev) => prev + mdImg);
             setIsDirty(true);
             toast.success('Asset uploaded and inserted');
         } catch { toast.error('Failed to upload asset'); }
-    }, [id, isNew, uploadMedia]);
+    }, [isNew, handleImageUpload]);
 
     // ── People tag management ────────────────────────────────────────────────
 
@@ -297,8 +191,8 @@ function StoryPage() {
         setPeopleQuery('');
     };
 
-    const removePersonFromFm = (id: string) => {
-        setFm((prev) => ({ ...prev, people: prev.people.filter((p) => p !== id) }));
+    const removePersonFromFm = (pid: string) => {
+        setFm((prev) => ({ ...prev, people: prev.people.filter((p) => p !== pid) }));
         setIsDirty(true);
     };
 
@@ -525,32 +419,6 @@ function StoryPage() {
 
     // ── Editor mode ───────────────────────────────────────────────────────────
 
-    // Inline preview — renders @mentions as PersonChips
-    const PreviewContent = () => (
-        <div
-            className="prose prose-sm dark:prose-invert max-w-none p-4 h-full overflow-y-auto"
-            style={{ fontFamily: 'Merriweather, Georgia, serif' }}
-        >
-            {content ? (
-                <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                        text: ({ children }) => {
-                            if (typeof children === 'string') {
-                                return <MarkdownPersonMentions>{children}</MarkdownPersonMentions>;
-                            }
-                            return <>{children}</>;
-                        },
-                    }}
-                >
-                    {content}
-                </ReactMarkdown>
-            ) : (
-                <p className="text-muted-foreground italic text-sm">Preview will appear here…</p>
-            )}
-        </div>
-    );
-
     return (
         <div className="flex flex-col h-full overflow-hidden">
             {header}
@@ -645,105 +513,29 @@ function StoryPage() {
                 </div>
             </div>
 
-            {/* Split pane editor + preview */}
-            <div className="flex-1 overflow-hidden relative">
-                <ResizablePanelGroup orientation="horizontal" className="h-full">
-                    {/* Left: Markdown textarea */}
-                    <ResizablePanel defaultSize={50} minSize={25}>
-                        <div
-                            className="h-full relative"
-                            onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-                            onDragLeave={() => setIsDragOver(false)}
-                            onDrop={handleDrop}
-                        >
-                            {isDragOver && (
-                                <div className="absolute inset-0 z-10 bg-primary/10 border-2 border-dashed border-primary rounded flex items-center justify-center pointer-events-none">
-                                    <div className="flex flex-col items-center gap-2 text-primary">
-                                        <Upload className="h-8 w-8" />
-                                        <span className="text-sm font-medium">Drop to upload</span>
-                                    </div>
-                                </div>
-                            )}
-                            <textarea
-                                ref={textareaRef}
-                                value={content}
-                                onChange={handleTextareaChange}
-                                onKeyDown={handleTextareaKeyDown}
-                                placeholder={`Write your story here…\n\nType @ to mention a person — e.g. @N_bach-1685\nType / for slash commands: /image to insert a photo`}
-                                className="w-full h-full resize-none bg-background text-sm font-mono p-4 outline-none border-r border-border leading-relaxed"
-                                spellCheck
-                            />
-
-                            {/* @mention popover */}
-                            {mention.open && (
-                                <div
-                                    ref={mentionListRef}
-                                    className="absolute bottom-4 left-4 z-50 bg-popover border border-border rounded-md shadow-lg w-60 max-h-48 overflow-y-auto"
-                                >
-                                    {deferredMentionQuery.length === 0 ? (
-                                        <p className="px-3 py-2 text-xs text-muted-foreground">Type to search people…</p>
-                                    ) : mentionResults.length === 0 ? (
-                                        <p className="px-3 py-2 text-xs text-muted-foreground">No people found</p>
-                                    ) : (
-                                        mentionResults.map((person) => {
-                                            const n = person.names?.[0];
-                                            const label = [n?.first, n?.last].filter(Boolean).join(' ') || person.id;
-                                            return (
-                                                <button
-                                                    key={person.id}
-                                                    onMouseDown={(e) => { e.preventDefault(); insertMention(person); }}
-                                                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors flex items-center gap-2"
-                                                >
-                                                    <span className="font-medium">{label}</span>
-                                                    <span className="text-muted-foreground truncate">{person.id}</span>
-                                                </button>
-                                            );
-                                        })
-                                    )}
-                                </div>
-                            )}
-
-                            {/* /slash command menu */}
-                            {slashMenu.open && (
-                                <div className="absolute bottom-4 left-4 z-50 bg-popover border border-border rounded-md shadow-lg w-48">
-                                    <button
-                                        onMouseDown={(e) => { e.preventDefault(); insertSlashCommand('image'); }}
-                                        className="w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors flex items-center gap-2"
-                                    >
-                                        <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                                        <span>/image — Insert photo</span>
-                                    </button>
-                                    <button
-                                        onMouseDown={(e) => { e.preventDefault(); insertSlashCommand('person'); }}
-                                        className="w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors flex items-center gap-2"
-                                    >
-                                        <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                                        <span>/person — Mention someone</span>
-                                    </button>
-                                </div>
-                            )}
-
-                            {/* Drop hint */}
-                            {!isNew && (
-                                <div className="absolute bottom-2 right-2 text-xs text-muted-foreground/50 pointer-events-none">
-                                    Drop image to upload
-                                </div>
-                            )}
+            {/* Tiptap rich editor */}
+            <div
+                className="flex-1 overflow-auto relative"
+                onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                onDragLeave={() => setIsDragOver(false)}
+                onDrop={handleDrop}
+            >
+                {isDragOver && (
+                    <div className="absolute inset-0 z-10 bg-primary/10 border-2 border-dashed border-primary rounded flex items-center justify-center pointer-events-none">
+                        <div className="flex flex-col items-center gap-2 text-primary">
+                            <Upload className="h-8 w-8" />
+                            <span className="text-sm font-medium">Drop to upload</span>
                         </div>
-                    </ResizablePanel>
-
-                    <ResizableHandle />
-
-                    {/* Right: Live preview */}
-                    <ResizablePanel defaultSize={50} minSize={25}>
-                        <div className="h-full overflow-hidden border-l border-border bg-background">
-                            <div className="px-3 py-1.5 border-b border-border bg-muted/20">
-                                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Preview</span>
-                            </div>
-                            <PreviewContent />
-                        </div>
-                    </ResizablePanel>
-                </ResizablePanelGroup>
+                    </div>
+                )}
+                <TiptapEditor
+                    content={content}
+                    onChange={(md) => { setContent(md); setIsDirty(true); }}
+                    placeholder={`Write your story here…\n\nType @ to mention a person`}
+                    onImageUpload={handleImageUpload}
+                    className="h-full"
+                    minHeight="300px"
+                />
             </div>
         </div>
     );

@@ -27,10 +27,9 @@ import {
     Ship, ScrollText, FileText, Plus, ChevronRight, Image, BookOpen, Code,
     Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2,
 } from 'lucide-react';
+import { TiptapEditor } from '@/components/TiptapEditor';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -78,10 +77,6 @@ function PersonDetail() {
     const [eventInitialType, setEventInitialType] = useState<string | undefined>(undefined);
     const [relationshipDialogOpen, setRelationshipDialogOpen] = useState(false);
 
-    // Notebook editing state
-    const [editingNotebook, setEditingNotebook] = useState(false);
-    const [notebookContent, setNotebookContent] = useState('');
-
     // Drag state for asset upload
     const [isDragOver, setIsDragOver] = useState(false);
 
@@ -115,7 +110,6 @@ function PersonDetail() {
         setEditingEventIndex(undefined);
         setEventInitialType(undefined);
         setRelationshipDialogOpen(false);
-        setEditingNotebook(false);
         setLightboxAsset(null);
     }, [id]);
 
@@ -246,23 +240,6 @@ function PersonDetail() {
                 onError: () => toast.error('Failed to remove tag.'),
             }
         );
-    };
-
-    // --- Notebook editing ---
-    const startEditNotebook = () => {
-        setNotebookContent(person.scrapbook_md ?? '');
-        setEditingNotebook(true);
-    };
-
-    const saveNotebook = () => {
-        updatePerson.mutate(
-            { id, updates: { scrapbook_md: notebookContent } },
-            {
-                onSuccess: () => toast.success('Notebook saved.'),
-                onError: () => toast.error('Failed to save notebook.'),
-            }
-        );
-        setEditingNotebook(false);
     };
 
     // --- Asset upload (shared by drag-drop and file dialog) ---
@@ -685,35 +662,21 @@ function PersonDetail() {
                             )}
                         </TabsContent>
 
-                        {/* Notebook tab with edit toggle */}
+                        {/* Notebook tab — always-on Tiptap editor */}
                         <TabsContent value="notebook" className="flex-1 overflow-auto p-4 mt-0 flex flex-col gap-3">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
-                                {editingNotebook ? (
-                                    <div className="flex gap-1">
-                                        <Button size="sm" className="h-6 px-2 text-xs" onClick={saveNotebook}>Save</Button>
-                                        <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => setEditingNotebook(false)}>Cancel</Button>
-                                    </div>
-                                ) : (
-                                    <Button size="sm" variant="ghost" className="h-6 px-2 text-xs gap-1" onClick={startEditNotebook}>
-                                        <Pencil className="h-3 w-3" /> Edit
-                                    </Button>
-                                )}
-                            </div>
-                            {editingNotebook ? (
-                                <textarea
-                                    value={notebookContent}
-                                    onChange={(e) => setNotebookContent(e.target.value)}
-                                    rows={12}
-                                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] resize-none font-mono"
-                                />
-                            ) : (
-                                <div className="prose prose-sm dark:prose-invert max-w-none">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                        {person.scrapbook_md || '*No notebook entries. Click Edit to add notes.*'}
-                                    </ReactMarkdown>
-                                </div>
-                            )}
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
+                            <TiptapEditor
+                                content={person.scrapbook_md ?? ''}
+                                onChange={(md) => {
+                                    updatePerson.mutate(
+                                        { id, updates: { scrapbook_md: md } },
+                                        { onError: () => toast.error('Failed to save notebook.') },
+                                    );
+                                }}
+                                placeholder="Add notes about this person…"
+                                className="flex-1 border border-input rounded-md"
+                                minHeight="200px"
+                            />
                         </TabsContent>
 
                         <TabsContent value="gedcom" className="flex-1 overflow-auto p-4 mt-0">
