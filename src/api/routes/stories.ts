@@ -72,15 +72,14 @@ function toFullStory(id: string, metadata: any, content: string, mentions: strin
 
 /** Write a story file to disk and return its parsed FullStory representation. */
 async function writeStoryFile(
-    storiesDir: string,
     id: string,
     metadata: Record<string, unknown>,
-    content: string
+    content: string,
+    writeFn: (relativePath: string, fileContent: string) => Promise<void>
 ): Promise<FullStory> {
     const parsed = StorySchema.parse(metadata);
     const fileContent = matter.stringify(content, parsed as any);
-    const filePath = path.join(storiesDir, `${id}.md`);
-    await fs.writeFile(filePath, fileContent, 'utf8');
+    await writeFn(path.join('stories', `${id}.md`), fileContent);
     const mentions = extractMentions(content);
     return toFullStory(id, parsed, content, mentions);
 }
@@ -145,7 +144,12 @@ export async function storiesRoutes(server: FastifyInstance) {
 
         // Sort: newest first by default (using date string), then oldest, then alphabetical
         if (sort === 'oldest') {
-            feedItems.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+            feedItems.sort((a, b) => {
+                if (!a.date && !b.date) return 0;
+                if (!a.date) return 1;  // undated goes last
+                if (!b.date) return -1;
+                return a.date.localeCompare(b.date);
+            });
         } else if (sort === 'alpha') {
             feedItems.sort((a, b) => a.title.localeCompare(b.title));
         } else {
@@ -215,8 +219,8 @@ export async function storiesRoutes(server: FastifyInstance) {
         const content = body.content ?? '';
 
         try {
-            const story = await writeStoryFile(storiesDir, id, metadata, content);
-            await txManager.trackFile(path.join('stories', `${id}.md`), `story ${id}`);
+            const story = await writeStoryFile(id, metadata, content,
+                (rel, fc) => txManager.writeFile(rel, fc, `story ${id}`));
             await graphEngine.applyStoryWriteSideEffects(path.join(dataDir, 'stories', `${id}.md`));
             return reply.status(201).send(story);
         } catch (error: any) {
@@ -267,8 +271,8 @@ export async function storiesRoutes(server: FastifyInstance) {
         const content = body.content !== undefined ? body.content : existing.content;
 
         try {
-            const story = await writeStoryFile(storiesDir, id, metadata, content);
-            await txManager.trackFile(path.join('stories', `${id}.md`), `story ${id}`);
+            const story = await writeStoryFile(id, metadata, content,
+                (rel, fc) => txManager.writeFile(rel, fc, `story ${id}`));
             await graphEngine.applyStoryWriteSideEffects(path.join(dataDir, 'stories', `${id}.md`));
             return reply.status(200).send(story);
         } catch (error: any) {
@@ -289,7 +293,7 @@ export async function storiesRoutes(server: FastifyInstance) {
         }
 
         await fs.unlink(filePath);
-        await txManager.trackFile(path.join('stories', `${id}.md`), `story ${id}`);
+        await txManager.removeFile(path.join('stories', `${id}.md`), `story ${id}`);
         return reply.status(204).send();
     });
 
@@ -307,7 +311,15 @@ export async function storiesRoutes(server: FastifyInstance) {
             return reply.status(404).send({ error: 'Story not found', code: 'STORY_NOT_FOUND' });
         }
 
-        const data = await (request as any).file();
+        let data: any;
+        try {
+            data = await (request as any).file();
+        } catch (err: any) {
+            if (err?.code === 'FST_INVALID_MULTIPART_CONTENT_TYPE') {
+                return reply.status(400).send({ error: 'Request must be multipart/form-data', code: 'VALIDATION_ERROR' });
+            }
+            throw err;
+        }
         if (!data) {
             return reply.status(400).send({ error: 'No file uploaded', code: 'VALIDATION_ERROR' });
         }
@@ -320,14 +332,15 @@ export async function storiesRoutes(server: FastifyInstance) {
         const destPath = path.join(assetsDir, filename);
 
         await pipeline(data.file, nodeFs.createWriteStream(destPath));
+        await txManager.trackFile(path.join('assets', filename), `asset ${filename}`);
 
         // Update story frontmatter to include the new asset
         const { data: frontmatter, content } = matter(existingRaw);
         const currentAssets: string[] = Array.isArray(frontmatter.assets) ? frontmatter.assets : [];
         const updatedMetadata = { ...frontmatter, assets: [...currentAssets, filename] };
 
-        const story = await writeStoryFile(storiesDir, id, updatedMetadata, content);
-        await txManager.trackFile(path.join('stories', `${id}.md`), `story ${id}`);
+        const story = await writeStoryFile(id, updatedMetadata, content,
+            (rel, fc) => txManager.writeFile(rel, fc, `story ${id}`));
         await graphEngine.applyStoryWriteSideEffects(path.join(dataDir, 'stories', `${id}.md`));
 
         return reply.status(200).send(story);

@@ -259,6 +259,7 @@ export function TiptapEditor({
             const file = e.dataTransfer.files[0];
             if (!file || !file.type.startsWith('image/')) return;
             e.preventDefault();
+            e.stopPropagation();
             try {
                 const filename = await onImageUpload(file);
                 editor?.chain().focus().insertContent(`![${file.name}](/assets/${filename})`).run();

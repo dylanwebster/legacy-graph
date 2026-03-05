@@ -84,7 +84,7 @@ export async function searchRoutes(server: FastifyInstance) {
                 const apiId = s.id.endsWith('.md') ? s.id.slice(0, -3) : s.id;
                 const storyData = nodeAttrs?.data as any;
                 if (!storyData) {
-                    return { id: apiId, title: s.name, people: [] as string[], private: false, excerpt: s.snippet };
+                    return { id: apiId, title: s.name, people: [] as string[], private: false, excerpt: s.snippet ?? '' };
                 }
                 const content: string = storyData.content ?? '';
                 const bodyText = content

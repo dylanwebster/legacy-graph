@@ -86,9 +86,6 @@ test.describe('CUJ: Story Tiptap Editor with @mention', () => {
             await timelineTab.click();
         }
 
-        // Wait for timeline to load and find the story reference
-        await page.waitForTimeout(1000); // allow TanStack Query to load
-
         // The story "Bach Family Reunion" should appear somewhere in the timeline or mentions
         const storyRef = page.getByText('Bach Family Reunion');
         await expect(storyRef).toBeVisible({ timeout: 10_000 });

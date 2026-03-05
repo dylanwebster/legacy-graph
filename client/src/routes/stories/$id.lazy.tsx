@@ -368,8 +368,8 @@ function StoryPage() {
     // ── Reader mode ───────────────────────────────────────────────────────────
 
     if (!isEditMode && story) {
-        // People shown = those mentioned in body
-        const mentionedPeople = story.metadata.people ?? [];
+        // People shown = union of frontmatter people and body mentions (handles manual file edits)
+        const mentionedPeople = Array.from(new Set([...(story.metadata.people ?? []), ...(story.mentions ?? [])]));
 
         return (
             <div className="flex flex-col h-full overflow-hidden">
