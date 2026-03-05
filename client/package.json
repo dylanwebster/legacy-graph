@@ -13,14 +13,21 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@milkdown/core": "^7.19.0",
+    "@milkdown/ctx": "^7.19.0",
+    "@milkdown/plugin-history": "^7.19.0",
+    "@milkdown/plugin-listener": "^7.19.0",
+    "@milkdown/plugin-trailing": "^7.19.0",
+    "@milkdown/preset-commonmark": "^7.19.0",
+    "@milkdown/preset-gfm": "^7.19.0",
+    "@milkdown/prose": "^7.19.0",
+    "@milkdown/react": "^7.19.0",
+    "@milkdown/transformer": "^7.19.0",
+    "@milkdown/utils": "^7.19.0",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-query": "^5.90.21",
     "@tanstack/react-router": "^1.161.3",
     "@tanstack/react-virtual": "^3.13.18",
-    "@tiptap/extension-mention": "^3.20.0",
-    "@tiptap/extension-placeholder": "^3.20.0",
-    "@tiptap/react": "^3.20.0",
-    "@tiptap/starter-kit": "^3.20.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -35,7 +42,6 @@
     "remark-gfm": "^4.0.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
-    "tiptap-markdown": "^0.9.0",
     "zustand": "^5.0.11"
   },
   "devDependencies": {

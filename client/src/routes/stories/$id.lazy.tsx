@@ -5,7 +5,7 @@ import { createLazyFileRoute, useNavigate, useSearch as useRouterSearch } from '
 import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia, usePlacesSearch } from '@/api/hooks';
 import { PersonChip } from '@/components/PersonChip';
 import { InlinePersonMention } from '@/components/InlinePersonMention';
-import { TiptapEditor } from '@/components/TiptapEditor';
+import { MilkdownEditor } from '@/components/MilkdownEditor';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +15,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
     Pencil, Eye, Save, ArrowLeft, MapPin, CalendarDays,
-    Upload, X, Lock, Unlock, Loader2,
+    X, Lock, Unlock, Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Place } from '@/api/people';
@@ -170,7 +170,6 @@ function StoryPage() {
     const [content, setContent] = useState('');
     const [isDirty, setIsDirty] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
-    const [isDragOver, setIsDragOver] = useState(false);
 
     const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -250,22 +249,6 @@ function StoryPage() {
         return asset;
     }, [id, isNew, uploadMedia]);
 
-    // ── Drag & drop media (wrapper div) ──────────────────────────────────────
-
-    const handleDrop = useCallback(async (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragOver(false);
-        if (isNew) { toast.error('Save the story first before uploading media'); return; }
-        const file = e.dataTransfer.files[0];
-        if (!file) return;
-        try {
-            const asset = await handleImageUpload(file);
-            const mdImg = `\n![${file.name}](/assets/${asset})\n`;
-            setContent((prev) => prev + mdImg);
-            setIsDirty(true);
-            toast.success('Asset uploaded and inserted');
-        } catch { toast.error('Failed to upload asset'); }
-    }, [isNew, handleImageUpload]);
 
     // ── Lightbox for filmstrip ────────────────────────────────────────────────
 
@@ -544,28 +527,16 @@ function StoryPage() {
                 </p>
             </div>
 
-            {/* Tiptap rich editor */}
-            <div
-                className="flex-1 overflow-auto relative"
-                onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-                onDragLeave={() => setIsDragOver(false)}
-                onDrop={handleDrop}
-            >
-                {isDragOver && (
-                    <div className="absolute inset-0 z-10 bg-primary/10 border-2 border-dashed border-primary rounded flex items-center justify-center pointer-events-none">
-                        <div className="flex flex-col items-center gap-2 text-primary">
-                            <Upload className="h-8 w-8" />
-                            <span className="text-sm font-medium">Drop to upload</span>
-                        </div>
-                    </div>
-                )}
-                <TiptapEditor
+            {/* Milkdown rich editor */}
+            <div className="flex-1 overflow-auto relative">
+                <MilkdownEditor
                     content={content}
                     onChange={(md) => { setContent(md); setIsDirty(true); }}
                     placeholder="Write your story here… Type @ to mention a person"
                     onImageUpload={handleImageUpload}
                     className="h-full"
                     minHeight="300px"
+                    enableMentions={true}
                 />
             </div>
         </div>

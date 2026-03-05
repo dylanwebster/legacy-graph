@@ -29,8 +29,7 @@ import {
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { MilkdownEditor } from '@/components/MilkdownEditor';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -700,19 +699,16 @@ function PersonDetail() {
                                     </Button>
                                 )}
                             </div>
-                            {editingNotebook ? (
-                                <textarea
-                                    value={notebookContent}
-                                    onChange={(e) => setNotebookContent(e.target.value)}
-                                    rows={12}
-                                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] resize-none font-mono"
-                                />
-                            ) : (
-                                <div className="prose prose-sm dark:prose-invert max-w-none">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                        {person.scrapbook_md || '*No notebook entries. Click Edit to add notes.*'}
-                                    </ReactMarkdown>
-                                </div>
+                            <MilkdownEditor
+                                content={editingNotebook ? notebookContent : (person.scrapbook_md ?? '')}
+                                onChange={setNotebookContent}
+                                readOnly={!editingNotebook}
+                                minHeight="200px"
+                                enableMentions={false}
+                                className="rounded-md border border-input bg-transparent text-sm"
+                            />
+                            {!editingNotebook && !person.scrapbook_md && (
+                                <p className="text-sm text-muted-foreground italic">No notebook entries. Click Edit to add notes.</p>
                             )}
                         </TabsContent>
 
