@@ -155,6 +155,14 @@ function StoryPage() {
     const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isEditModeRef = useRef(isEditMode);
     isEditModeRef.current = isEditMode;
+    // When uploading images on a new (unsaved) story we silently create it first.
+    // This ref tracks the created ID so subsequent uploads and explicit saves
+    // update it rather than creating duplicates.
+    const silentlyCreatedIdRef = useRef<string | null>(null);
+    const fmRef = useRef(fm);
+    fmRef.current = fm;
+    const contentRef2 = useRef(content);
+    contentRef2.current = content;
 
     // Sync story data → local state on load
     // In edit mode, skip content/dirty reset so in-progress edits aren't clobbered
@@ -198,7 +206,15 @@ function StoryPage() {
                 people: mentionedPeople,
                 private: fm.isPrivate,
             };
-            if (isNew) {
+            if (isNew && silentlyCreatedIdRef.current) {
+                // Already auto-created during image upload — just update content
+                const createdId = silentlyCreatedIdRef.current;
+                await updateStory.mutateAsync({ id: createdId, data: payload });
+                toast.success('Story saved');
+                if (navigateAfter) {
+                    navigate({ to: '/stories/$id', params: { id: createdId } });
+                }
+            } else if (isNew) {
                 const created = await createStory.mutateAsync({ ...payload, title: fm.title });
                 toast.success('Story created');
                 if (navigateAfter) {
@@ -221,14 +237,40 @@ function StoryPage() {
     // ── Image upload handler ──────────────────────────────────────────────────
 
     const handleImageUpload = useCallback(async (file: File): Promise<string> => {
+        let targetId: string;
+
         if (isNew) {
-            toast.error('Save the story first before uploading media');
-            throw new Error('Save story first');
+            // Re-use a silently-created story if one already exists from a prior upload
+            if (silentlyCreatedIdRef.current) {
+                targetId = silentlyCreatedIdRef.current;
+            } else {
+                const currentFm = fmRef.current;
+                if (!currentFm.title.trim()) {
+                    toast.error('Add a title before uploading images');
+                    throw new Error('No title');
+                }
+                // Auto-create the story so we have an ID to attach media to
+                const isoDate = parseToISO(currentFm.date) ?? (currentFm.date || undefined);
+                const created = await createStory.mutateAsync({
+                    title: currentFm.title,
+                    content: contentRef2.current,
+                    date: isoDate,
+                    place: currentFm.place || undefined,
+                    people: extractMentionIds(contentRef2.current),
+                    private: currentFm.isPrivate,
+                });
+                silentlyCreatedIdRef.current = created.id;
+                targetId = created.id;
+                toast.success('Story saved — uploading image…');
+            }
+        } else {
+            targetId = id;
         }
-        const updated = await uploadMedia.mutateAsync({ id, file });
+
+        const updated = await uploadMedia.mutateAsync({ id: targetId, file });
         const asset = updated.metadata.assets[updated.metadata.assets.length - 1];
         return asset;
-    }, [id, isNew, uploadMedia]);
+    }, [id, isNew, createStory, uploadMedia]);
 
     // ── Lightbox for filmstrip ────────────────────────────────────────────────
 

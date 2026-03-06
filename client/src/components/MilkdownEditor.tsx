@@ -55,6 +55,71 @@ function getDisplayName(person: {
   return [n?.first, n?.last].filter(Boolean).join(" ") || "";
 }
 
+// ── Image drop/paste plugin ──────────────────────────────────────────────────
+
+function makeImageDropPlugin(
+  onImageUploadRef: React.MutableRefObject<((file: File) => Promise<string>) | undefined>,
+): Plugin {
+  return new Plugin({
+    props: {
+      handleDrop(view, event, _slice, moved) {
+        if (moved) return false; // let ProseMirror handle internal content moves
+        if (!(event instanceof DragEvent)) return false;
+        const uploadFn = onImageUploadRef.current;
+        if (!uploadFn) return false;
+        const files = event.dataTransfer?.files;
+        if (!files || files.length === 0) return false;
+        const images = Array.from(files).filter((f) => f.type.startsWith("image/"));
+        if (images.length === 0) return false;
+
+        const coords = { left: event.clientX, top: event.clientY };
+        const pos = view.posAtCoords(coords)?.pos ?? view.state.selection.from;
+        for (const file of images) {
+          uploadFn(file)
+            .then((filename) => {
+              try {
+                const { schema, tr } = view.state;
+                const node = schema.nodes.image?.createAndFill({
+                  src: `/assets/${filename}`,
+                  alt: file.name,
+                });
+                if (node) view.dispatch(tr.insert(pos, node));
+              } catch { /* ignore insertion errors */ }
+            })
+            .catch(console.error);
+        }
+        return true;
+      },
+      handlePaste(view, event) {
+        const uploadFn = onImageUploadRef.current;
+        if (!uploadFn) return false;
+        if (!(event instanceof ClipboardEvent)) return false;
+        const files = event.clipboardData?.files;
+        if (!files || files.length === 0) return false;
+        const images = Array.from(files).filter((f) => f.type.startsWith("image/"));
+        if (images.length === 0) return false;
+
+        const pos = view.state.selection.from;
+        for (const file of images) {
+          uploadFn(file)
+            .then((filename) => {
+              try {
+                const { schema, tr } = view.state;
+                const node = schema.nodes.image?.createAndFill({
+                  src: `/assets/${filename}`,
+                  alt: file.name,
+                });
+                if (node) view.dispatch(tr.insert(pos, node));
+              } catch { /* ignore insertion errors */ }
+            })
+            .catch(console.error);
+        }
+        return true;
+      },
+    },
+  });
+}
+
 // ── @mention trigger plugin ─────────────────────────────────────────────────
 
 const MENTION_KEY = new PluginKey<MentionPluginState>("legacy_mention");
@@ -250,6 +315,7 @@ export function MilkdownEditor({
   const nameCacheRef = useRef<Map<string, string>>(new Map());
 
   // Create plugins once (stable across renders)
+  const imageDropPlugin = useRef(makeImageDropPlugin(onImageUploadRef)).current;
   const mentionPlugin = useRef(
     enableMentions ? makeMentionPlugin(setMentionUIRef) : null,
   ).current;
@@ -309,12 +375,14 @@ export function MilkdownEditor({
       },
     });
 
-    // Add ProseMirror plugins
-    const extraPlugins: Plugin[] = [decorPlugin];
-    if (mentionPlugin) extraPlugins.push(mentionPlugin);
+    // Add ProseMirror plugins — imageDropPlugin goes FIRST so its handleDrop
+    // and handlePaste win priority over all other handlers (including Milkdown's
+    // default base64-uploader). Decoration/mention plugins go after built-ins.
+    const afterPlugins: Plugin[] = [decorPlugin];
+    if (mentionPlugin) afterPlugins.push(mentionPlugin);
 
     crepe.editor.config((ctx) => {
-      ctx.update(prosePluginsCtx, (prev) => [...prev, ...extraPlugins]);
+      ctx.update(prosePluginsCtx, (prev) => [imageDropPlugin, ...prev, ...afterPlugins]);
     });
 
     // Register onChange listener
