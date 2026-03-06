@@ -141,7 +141,24 @@
   display: none !important;
 }
 
-/* Hide the drag-handle button (second operation-item) — drag-to-reorder is
+/* ── Image block: read-only mode ─────────────────────────────────────────────
+   Hide interactive chrome (operation buttons, resize handle, URL edit bar)
+   in view mode. Caption text remains visible as passive content.            */
+
+.milkdown-crepe-wrapper.read-only .milkdown .milkdown-image-block > .image-wrapper .operation,
+.milkdown-crepe-wrapper.read-only .milkdown .milkdown-image-block > .image-wrapper > .image-resize-handle,
+.milkdown-crepe-wrapper.read-only .milkdown .milkdown-image-block > .image-edit {
+  display: none !important;
+}
+
+/* Caption: non-interactive but legible */
+.milkdown-crepe-wrapper.read-only .milkdown .milkdown-image-block .caption-input {
+  pointer-events: none;
+  cursor: default;
+}
+
+/* ── Block handle drag grip ───────────────────────────────────────────────────
+   Hide the drag-handle button (second operation-item) — drag-to-reorder is
    unreliable in Crepe 7.19.0 due to an upstream throttle/positioning bug.
    The "+" add-block button (first operation-item) remains visible. */
 .milkdown-crepe-wrapper .milkdown .milkdown-block-handle .operation-item:last-child {

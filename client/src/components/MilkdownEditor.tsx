@@ -55,6 +55,30 @@ function getDisplayName(person: {
   return [n?.first, n?.last].filter(Boolean).join(" ") || "";
 }
 
+// ── Image insertion helper ────────────────────────────────────────────────────
+
+/** Insert an uploaded image at `pos`. Prefers Crepe's `image-block` node
+ *  (which has caption/resize UI) but falls back to inline `image` if absent. */
+function insertImage(
+  view: import("@milkdown/prose/view").EditorView,
+  pos: number,
+  src: string,
+  alt: string,
+) {
+  const { schema } = view.state;
+  if (schema.nodes["image-block"]) {
+    const node = schema.nodes["image-block"].createAndFill({ src, caption: "" });
+    if (!node) return;
+    // image-block is block-level: insert after the block containing `pos`
+    const $pos = view.state.doc.resolve(pos);
+    const insertAfter = $pos.depth >= 1 ? $pos.after(1) : pos;
+    view.dispatch(view.state.tr.insert(insertAfter, node));
+  } else {
+    const node = schema.nodes.image?.createAndFill({ src, alt });
+    if (node) view.dispatch(view.state.tr.insert(pos, node));
+  }
+}
+
 // ── Image drop/paste plugin ──────────────────────────────────────────────────
 
 function makeImageDropPlugin(
@@ -72,18 +96,14 @@ function makeImageDropPlugin(
         const images = Array.from(files).filter((f) => f.type.startsWith("image/"));
         if (images.length === 0) return false;
 
-        const coords = { left: event.clientX, top: event.clientY };
-        const pos = view.posAtCoords(coords)?.pos ?? view.state.selection.from;
+        const dropPos =
+          view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ??
+          view.state.selection.from;
         for (const file of images) {
           uploadFn(file)
             .then((filename) => {
               try {
-                const { schema, tr } = view.state;
-                const node = schema.nodes.image?.createAndFill({
-                  src: `/assets/${filename}`,
-                  alt: file.name,
-                });
-                if (node) view.dispatch(tr.insert(pos, node));
+                insertImage(view, dropPos, `/assets/${filename}`, file.name);
               } catch { /* ignore insertion errors */ }
             })
             .catch(console.error);
@@ -104,12 +124,7 @@ function makeImageDropPlugin(
           uploadFn(file)
             .then((filename) => {
               try {
-                const { schema, tr } = view.state;
-                const node = schema.nodes.image?.createAndFill({
-                  src: `/assets/${filename}`,
-                  alt: file.name,
-                });
-                if (node) view.dispatch(tr.insert(pos, node));
+                insertImage(view, pos, `/assets/${filename}`, file.name);
               } catch { /* ignore insertion errors */ }
             })
             .catch(console.error);
