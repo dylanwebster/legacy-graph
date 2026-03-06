@@ -48,18 +48,7 @@
 
 ### Phase 5 — Immersion, Narrative & Full Vision
 
-#### ~~5.1 Stories System~~ — COMPLETE (see Completed table)
-
-#### 5.2 The "Fly-Through" Timeline (3D Immersive Mode)
-1. `npm install three @react-three/fiber` in `client/`.
-2. Tunnel geometry: timeline events positioned at Z-depth proportional to `sort_date` year.
-3. **Scroll-based camera** movement along the tunnel axis (scroll wheel moves "forward" into the past).
-4. **Year depth markers**: floating year labels pass by as depth indicators.
-5. **Ancestor photo cards**: persons with assets display a floating card (avatar + name) at their birth-year Z-depth.
-6. Accessible fallback: 2D list view when WebGL is unavailable (`<canvas>` detection).
-7. E2E test: Load view → Scroll → Verify camera Z position advances → Verify photo card appears at correct year.
-
-#### 5.3 Map View (`/map`)
+#### 5.2 Map View (`/map`)
 1. `npm install react-leaflet leaflet` in `client/`.
 2. `/map` route (`client/src/routes/map.lazy.tsx`) — Leaflet map, OpenStreetMap tiles.
 3. Fetch all people via `GET /api/people` (paginated loop); collect geocoded Place objects from events.
@@ -70,7 +59,7 @@
 8. Add Map (Globe) icon + link to sidebar nav.
 9. Note: requires Phase 3.15 ✅ (geo-tagging complete).
 
-#### 5.4 Asset Gallery (`/assets`)
+#### 5.3 Asset Gallery (`/assets`)
 1. New `GET /api/assets` endpoint: list all files in `/assets/` with `{ filename, size, mimeType, referencedBy: string[] }`. Orphaned = `referencedBy.length === 0`.
 2. `/assets` route (`client/src/routes/assets.lazy.tsx`) — masonry/grid of thumbnails.
 3. "Orphaned" badge + "Show only orphans" filter.
@@ -79,34 +68,27 @@
 6. Click image → lightbox (`object-contain`).
 7. Add Assets (Image) icon + link to sidebar nav.
 
-#### 5.5 Dashboard Visualization Modes (Fan Chart + Pedigree Chart)
+#### 5.4 Dashboard Visualization Modes (Fan Chart + Pedigree Chart)
 1. Toggle UI (segmented control) between Force Graph / Fan Chart / Pedigree Chart.
 2. **Fan Chart**: implement ancestor semi-circle using D3 or `@nivo/sunburst`. Root person selector (search input). Color-coded by paternal/maternal lineage.
 3. **Pedigree Chart**: standard horizontal tree using D3 tree layout. Click node → navigate. Scroll/pan for large trees.
 4. Persist selected mode to Zustand store (session-level, not localStorage).
 5. Phase 4.9 Force Graph moves here (force graph implementation is prerequisite).
 
-#### 5.6 Private Mode & Guest Mode
+#### 5.5 Private Mode & Guest Mode
 1. Add `private?: boolean` to `PersonSchema` (optional, default `false`). Update Zod schema and YAML writer.
 2. Identity Panel: lock icon toggle → calls `PUT /people/:id` with `private: true/false`.
 3. API middleware: if no valid JWT and auth is configured, filter `private: true` persons from all list/search responses. Return 404 (not 403) for direct `GET /people/:id` on private persons.
 4. Frontend: respect auth state — if guest, private persons hidden. Witness events referencing private persons show "Private Individual".
 5. "Living Surname" display (Phase 6+): living persons (no death event) with `private: true` shown as "Living [LastName]" in guest mode.
 
-#### 5.7 Event Witnessing
-1. Add `witness_ids?: string[]` to `BaseEventSchema` in `src/schemas/EventSchema.ts`.
-2. Event Editor: multi-select person picker for "Witnesses" field (all event types).
-3. `TimelineSlicer`: for each person requested, also collect events from other people where that person appears in `witness_ids`. Return as `WitnessEvent` items.
-4. Frontend: `WitnessEventCard` component (distinct "eye" icon, "Witness at [Subject]'s [type]" label, `PersonChip` link to subject).
-5. TDD: `TimelineSlicer` test — witness events appear on witness's timeline, not subject's primary events.
-
-#### 5.8 Command Palette — Commands Category
+#### 5.6 Command Palette — Commands Category
 1. Define static `COMMANDS` array in `client/src/components/CommandPalette.tsx` (Create Person, Import GEDCOM, Export GEDCOM, Switch Theme, Create Snapshot, Force Rebuild, View Map, View Assets).
 2. Render "Commands" as a 4th `CommandGroup` in the palette.
 3. Filter commands by query string (simple `includes` match on command label).
 4. Wire actions: navigation commands use `router.navigate()`, theme toggle calls Zustand, export triggers file download.
 
-#### 5.9 Additional Event Types
+#### 5.7 Additional Event Types
 Add to `EventSchema` discriminated union and Event Editor UI:
 - `cremation` (no extra fields)
 - `adoption` (field: `adoptive_parent_ids: string[]`)
@@ -118,7 +100,7 @@ Add to `EventSchema` discriminated union and Event Editor UI:
 Update Event Editor type selector dropdown and conditional field rendering.
 TDD: `tests/schemas/EventSchema.test.ts` — new types parse, round-trip, export.
 
-#### 5.10 Git History & Recovery
+#### 5.8 Git History & Recovery
 
 Full spec in SPECIFICATION.md Sections 6.12, 7.1, and 7.2.
 

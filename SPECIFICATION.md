@@ -187,10 +187,6 @@ Events are typed objects acting as state reducers. They determine the "current s
 | `cremation`        | Cremation record.                                                                     |
 | `generic`          | Custom events. Field: `title`.                                                        |
 
-**Witnessing**: Any event may include a `witness_ids: string[]` field listing person IDs who were present. The `TimelineSlicer` treats witnessed events as appearing on **both** the subject's timeline and each witness's timeline — as a distinct `WitnessEventCard` item showing "Witness at [Subject Name]'s [event type]".
-
-**Event Visibility Rule**: The `private` field on a Person is a profile-level flag (see Section 3.1). Witnessed events that belong to a private person are hidden for non-authenticated viewers.
-
 ### **3.3 Asset Index (`/_meta/assets.yaml`)**
 
 To avoid scanning thousands of binaries on boot, metadata is cached.
@@ -336,8 +332,7 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
   4.  **Gap Detection**: Iterate sorted dated list. If `Item[i+1].year - Item[i].year > 10`, insert a `Gap` object: `{ type: 'gap', years: diff }`.
   5.  **Assemble**: If any undated items exist, prepend `{ type: 'unknown_date_header' }` followed by all undated items before the dated+gap stream. This ensures undated events are visible at the top, not lost at the bottom.
   6.  **Pagination**: Apply `offset` and `limit` to the final combined array. Return `totalCount` alongside the page slice.
-- **Output**: `{ items: Array<Event | Story | Gap | UnknownDateHeader | WitnessEvent>, totalCount: number, offset: number, limit: number }`.
-- **`WitnessEvent`**: `{ type: 'witness_event', subjectId: string, subjectName: string, eventType: string, sort_date: string, location?: Place }` — rendered as a `WitnessEventCard` in the Timeline Feed.
+- **Output**: `{ items: Array<Event | Story | Gap | UnknownDateHeader>, totalCount: number, offset: number, limit: number }`.
 - **`UnknownDateHeader`**: `{ type: 'unknown_date_header' }` — rendered as a section divider "Undated Events" in the UI.
 
 ### **4.3 GEDCOM Engine**
@@ -631,7 +626,6 @@ The integrated feed of life events, stories, and gaps. **Virtualized** — only 
   - `EventCard`: Displays event type icon, date (fuzzy `date` + sort-date), location, description excerpt. Expandable for full detail. **If the event has a geocoded `location` (lat/lng populated)**, renders a small static **map snippet** below the location text — a thumbnail tile showing the pinned location. Clicking the map snippet opens the `/map` view filtered to that place.
   - `StoryCard`: Title, excerpt, mentioned persons as `PersonChip` links. **If the story has attached assets**, shows a **thumbnail of the first asset** as a leading image (aspect-ratio 16/9, `object-cover`). Clicking the card navigates to `/stories/:id`.
   - `GapIndicator`: Visual break showing year gap.
-  - `WitnessEventCard`: Appears on the witness's timeline (not the subject's). Shows "Witness at [Subject Name]'s [event type]" with date, location, and a `PersonChip` link to the subject. Styled with a distinct "eye" icon to differentiate from own events.
 - **Add Event**: Floating action button or "+" button at bottom of timeline. Opens the Event Editor modal.
 - **Edit Event**: Click an `EventCard` to open the Event Editor modal pre-filled with that event's data.
 
@@ -914,7 +908,6 @@ The Settings sidebar entry is enhanced:
   - Persons with `private: true` are **excluded** from `GET /api/people` list responses.
   - `GET /api/people/:id` for a private person returns `404` (not `403`) to avoid revealing existence.
   - Search results exclude private persons.
-  - Timeline witness events that reference a private person are anonymized: name shown as "Private Individual".
   - Force Graph, Fan Chart, and Pedigree Chart nodes for private persons are hidden or replaced with "Private" placeholder nodes.
 - **"Living Surname" anonymization** (Phase 6+): For living persons (no death event) marked private, display only last name with a "Living" prefix (e.g., "Living Smith") in public/guest contexts.
 
@@ -1093,7 +1086,6 @@ This spec defines _what_ to build. `PROGRESS.md` tracks _how far_ and _what's ne
 *   **CUJ: Holy Grail (Import → View → Edit → Persist)**: Upload GEDCOM → navigate to person → edit name → reload → assert persisted. ✅ Complete.
 *   **CUJ: Search Navigation**: Cmd+K → type query → click result → assert navigation. ✅ Complete.
 *   **CUJ: Responsive Layout**: Mobile viewport → hamburger → expand sidebar. Desktop → sidebar visible. ✅ Complete.
-*   **CUJ: Fly-Through Timeline**: Load immersive mode → Scroll wheel → Verify camera Z position advances → Verify ancestor photo cards float by at correct birth years. (Phase 5.2 — not started)
 
 ### **9.4 New Unit Tests Required (Phases 3.11–3.15)**
 

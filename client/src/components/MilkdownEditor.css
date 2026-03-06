@@ -141,6 +141,13 @@
   display: none !important;
 }
 
+/* Hide the drag-handle button (second operation-item) — drag-to-reorder is
+   unreliable in Crepe 7.19.0 due to an upstream throttle/positioning bug.
+   The "+" add-block button (first operation-item) remains visible. */
+.milkdown-crepe-wrapper .milkdown .milkdown-block-handle .operation-item:last-child {
+  display: none !important;
+}
+
 /* ── @mention chip decoration ────────────────────────────────────────────────
    The decoration wraps raw "@N_xxx" text in a span. We want it to look like
    a named chip when the person name is cached, and like a dimmed ID otherwise. */
