@@ -11,7 +11,7 @@ import "@milkdown/crepe/theme/frame.css";
 import "./MilkdownEditor.css";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Crepe } from "@milkdown/crepe";
+import { Crepe, CrepeFeature } from "@milkdown/crepe";
 import { editorViewCtx, prosePluginsCtx } from "@milkdown/core";
 import { Plugin, PluginKey } from "@milkdown/prose/state";
 import { Decoration, DecorationSet } from "@milkdown/prose/view";
@@ -211,6 +211,8 @@ export function MilkdownEditor({
   const crepeRef = useRef<Crepe | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onImageUploadRef = useRef(onImageUpload);
+  onImageUploadRef.current = onImageUpload;
   const contentRef = useRef(content);
   contentRef.current = content;
   const suppressChangeRef = useRef(false);
@@ -295,6 +297,16 @@ export function MilkdownEditor({
     const crepe = new Crepe({
       root: containerRef.current,
       defaultValue: initialContent,
+      featureConfigs: {
+        [CrepeFeature.ImageBlock]: {
+          onUpload: async (file: File) => {
+            const handler = onImageUploadRef.current;
+            if (!handler) return URL.createObjectURL(file);
+            const filename = await handler(file);
+            return `/assets/${filename}`;
+          },
+        },
+      },
     });
 
     // Add ProseMirror plugins
@@ -504,34 +516,6 @@ export function MilkdownEditor({
     [onMentionClick, readOnly],
   );
 
-  // ── Image drag-and-drop ───────────────────────────────────────────────────
-
-  const handleDrop = useCallback(
-    async (e: React.DragEvent<HTMLDivElement>) => {
-      if (!onImageUpload || readOnly) return;
-      const file = e.dataTransfer.files[0];
-      if (!file?.type.startsWith("image/")) return;
-      e.preventDefault();
-      try {
-        const filename = await onImageUpload(file);
-        if (crepeRef.current) {
-          crepeRef.current.editor.action((ctx) => {
-            const view = ctx.get(editorViewCtx);
-            const pos = view.state.selection.from;
-            view.dispatch(
-              view.state.tr.insertText(
-                `\n![${file.name}](/assets/${filename})\n`,
-                pos,
-              ),
-            );
-          });
-        }
-      } catch {
-        /* parent handles toast */
-      }
-    },
-    [onImageUpload, readOnly],
-  );
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -539,11 +523,7 @@ export function MilkdownEditor({
     <div
       className={`milkdown-crepe-wrapper${readOnly ? " read-only" : ""}${className ? ` ${className}` : ""}`}
       onKeyDown={handleKeyDown}
-      onDrop={handleDrop}
-      onDragOver={(e) => {
-        // Allow image file drops; also allow Crepe's internal block drag-and-drop
-        if (!readOnly) e.preventDefault();
-      }}
+      onDragOver={(e) => { if (!readOnly) e.preventDefault(); }}
       onClick={handleClick}
       onMouseOver={handleMouseOver}
       onMouseOut={handleMouseOut}
