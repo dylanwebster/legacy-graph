@@ -90,7 +90,7 @@ function PlaceSearchCombobox({
     return (
         <div>
             <div className="flex items-center gap-1.5">
-                <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-1.5" />
+                <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <div className="relative">
                     <Input
                         placeholder="Place (city, country…)"
@@ -501,7 +501,7 @@ function StoryPage() {
     // ── Filmstrip ─────────────────────────────────────────────────────────────
 
     const filmstrip = assets.length > 0 ? (
-        <div className="mt-10 pt-6 border-t border-border">
+        <div className="mt-8">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                 Photos & Attachments
             </h3>
@@ -532,19 +532,20 @@ function StoryPage() {
 
             <div className="flex-1 overflow-y-auto">
                 <div className="max-w-[720px] mx-auto px-6 py-8">
-                    {/* Title */}
+                    {/* Title — same visual styles in both modes */}
                     {isEditMode ? (
-                        <Input
+                        <input
+                            type="text"
                             placeholder="Story title…"
                             value={fm.title}
                             onChange={(e) => { setFm((p) => ({ ...p, title: e.target.value })); setIsDirty(true); }}
-                            className="text-3xl font-bold font-serif h-auto border-0 bg-transparent shadow-none px-0 focus-visible:ring-0 placeholder:text-muted-foreground/50 mb-3"
-                            style={{ fontFamily: 'Merriweather, Georgia, serif', lineHeight: '1.3' }}
+                            className="w-full mb-3 bg-transparent border-none outline-none text-3xl font-bold text-foreground placeholder:text-muted-foreground/50"
+                            style={{ fontFamily: 'Merriweather, Georgia, serif', lineHeight: '1.3', fontSize: '1.875rem' }}
                         />
                     ) : (
                         <h1
-                            className="font-serif text-3xl font-bold leading-tight mb-3"
-                            style={{ fontFamily: 'Merriweather, Georgia, serif' }}
+                            className="font-serif text-3xl font-bold mb-3"
+                            style={{ fontFamily: 'Merriweather, Georgia, serif', lineHeight: '1.3' }}
                         >
                             {fm.title || story?.metadata.title}
                         </h1>
@@ -556,7 +557,7 @@ function StoryPage() {
                             <>
                                 {/* Date */}
                                 <div className="flex items-center gap-1.5">
-                                    <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-1.5" />
+                                    <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                     <SmartDateInput
                                         value={fm.date}
                                         onChange={(display) => { setFm((p) => ({ ...p, date: display })); setIsDirty(true); }}
@@ -574,7 +575,7 @@ function StoryPage() {
                                 {/* Private toggle */}
                                 <button
                                     onClick={() => { setFm((p) => ({ ...p, isPrivate: !p.isPrivate })); setIsDirty(true); }}
-                                    className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors mt-0.5 ${
+                                    className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors ${
                                         fm.isPrivate
                                             ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
                                             : 'text-muted-foreground hover:bg-muted'
@@ -585,57 +586,61 @@ function StoryPage() {
                                 </button>
                             </>
                         ) : (
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                            <>
                                 {!!fm.date && (
-                                    <span className="flex items-center gap-1">
-                                        <CalendarDays className="h-3.5 w-3.5" />
+                                    <span className="h-7 flex items-center gap-1 text-sm text-muted-foreground">
+                                        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                                         {fm.date}
                                     </span>
                                 )}
                                 {!!fm.place && (
-                                    <span className="flex items-center gap-1">
-                                        <MapPin className="h-3.5 w-3.5" />
+                                    <span className="h-7 flex items-center gap-1 text-sm text-muted-foreground">
+                                        <MapPin className="h-3.5 w-3.5 shrink-0" />
                                         {fm.place}
                                     </span>
                                 )}
                                 {!!fm.isPrivate && (
-                                    <Badge variant="secondary" className="text-xs">
-                                        <Lock className="h-3 w-3 mr-1" />
-                                        Private
-                                    </Badge>
+                                    <span className="h-7 flex items-center">
+                                        <Badge variant="secondary" className="text-xs">
+                                            <Lock className="h-3 w-3 mr-1" />
+                                            Private
+                                        </Badge>
+                                    </span>
                                 )}
-                            </div>
+                            </>
                         )}
                     </div>
 
                     {/* People chips — always shown */}
                     {mentionedPeople.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-1.5 mb-6 pb-4 border-b border-border">
+                        <div className="flex flex-wrap items-center gap-1.5 mb-3">
                             {mentionedPeople.map((pid) => (
                                 <PersonChip key={pid} id={pid} />
                             ))}
                         </div>
                     )}
 
-                    {/* Tip — edit mode only */}
-                    {isEditMode && (
-                        <p className="text-[10px] text-muted-foreground/60 mb-4">
-                            Tip: type <kbd className="font-mono bg-muted px-0.5 rounded">@</kbd> in the body to mention a person — they'll be linked automatically.
-                        </p>
-                    )}
+                    {/* Body — bordered section marks where prose begins and ends */}
+                    <div className="border-t border-b border-border py-6">
+                        {(isEditMode || content) && (
+                            <MilkdownEditor
+                                key={`editor-${id}-${story ? 'loaded' : 'unloaded'}-${editorResetKey}`}
+                                content={content}
+                                onChange={(md) => { setContent(md); setIsDirty(true); }}
+                                onImageUpload={handleImageUpload}
+                                enableMentions={true}
+                                readOnly={!isEditMode}
+                                onMentionClick={!isEditMode ? handleMentionClick : undefined}
+                            />
+                        )}
 
-                    {/* Body — always Crepe, readOnly toggled */}
-                    {(isEditMode || content) && (
-                        <MilkdownEditor
-                            key={`editor-${id}-${story ? 'loaded' : 'unloaded'}-${editorResetKey}`}
-                            content={content}
-                            onChange={(md) => { setContent(md); setIsDirty(true); }}
-                            onImageUpload={handleImageUpload}
-                            enableMentions={true}
-                            readOnly={!isEditMode}
-                            onMentionClick={!isEditMode ? handleMentionClick : undefined}
-                        />
-                    )}
+                        {/* Tip — below editor, inside content boundary */}
+                        {isEditMode && (
+                            <p className="text-[10px] text-muted-foreground/50 mt-3">
+                                Tip: type <kbd className="font-mono bg-muted px-0.5 rounded">@</kbd> in the body to mention a person — they'll be linked automatically.
+                            </p>
+                        )}
+                    </div>
 
                     {filmstrip}
                 </div>
