@@ -41,7 +41,7 @@ function toFeedItem(
 ): StoryFeedItem {
     const people = Array.from(new Set([...(metadata.people ?? []), ...mentions]));
     // Replace @N_xxx / [[N_xxx]] with resolved person names (or strip if resolver unavailable)
-    const bodyText = content
+    const withNames = content
         .replace(/@N_[a-zA-Z0-9_-]+/g, (match) => {
             const personId = match.slice(1);
             return resolvePersonName ? resolvePersonName(personId) : '';
@@ -49,7 +49,23 @@ function toFeedItem(
         .replace(/\[\[N_[a-zA-Z0-9_-]+\]\]/g, (match) => {
             const personId = match.slice(2, -2);
             return resolvePersonName ? resolvePersonName(personId) : '';
-        })
+        });
+    // Strip markdown formatting to produce plain text
+    const bodyText = withNames
+        .replace(/#{1,6}\s+/g, '')                    // Headings
+        .replace(/\*\*([^*]+)\*\*/g, '$1')            // Bold **text**
+        .replace(/__([^_]+)__/g, '$1')                // Bold __text__
+        .replace(/\*([^*]+)\*/g, '$1')                // Italic *text*
+        .replace(/_([^_]+)_/g, '$1')                  // Italic _text_
+        .replace(/~~([^~]+)~~/g, '$1')                // Strikethrough
+        .replace(/`{1,3}[^`]*`{1,3}/g, '')            // Inline code + code fences
+        .replace(/!\[.*?\]\(.*?\)/g, '')               // Images
+        .replace(/\[([^\]]+)\]\(.*?\)/g, '$1')        // Links → show text only
+        .replace(/^\s*[-*+]\s/gm, '')                  // Unordered list bullets
+        .replace(/^\s*\d+\.\s/gm, '')                  // Ordered list numbers
+        .replace(/^\s*>\s?/gm, '')                     // Blockquotes
+        .replace(/[-_*]{3,}/g, '')                     // Horizontal rules
+        .replace(/\n+/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
     const excerpt = bodyText.length > 200 ? bodyText.slice(0, 200) : bodyText;

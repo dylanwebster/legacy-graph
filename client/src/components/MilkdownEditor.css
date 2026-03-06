@@ -1,118 +1,184 @@
-/* MilkdownEditor.css — base styles for the Milkdown WYSIWYG editor */
+/* ── Crepe wrapper ─────────────────────────────────────────────────────────── */
 
-.milkdown-wrapper {
-    position: relative;
+.milkdown-crepe-wrapper {
+  width: 100%;
+  position: relative;
 }
 
-/* Give ProseMirror full height + remove focus outline */
-.milkdown-wrapper .ProseMirror {
-    outline: none;
-    min-height: inherit;
-    padding: 1rem;
-    word-break: break-word;
+.milkdown-crepe-wrapper .milkdown {
+  background: transparent;
+  outline: none;
+  box-shadow: none;
 }
 
-/* Typography — headings */
-.milkdown-wrapper .ProseMirror h1 { font-size: 1.875rem; font-weight: 700; line-height: 1.2; margin: 1.25rem 0 0.5rem; }
-.milkdown-wrapper .ProseMirror h2 { font-size: 1.5rem;   font-weight: 600; line-height: 1.3; margin: 1rem 0 0.5rem; }
-.milkdown-wrapper .ProseMirror h3 { font-size: 1.25rem;  font-weight: 600; margin: 0.875rem 0 0.375rem; }
-.milkdown-wrapper .ProseMirror h4 { font-size: 1.125rem; font-weight: 600; margin: 0.75rem 0 0.25rem; }
+/* ── Font ───────────────────────────────────────────────────────────────────── */
 
-/* Paragraphs */
-.milkdown-wrapper .ProseMirror p { margin: 0.5rem 0; line-height: 1.7; }
-.milkdown-wrapper .ProseMirror p:first-child { margin-top: 0; }
-
-/* Inline */
-.milkdown-wrapper .ProseMirror strong { font-weight: 700; }
-.milkdown-wrapper .ProseMirror em     { font-style: italic; }
-.milkdown-wrapper .ProseMirror code  {
-    font-family: ui-monospace, monospace;
-    font-size: 0.875em;
-    background: hsl(var(--muted));
-    padding: 0.125em 0.3em;
-    border-radius: 0.25rem;
+.milkdown-crepe-wrapper .milkdown {
+  --crepe-font-default: inherit;
+  --crepe-font-title: "Merriweather", Georgia, serif;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  line-height: 1.75;
 }
 
-/* Code blocks */
-.milkdown-wrapper .ProseMirror pre {
-    background: hsl(var(--muted));
-    border-radius: 0.5rem;
-    padding: 1rem;
-    overflow-x: auto;
-    margin: 0.75rem 0;
-}
-.milkdown-wrapper .ProseMirror pre code { background: none; padding: 0; font-size: 0.85rem; }
+/* ── Color vars: light mode ─────────────────────────────────────────────────
+   Specificity (0,2,0) beats Crepe's frame.css (0,1,0) declaration on .milkdown */
 
-/* Blockquote */
-.milkdown-wrapper .ProseMirror blockquote {
-    border-left: 3px solid hsl(var(--border));
-    padding-left: 1rem;
-    color: hsl(var(--muted-foreground));
-    margin: 0.75rem 0;
-    font-style: italic;
-}
-
-/* Lists */
-.milkdown-wrapper .ProseMirror ul { list-style: disc; padding-left: 1.5rem; margin: 0.5rem 0; }
-.milkdown-wrapper .ProseMirror ol { list-style: decimal; padding-left: 1.5rem; margin: 0.5rem 0; }
-.milkdown-wrapper .ProseMirror li { margin: 0.25rem 0; }
-
-/* Horizontal rule */
-.milkdown-wrapper .ProseMirror hr {
-    border: none;
-    border-top: 1px solid hsl(var(--border));
-    margin: 1.5rem 0;
+.milkdown-crepe-wrapper .milkdown {
+  --crepe-color-background: transparent;
+  --crepe-color-on-background: oklch(0.145 0 0); /* foreground */
+  --crepe-color-surface: oklch(1 0 0); /* popover */
+  --crepe-color-surface-low: oklch(0.97 0 0); /* muted */
+  --crepe-color-on-surface: oklch(0.145 0 0); /* popover-foreground */
+  --crepe-color-on-surface-variant: oklch(0.556 0 0); /* muted-foreground */
+  --crepe-color-outline: oklch(0.556 0 0); /* muted-foreground */
+  --crepe-color-primary: oklch(0.205 0 0); /* primary */
+  --crepe-color-secondary: oklch(0.97 0 0); /* secondary */
+  --crepe-color-on-secondary: oklch(0.205 0 0); /* secondary-foreground */
+  --crepe-color-hover: oklch(0.97 0 0); /* muted */
+  --crepe-color-selected: color-mix(in srgb, oklch(0.205 0 0) 20%, transparent);
+  --crepe-color-inline-code: oklch(0.577 0.245 27.325); /* destructive */
+  --crepe-color-inline-area: oklch(0.922 0 0); /* border */
+  --crepe-color-inverse: oklch(0.97 0 0); /* secondary */
+  --crepe-color-on-inverse: oklch(0.205 0 0); /* secondary-foreground */
+  --crepe-color-error: oklch(0.577 0.245 27.325); /* destructive */
 }
 
-/* Links */
-.milkdown-wrapper .ProseMirror a {
-    color: hsl(var(--primary));
-    text-decoration: underline;
-    text-decoration-color: hsl(var(--primary) / 0.4);
+/* ── Color vars: dark mode ──────────────────────────────────────────────────
+   IMPORTANT: Crepe defines all vars directly on .milkdown (specificity 0,1,0).
+   We need (0,3,0) to beat them in dark mode.
+   This rule also covers all Crepe menus/toolbar since they live inside .milkdown. */
+
+.dark .milkdown-crepe-wrapper .milkdown {
+  --crepe-color-background: transparent;
+  --crepe-color-on-background: oklch(0.985 0 0); /* foreground */
+  --crepe-color-surface: oklch(0.205 0 0); /* popover */
+  --crepe-color-surface-low: color-mix(in srgb, oklch(0.269 0 0) 60%, transparent); /* muted */
+  --crepe-color-on-surface: oklch(0.985 0 0); /* popover-foreground */
+  --crepe-color-on-surface-variant: oklch(0.708 0 0); /* muted-foreground */
+  --crepe-color-outline: oklch(0.708 0 0); /* muted-foreground */
+  --crepe-color-primary: oklch(0.922 0 0); /* primary */
+  --crepe-color-secondary: oklch(0.269 0 0); /* secondary */
+  --crepe-color-on-secondary: oklch(0.985 0 0); /* secondary-foreground */
+  --crepe-color-hover: oklch(0.269 0 0); /* accent */
+  --crepe-color-selected: color-mix(in srgb, oklch(0.922 0 0) 35%, transparent);
+  --crepe-color-inline-code: #ff6666;
+  --crepe-color-inline-area: color-mix(in srgb, oklch(1 0 0) 10%, transparent); /* border */
+  --crepe-shadow-1:
+    0px 1px 3px 1px rgba(0, 0, 0, 0.45), 0px 1px 2px rgba(0, 0, 0, 0.6);
+  --crepe-shadow-2:
+    0px 2px 6px 2px rgba(0, 0, 0, 0.45), 0px 1px 2px rgba(0, 0, 0, 0.6);
 }
 
-/* Images */
-.milkdown-wrapper .ProseMirror img {
-    max-width: 100%;
-    border-radius: 0.375rem;
-    margin: 0.5rem 0;
+/* Also on html.dark so any portaled Crepe elements (rendered in document.body)
+   can inherit these values (they have no direct .milkdown ancestor). */
+.dark {
+  --crepe-color-surface: oklch(0.205 0 0); /* popover */
+  --crepe-color-on-surface: oklch(0.985 0 0); /* popover-foreground */
+  --crepe-color-surface-low: color-mix(in srgb, oklch(0.269 0 0) 60%, transparent); /* muted */
+  --crepe-color-on-surface-variant: oklch(0.708 0 0); /* muted-foreground */
+  --crepe-color-outline: oklch(0.708 0 0); /* muted-foreground */
+  --crepe-color-primary: oklch(0.922 0 0); /* primary */
+  --crepe-color-hover: oklch(0.269 0 0); /* accent */
+  --crepe-color-selected: color-mix(in srgb, oklch(0.922 0 0) 35%, transparent);
+  --crepe-shadow-1:
+    0px 1px 3px 1px rgba(0, 0, 0, 0.45), 0px 1px 2px rgba(0, 0, 0, 0.6);
+  --crepe-shadow-2:
+    0px 2px 6px 2px rgba(0, 0, 0, 0.45), 0px 1px 2px rgba(0, 0, 0, 0.6);
 }
 
-/* GFM tables */
-.milkdown-wrapper .ProseMirror table {
-    border-collapse: collapse;
-    width: 100%;
-    margin: 0.75rem 0;
-    font-size: 0.875rem;
-}
-.milkdown-wrapper .ProseMirror th,
-.milkdown-wrapper .ProseMirror td {
-    border: 1px solid hsl(var(--border));
-    padding: 0.5rem 0.75rem;
-    text-align: left;
-}
-.milkdown-wrapper .ProseMirror th { background: hsl(var(--muted)); font-weight: 600; }
-.milkdown-wrapper .ProseMirror tr:nth-child(even) td { background: hsl(var(--muted) / 0.4); }
+/* ── Editor prose area ──────────────────────────────────────────────────────── */
 
-/* GFM strikethrough */
-.milkdown-wrapper .ProseMirror s,
-.milkdown-wrapper .ProseMirror del { text-decoration: line-through; color: hsl(var(--muted-foreground)); }
-
-/* Simple placeholder via empty-paragraph selector */
-.milkdown-wrapper .ProseMirror .is-editor-empty::before,
-.milkdown-wrapper .ProseMirror p:first-child:last-child:empty::before {
-    content: attr(data-placeholder);
-    color: hsl(var(--muted-foreground));
-    pointer-events: none;
-    float: left;
-    height: 0;
+.milkdown-crepe-wrapper .milkdown .ProseMirror {
+  padding: 0.5rem 0;
+  min-height: 240px;
+  caret-color: hsl(var(--foreground));
 }
 
-/* Read-only: subtle visual cue */
-.milkdown-wrapper.read-only .ProseMirror {
-    cursor: default;
+/* Text selection highlight — override Crepe's .milkdown .ProseMirror *::selection */
+.milkdown-crepe-wrapper .milkdown .ProseMirror ::selection {
+  background-color: color-mix(
+    in srgb,
+    var(--primary) 28%,
+    transparent
+  ) !important;
+  color: inherit !important;
 }
-.milkdown-wrapper.read-only .ProseMirror::selection,
-.milkdown-wrapper.read-only .ProseMirror *::selection {
-    background: hsl(var(--muted));
+
+/* Read-only: remove minimum height, default cursor, no padding */
+.milkdown-crepe-wrapper.read-only .milkdown .ProseMirror {
+  cursor: default;
+  user-select: text;
+  min-height: unset;
+  padding: 0;
+}
+
+/* ── Suppress Crepe placeholder in all modes ─────────────────────────────────
+   The default placeholder ("Type something...") is distracting in both view
+   and edit mode. We rely on the Input's placeholder for the title field. */
+
+.milkdown-crepe-wrapper .milkdown .crepe-placeholder::before {
+  display: none !important;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────────
+   Crepe renders the toolbar inside .milkdown, so our dark vars above cover it.
+   Add a border so it visually separates from the editor surface.              */
+
+.milkdown-crepe-wrapper .milkdown .milkdown-toolbar {
+  border: 1px solid var(--border);
+}
+
+/* Hide toolbar in read-only mode */
+.milkdown-crepe-wrapper.read-only .milkdown .milkdown-toolbar {
+  display: none !important;
+}
+
+/* ── Block handle: hide everywhere ──────────────────────────────────────────── */
+
+.milkdown-crepe-wrapper .milkdown .milkdown-block-handle {
+  display: none !important;
+}
+
+/* ── @mention chip decoration ────────────────────────────────────────────────
+   The decoration wraps raw "@N_xxx" text in a span. We want it to look like
+   a named chip when the person name is cached, and like a dimmed ID otherwise. */
+
+.milkdown-crepe-wrapper .milkdown .mention-chip {
+  display: inline;
+  background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  border-radius: 3px;
+  padding: 1px 3px;
+  white-space: nowrap;
+  cursor: default;
+  /* Default (no name loaded yet): show raw @N_xxx as a dimmed chip */
+  color: color-mix(in srgb, var(--primary) 70%, transparent);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* Name is loaded: hide raw ID, show "@Name" via ::before */
+.milkdown-crepe-wrapper .milkdown .mention-chip[data-mention-label] {
+  font-size: 0;
+  color: transparent;
+}
+
+.milkdown-crepe-wrapper .milkdown .mention-chip[data-mention-label]::before {
+  content: "@" attr(data-mention-label);
+  color: var(--primary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+/* Hover underline on named chips */
+.milkdown-crepe-wrapper
+  .milkdown
+  .mention-chip[data-mention-label]:hover::before {
+  text-decoration: underline;
+}
+
+/* Pointer cursor on chips in view (read-only) mode */
+.milkdown-crepe-wrapper.read-only .milkdown .mention-chip[data-mention-id] {
+  cursor: pointer;
 }

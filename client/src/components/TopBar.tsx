@@ -1,14 +1,6 @@
 import { Menu, Search, Sun, Moon } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
 import { Button } from '@/components/ui/button';
-import {
-    Breadcrumb,
-    BreadcrumbItem,
-    BreadcrumbLink,
-    BreadcrumbList,
-    BreadcrumbPage,
-    BreadcrumbSeparator,
-} from '@/components/ui/breadcrumb';
 
 export function TopBar() {
     const { sidebarOpen, toggleSidebar, setSearchOpen, theme, toggleTheme } = useUIStore();
@@ -33,19 +25,6 @@ export function TopBar() {
                     <span className="md:hidden font-bold text-base tracking-tight select-none">LG</span>
                 )}
 
-                <div className="hidden sm:block">
-                    <Breadcrumb>
-                        <BreadcrumbList>
-                            <BreadcrumbItem>
-                                <BreadcrumbLink href="/">Home</BreadcrumbLink>
-                            </BreadcrumbItem>
-                            <BreadcrumbSeparator />
-                            <BreadcrumbItem>
-                                <BreadcrumbPage>Current Page</BreadcrumbPage>
-                            </BreadcrumbItem>
-                        </BreadcrumbList>
-                    </Breadcrumb>
-                </div>
             </div>
 
             <div className="flex items-center gap-2">

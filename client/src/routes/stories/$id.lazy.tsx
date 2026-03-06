@@ -1,20 +1,17 @@
 import {
     useState, useEffect, useRef, useCallback,
 } from 'react';
-import { createLazyFileRoute, useNavigate, useSearch as useRouterSearch } from '@tanstack/react-router';
+import { createLazyFileRoute, useNavigate, useSearch as useRouterSearch, Link } from '@tanstack/react-router';
 import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia, usePlacesSearch } from '@/api/hooks';
 import { PersonChip } from '@/components/PersonChip';
-import { InlinePersonMention } from '@/components/InlinePersonMention';
 import { MilkdownEditor } from '@/components/MilkdownEditor';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import {
-    Pencil, Eye, Save, ArrowLeft, MapPin, CalendarDays,
+    Pencil, Save, ArrowLeft, MapPin, CalendarDays,
     X, Lock, Unlock, Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -45,22 +42,6 @@ function extractMentionIds(content: string): string[] {
         ids.add(m[1]);
     }
     return Array.from(ids);
-}
-
-// Custom ReactMarkdown text renderer that converts @N_xxx → InlinePersonMention
-function MarkdownPersonMentions({ children }: { children: string }) {
-    const parts = children.split(/(@N_[a-zA-Z0-9_-]+|\[\[N_[a-zA-Z0-9_-]+\]\])/g);
-    return (
-        <>
-            {parts.map((part, i) => {
-                const atMatch = part.match(/^@(N_[a-zA-Z0-9_-]+)$/);
-                const wikiMatch = part.match(/^\[\[(N_[a-zA-Z0-9_-]+)\]\]$/);
-                const id = atMatch?.[1] ?? wikiMatch?.[1];
-                if (id) return <InlinePersonMention key={i} id={id} />;
-                return <span key={i}>{part}</span>;
-            })}
-        </>
-    );
 }
 
 // ── PlaceSearchCombobox ──────────────────────────────────────────────────────
@@ -201,9 +182,7 @@ function StoryPage() {
         if (!fm.title.trim()) { toast.error('Title is required'); return; }
         setIsSaving(true);
         try {
-            // Auto-extract @mentions from content → use as people array
             const mentionedPeople = extractMentionIds(content);
-            // Store ISO date if parseable, otherwise store raw value (allows free-form date ranges)
             const isoDate = parseToISO(fm.date) ?? (fm.date || undefined);
             const payload: UpdateStoryInput = {
                 title: fm.title,
@@ -223,11 +202,7 @@ function StoryPage() {
                 await updateStory.mutateAsync({ id, data: payload });
                 setIsDirty(false);
                 if (navigateAfter) {
-                    navigate({
-                        to: '/stories/$id',
-                        params: { id },
-                        search: {},
-                    });
+                    navigate({ to: '/stories/$id', params: { id }, search: {} });
                 }
             }
         } catch {
@@ -249,7 +224,6 @@ function StoryPage() {
         return asset;
     }, [id, isNew, uploadMedia]);
 
-
     // ── Lightbox for filmstrip ────────────────────────────────────────────────
 
     const [lightbox, setLightbox] = useState<string | null>(null);
@@ -261,11 +235,17 @@ function StoryPage() {
         return () => document.removeEventListener('keydown', handler);
     }, [lightbox]);
 
+    // ── Mention click handler ─────────────────────────────────────────────────
+
+    const handleMentionClick = useCallback((personId: string) => {
+        navigate({ to: '/people/$id', params: { id: personId } });
+    }, [navigate]);
+
     // ── Loading / error ───────────────────────────────────────────────────────
 
     if (!isNew && isLoading) {
         return (
-            <div className="p-8 space-y-4 max-w-3xl mx-auto">
+            <div className="p-8 space-y-4 max-w-[720px] mx-auto">
                 <Skeleton className="h-8 w-64" />
                 <Skeleton className="h-4 w-32" />
                 <Skeleton className="h-64 w-full" />
@@ -285,6 +265,10 @@ function StoryPage() {
     }
 
     const assets = story?.metadata.assets ?? [];
+    const mentionedPeople = Array.from(new Set([
+        ...(story?.metadata.people ?? []),
+        ...(story?.mentions ?? []),
+    ]));
 
     // ── Shared header ─────────────────────────────────────────────────────────
 
@@ -295,44 +279,38 @@ function StoryPage() {
                 size="icon"
                 className="h-8 w-8"
                 onClick={() => navigate({ to: '/stories' })}
+                aria-label="Back to Stories"
             >
                 <ArrowLeft className="h-4 w-4" />
             </Button>
-            <span className="text-sm text-muted-foreground">
-                Stories /
-                <span className="text-foreground ml-1 font-medium">
+            <nav className="text-sm text-muted-foreground flex items-center gap-1">
+                <Link
+                    to="/stories"
+                    className="hover:text-foreground transition-colors"
+                >
+                    Stories
+                </Link>
+                <span>/</span>
+                <span className="text-foreground font-medium truncate max-w-[260px]">
                     {fm.title || (isNew ? 'New Story' : story?.metadata.title)}
                 </span>
-            </span>
+            </nav>
 
             <div className="ml-auto flex items-center gap-2">
                 {isDirty && !isNew && (
                     <span className="text-xs text-muted-foreground italic">{isSaving ? 'Saving…' : 'Unsaved'}</span>
                 )}
                 {isEditMode ? (
-                    <>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8"
-                            onClick={() => doSave(true)}
-                            disabled={isSaving}
-                        >
-                            <Save className="h-3.5 w-3.5 mr-1.5" />
-                            {isNew ? 'Create' : 'Save'}
-                        </Button>
-                        {!isNew && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8"
-                                onClick={() => navigate({ to: '/stories/$id', params: { id }, search: {} })}
-                            >
-                                <Eye className="h-3.5 w-3.5 mr-1.5" />
-                                Preview
-                            </Button>
-                        )}
-                    </>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8"
+                        onClick={() => doSave(true)}
+                        disabled={isSaving}
+                    >
+                        <Save className="h-3.5 w-3.5 mr-1.5" />
+                        {isNew ? 'Create' : 'Save'}
+                    </Button>
                 ) : (
                     <Button
                         variant="outline"
@@ -348,197 +326,169 @@ function StoryPage() {
         </div>
     );
 
-    // ── Reader mode ───────────────────────────────────────────────────────────
+    // ── Filmstrip ─────────────────────────────────────────────────────────────
 
-    if (!isEditMode && story) {
-        // People shown = union of frontmatter people and body mentions (handles manual file edits)
-        const mentionedPeople = Array.from(new Set([...(story.metadata.people ?? []), ...(story.mentions ?? [])]));
-
-        return (
-            <div className="flex flex-col h-full overflow-hidden">
-                {header}
-                <div className="flex-1 overflow-y-auto">
-                    <article className="max-w-[720px] mx-auto px-6 py-8">
-                        {/* Title */}
-                        <h1 className="font-serif text-3xl font-bold leading-tight mb-3" style={{ fontFamily: 'Merriweather, Georgia, serif' }}>
-                            {story.metadata.title}
-                        </h1>
-
-                        {/* Meta */}
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-4 text-sm text-muted-foreground">
-                            {story.metadata.date && (
-                                <span className="flex items-center gap-1">
-                                    <CalendarDays className="h-3.5 w-3.5" />
-                                    {story.metadata.date}
-                                </span>
-                            )}
-                            {story.metadata.place && (
-                                <span className="flex items-center gap-1">
-                                    <MapPin className="h-3.5 w-3.5" />
-                                    {story.metadata.place}
-                                </span>
-                            )}
-                            {story.metadata.private && (
-                                <Badge variant="secondary" className="text-xs">
-                                    <Lock className="h-3 w-3 mr-1" />
-                                    Private
-                                </Badge>
-                            )}
-                        </div>
-
-                        {/* People mentioned in story */}
-                        {mentionedPeople.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-1.5 mb-6 pb-4 border-b border-border">
-                                {mentionedPeople.map((pid) => (
-                                    <PersonChip key={pid} id={pid} />
-                                ))}
-                            </div>
-                        )}
-
-                        {/* Body */}
-                        <div
-                            className="prose prose-sm dark:prose-invert max-w-none"
-                            style={{ fontFamily: 'Merriweather, Georgia, serif' }}
-                        >
-                            <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                    p: ({ children }) => (
-                                        <p>
-                                            {typeof children === 'string'
-                                                ? <MarkdownPersonMentions>{children}</MarkdownPersonMentions>
-                                                : children}
-                                        </p>
-                                    ),
-                                    text: ({ children }) => {
-                                        if (typeof children === 'string') {
-                                            return <MarkdownPersonMentions>{children}</MarkdownPersonMentions>;
-                                        }
-                                        return <>{children}</>;
-                                    },
-                                }}
-                            >
-                                {story.content}
-                            </ReactMarkdown>
-                        </div>
-
-                        {/* Filmstrip */}
-                        {assets.length > 0 && (
-                            <div className="mt-10 pt-6 border-t border-border">
-                                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                                    Photos & Attachments
-                                </h3>
-                                <div className="flex gap-2 overflow-x-auto pb-2">
-                                    {assets.map((asset) => (
-                                        <button
-                                            key={asset}
-                                            onClick={() => setLightbox(asset)}
-                                            className="shrink-0 w-24 h-24 rounded-md overflow-hidden border border-border hover:border-primary/50 transition-colors"
-                                        >
-                                            <img
-                                                src={`/assets/${asset}`}
-                                                alt={asset}
-                                                className="w-full h-full object-cover"
-                                                loading="lazy"
-                                            />
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </article>
-                </div>
-
-                {/* Lightbox */}
-                {lightbox && (
-                    <div
-                        className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center"
-                        onClick={() => setLightbox(null)}
+    const filmstrip = assets.length > 0 ? (
+        <div className="mt-10 pt-6 border-t border-border">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                Photos & Attachments
+            </h3>
+            <div className="flex gap-2 overflow-x-auto pb-2">
+                {assets.map((asset) => (
+                    <button
+                        key={asset}
+                        onClick={() => setLightbox(asset)}
+                        className="shrink-0 w-24 h-24 rounded-md overflow-hidden border border-border hover:border-primary/50 transition-colors"
                     >
-                        <button
-                            className="absolute top-4 right-4 text-white/80 hover:text-white"
-                            onClick={() => setLightbox(null)}
-                        >
-                            <X className="h-6 w-6" />
-                        </button>
                         <img
-                            src={`/assets/${lightbox}`}
-                            alt={lightbox}
-                            className="max-w-[90vw] max-h-[90vh] object-contain rounded"
-                            onClick={(e) => e.stopPropagation()}
+                            src={`/assets/${asset}`}
+                            alt={asset}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
                         />
-                    </div>
-                )}
+                    </button>
+                ))}
             </div>
-        );
-    }
+        </div>
+    ) : null;
 
-    // ── Editor mode ───────────────────────────────────────────────────────────
+    // ── Unified render (view + edit) ──────────────────────────────────────────
 
     return (
         <div className="flex flex-col h-full overflow-hidden">
             {header}
 
-            {/* Frontmatter fields */}
-            <div className="border-b border-border bg-muted/30 px-4 py-3 shrink-0 space-y-2">
-                {/* Title */}
-                <Input
-                    placeholder="Story title…"
-                    value={fm.title}
-                    onChange={(e) => { setFm((p) => ({ ...p, title: e.target.value })); setIsDirty(true); }}
-                    className="text-lg font-semibold h-9 border-0 bg-transparent shadow-none px-0 focus-visible:ring-0 placeholder:text-muted-foreground/60"
-                />
-
-                {/* Meta row: date + place + private */}
-                <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
-                    {/* Date with SmartDateInput */}
-                    <div className="flex items-center gap-1.5">
-                        <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-1.5" />
-                        <SmartDateInput
-                            value={fm.date}
-                            onChange={(display) => { setFm((p) => ({ ...p, date: display })); setIsDirty(true); }}
-                            placeholder="Date (e.g. 15 Jun 1944)"
-                            className="h-7 text-sm w-52 border-muted"
+            <div className="flex-1 overflow-y-auto">
+                <div className="max-w-[720px] mx-auto px-6 py-8">
+                    {/* Title */}
+                    {isEditMode ? (
+                        <Input
+                            placeholder="Story title…"
+                            value={fm.title}
+                            onChange={(e) => { setFm((p) => ({ ...p, title: e.target.value })); setIsDirty(true); }}
+                            className="text-3xl font-bold font-serif h-auto border-0 bg-transparent shadow-none px-0 focus-visible:ring-0 placeholder:text-muted-foreground/50 mb-3"
+                            style={{ fontFamily: 'Merriweather, Georgia, serif', lineHeight: '1.3' }}
                         />
+                    ) : (
+                        <h1
+                            className="font-serif text-3xl font-bold leading-tight mb-3"
+                            style={{ fontFamily: 'Merriweather, Georgia, serif' }}
+                        >
+                            {fm.title || story?.metadata.title}
+                        </h1>
+                    )}
+
+                    {/* Meta row */}
+                    <div className="flex flex-wrap items-start gap-x-4 gap-y-2 mb-4">
+                        {isEditMode ? (
+                            <>
+                                {/* Date */}
+                                <div className="flex items-center gap-1.5">
+                                    <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-1.5" />
+                                    <SmartDateInput
+                                        value={fm.date}
+                                        onChange={(display) => { setFm((p) => ({ ...p, date: display })); setIsDirty(true); }}
+                                        placeholder="Date (e.g. 15 Jun 1944)"
+                                        className="h-7 text-sm w-52 border-muted"
+                                    />
+                                </div>
+
+                                {/* Place */}
+                                <PlaceSearchCombobox
+                                    value={fm.place}
+                                    onChange={(name) => { setFm((p) => ({ ...p, place: name })); setIsDirty(true); }}
+                                />
+
+                                {/* Private toggle */}
+                                <button
+                                    onClick={() => { setFm((p) => ({ ...p, isPrivate: !p.isPrivate })); setIsDirty(true); }}
+                                    className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors mt-0.5 ${
+                                        fm.isPrivate
+                                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                                            : 'text-muted-foreground hover:bg-muted'
+                                    }`}
+                                >
+                                    {fm.isPrivate ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+                                    {fm.isPrivate ? 'Private' : 'Public'}
+                                </button>
+                            </>
+                        ) : (
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                                {!!fm.date && (
+                                    <span className="flex items-center gap-1">
+                                        <CalendarDays className="h-3.5 w-3.5" />
+                                        {fm.date}
+                                    </span>
+                                )}
+                                {!!fm.place && (
+                                    <span className="flex items-center gap-1">
+                                        <MapPin className="h-3.5 w-3.5" />
+                                        {fm.place}
+                                    </span>
+                                )}
+                                {!!fm.isPrivate && (
+                                    <Badge variant="secondary" className="text-xs">
+                                        <Lock className="h-3 w-3 mr-1" />
+                                        Private
+                                    </Badge>
+                                )}
+                            </div>
+                        )}
                     </div>
 
-                    {/* Place with geo search */}
-                    <PlaceSearchCombobox
-                        value={fm.place}
-                        onChange={(name) => { setFm((p) => ({ ...p, place: name })); setIsDirty(true); }}
-                    />
+                    {/* People chips — always shown */}
+                    {mentionedPeople.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 mb-6 pb-4 border-b border-border">
+                            {mentionedPeople.map((pid) => (
+                                <PersonChip key={pid} id={pid} />
+                            ))}
+                        </div>
+                    )}
 
-                    {/* Private toggle */}
-                    <button
-                        onClick={() => { setFm((p) => ({ ...p, isPrivate: !p.isPrivate })); setIsDirty(true); }}
-                        className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors mt-0.5 ${
-                            fm.isPrivate
-                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                                : 'text-muted-foreground hover:bg-muted'
-                        }`}
-                    >
-                        {fm.isPrivate ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
-                        {fm.isPrivate ? 'Private' : 'Public'}
-                    </button>
+                    {/* Tip — edit mode only */}
+                    {isEditMode && (
+                        <p className="text-[10px] text-muted-foreground/60 mb-4">
+                            Tip: type <kbd className="font-mono bg-muted px-0.5 rounded">@</kbd> in the body to mention a person — they'll be linked automatically.
+                        </p>
+                    )}
+
+                    {/* Body — always Crepe, readOnly toggled */}
+                    {(isNew || content) && (
+                        <MilkdownEditor
+                            key={`editor-${id}-${story ? 'loaded' : 'unloaded'}`}
+                            content={content}
+                            onChange={(md) => { setContent(md); setIsDirty(true); }}
+                            onImageUpload={handleImageUpload}
+                            enableMentions={true}
+                            readOnly={!isEditMode}
+                            onMentionClick={!isEditMode ? handleMentionClick : undefined}
+                        />
+                    )}
+
+                    {filmstrip}
                 </div>
-
-                <p className="text-[10px] text-muted-foreground/60">
-                    Tip: type <kbd className="font-mono bg-muted px-0.5 rounded">@</kbd> in the body to mention a person — they'll be linked automatically.
-                </p>
             </div>
 
-            {/* Milkdown rich editor */}
-            <div className="flex-1 overflow-auto relative">
-                <MilkdownEditor
-                    content={content}
-                    onChange={(md) => { setContent(md); setIsDirty(true); }}
-                    placeholder="Write your story here… Type @ to mention a person"
-                    onImageUpload={handleImageUpload}
-                    className="h-full"
-                    minHeight="300px"
-                    enableMentions={true}
-                />
-            </div>
+            {/* Lightbox */}
+            {lightbox && (
+                <div
+                    className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center"
+                    onClick={() => setLightbox(null)}
+                >
+                    <button
+                        className="absolute top-4 right-4 text-white/80 hover:text-white"
+                        onClick={() => setLightbox(null)}
+                    >
+                        <X className="h-6 w-6" />
+                    </button>
+                    <img
+                        src={`/assets/${lightbox}`}
+                        alt={lightbox}
+                        className="max-w-[90vw] max-h-[90vh] object-contain rounded"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                </div>
+            )}
         </div>
     );
 }

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import { useStories, useDeleteStory, useSearch } from '@/api/hooks';
 import type { StoryFeedItem } from '@/api/stories';
@@ -15,17 +15,18 @@ import {
     DialogDescription,
     DialogFooter,
 } from '@/components/ui/dialog';
+import { useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Search, Plus, Trash2, MapPin, Users, CalendarDays } from 'lucide-react';
 import { toast } from 'sonner';
+import { useUIStore } from '@/store/uiStore';
+import type { StoriesSortMode } from '@/store/uiStore';
 
 export const Route = createLazyFileRoute('/stories/')({
     component: StoriesFeed,
 });
 
-type SortMode = 'newest' | 'oldest' | 'alpha';
-
-const SORT_OPTIONS: { value: SortMode; label: string }[] = [
+const SORT_OPTIONS: { value: StoriesSortMode; label: string }[] = [
     { value: 'newest', label: 'Newest' },
     { value: 'oldest', label: 'Oldest' },
     { value: 'alpha', label: 'A–Z' },
@@ -33,15 +34,28 @@ const SORT_OPTIONS: { value: SortMode; label: string }[] = [
 
 function StoriesFeed() {
     const navigate = useNavigate();
-    const [sort, setSort] = useState<SortMode>('newest');
-    const [filter, setFilter] = useState('');
-    const [debouncedFilter, setDebouncedFilter] = useState('');
+    const { storiesFeedFilter, storiesFeedSort, setStoriesFeed } = useUIStore();
+
+    // Local state mirrors Zustand but allows debouncing
+    const [filter, setFilter] = useState(storiesFeedFilter);
+    const [sort, setSort] = useState<StoriesSortMode>(storiesFeedSort);
+    const [debouncedFilter, setDebouncedFilter] = useState(storiesFeedFilter);
     const [deleteTarget, setDeleteTarget] = useState<StoryFeedItem | null>(null);
 
+    // Debounce filter
     useEffect(() => {
-        const timer = setTimeout(() => setDebouncedFilter(filter), 300);
+        const timer = setTimeout(() => {
+            setDebouncedFilter(filter);
+            setStoriesFeed(filter, sort);
+        }, 300);
         return () => clearTimeout(timer);
-    }, [filter]);
+    }, [filter, sort, setStoriesFeed]);
+
+    // Persist sort changes immediately
+    useEffect(() => {
+        setStoriesFeed(filter, sort);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sort]);
 
     const isSearchMode = !!debouncedFilter;
 
@@ -224,8 +238,16 @@ function StoryFeedCard({
 }) {
     const navigate = useNavigate();
 
+    const goToStory = () => navigate({ to: '/stories/$id', params: { id: story.id } });
+
     return (
-        <div className="group relative bg-card border border-border rounded-lg overflow-hidden mb-4 hover:border-primary/30 transition-colors">
+        <div
+            className="group relative bg-card border border-border rounded-lg overflow-hidden mb-4 hover:border-primary/30 transition-colors cursor-pointer"
+            onClick={goToStory}
+            role="article"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToStory(); } }}
+        >
             {/* Hero image */}
             {story.firstAsset && (
                 <div className="aspect-[16/9] w-full overflow-hidden bg-muted">
@@ -240,14 +262,9 @@ function StoryFeedCard({
 
             <div className="p-4">
                 {/* Title */}
-                <button
-                    className="text-left w-full"
-                    onClick={() => navigate({ to: '/stories/$id', params: { id: story.id } })}
-                >
-                    <h2 className="font-semibold text-base leading-snug hover:text-primary transition-colors line-clamp-2">
-                        {story.title}
-                    </h2>
-                </button>
+                <h2 className="font-semibold text-base leading-snug group-hover:text-primary transition-colors line-clamp-2">
+                    {story.title}
+                </h2>
 
                 {/* Meta row */}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs text-muted-foreground">
@@ -279,7 +296,10 @@ function StoryFeedCard({
 
                 {/* Tagged people */}
                 {story.people.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1 mt-3">
+                    <div
+                        className="flex flex-wrap items-center gap-1 mt-3"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         <Users className="h-3 w-3 text-muted-foreground shrink-0" />
                         {story.people.slice(0, 5).map((personId) => (
                             <PersonChip key={personId} id={personId} />
@@ -295,7 +315,7 @@ function StoryFeedCard({
 
             {/* Delete button (hover) */}
             <button
-                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-background/80 hover:bg-destructive/10 hover:text-destructive text-muted-foreground"
+                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-background/80 hover:bg-destructive/10 hover:text-destructive text-muted-foreground z-10"
                 onClick={(e) => { e.stopPropagation(); onDelete(); }}
                 aria-label="Delete story"
             >

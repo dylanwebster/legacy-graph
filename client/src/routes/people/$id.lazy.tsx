@@ -703,7 +703,6 @@ function PersonDetail() {
                                 content={editingNotebook ? notebookContent : (person.scrapbook_md ?? '')}
                                 onChange={setNotebookContent}
                                 readOnly={!editingNotebook}
-                                minHeight="200px"
                                 enableMentions={false}
                                 className="rounded-md border border-input bg-transparent text-sm"
                             />

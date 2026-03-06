@@ -756,25 +756,37 @@ Clean reading experience for a single story.
 - **Body**: `@N_xxx` and `[[N_xxx]]` mentions rendered as `InlinePersonMention` — inline-flex chips with person's display name and HoverCard preview. No block-level avatar; renders inline within prose text.
 - **People header**: Shows people derived from `people` frontmatter field (auto-populated from @mentions on save).
 
+#### **6.9.1 Stories Feed (`/stories`)** (updated)
+
+- **Whole-card click**: Entire `StoryFeedCard` container navigates to the story (not just title).
+- **Sort/filter persistence**: Filter text and sort order persisted in Zustand (`storiesFeedFilter`, `storiesFeedSort`) — restored when user navigates back from a story.
+- **Excerpts**: Plain text only — markdown formatting (bold, headings, lists, etc.) stripped server-side before truncation.
+
 #### **6.9.3 Story Editor (`/stories/:id?mode=edit` or `/stories/new`)**
 
-Rich WYSIWYG editing experience powered by Tiptap.
+Rich WYSIWYG editing experience powered by **Milkdown Crepe**.
 
-- **Layout**: Full-width Tiptap editor (replaces split-pane textarea+preview).
-- **Editor**: Tiptap with `StarterKit` + `tiptap-markdown` (Markdown round-trip). Content stored as Markdown on disk.
-- **Frontmatter Fields** (above editor): Title, Date (SmartDateInput with ISO parsing hint), Place (PlaceSearchCombobox with Nominatim geocoding type-ahead and lat/lng badge).
-- **@Mentions**: Type `@` to open suggestion dropdown (queries `GET /api/search?q=`). Shows person name + birth year. Inserting a mention:
-  - Displays as inline chip with person's name in editor
-  - Serializes to `@N_xxx` in the Markdown file
-  - On save: all `@N_xxx` mentions auto-extracted and stored in the `people` frontmatter array (no separate people-tag UI needed)
-- **People linking**: Stored `people` array drives story→person association for timelines and search. Populated from @mentions in body; backend also merges `mentions` from AST extraction.
+- **Unified layout**: Both view and edit modes use the same `max-w-[720px]` centered column width.
+- **Editor**: Milkdown Crepe (`@milkdown/crepe`) with full feature set: ListItem (todo lists, bullets, ordered), LinkTooltip, ImageBlock, BlockEdit (slash commands + drag handles), Table, Toolbar (formatting bar), Cursor, Placeholder.
+- **Frontmatter fields** (above editor in edit mode): Title (large serif input), Date (SmartDateInput), Place (PlaceSearchCombobox), Private toggle.
+- **@Mentions**: Type `@` to open suggestion dropdown (queries `GET /api/search?q=`). Shows person name + birth year. Arrow-key + Enter selection. Inserted as `@N_xxx` in Markdown. While typing `@` a query using name fragments works (space-separated).
+  - In editor: `@N_xxx` text decorated as styled chips with person's name (via ProseMirror `Decoration.inline` + CSS `::before`). Names pre-fetched from `GET /api/people/:id` on load.
+  - On mention click (readonly or editor): navigates to person's detail page.
+  - On save: auto-extracted into `people` frontmatter array.
 - **Asset Attachment**: Drag-and-drop onto editor — uploads via `PUT /stories/:id/media`, inserts `![name](/assets/filename)`.
 - **Save**: `PUT /stories/:id` (or `POST /stories` for new). Auto-extracts @mentions → `people` array.
 - **Auto-save**: Debounced 3-second auto-save while editing.
+- **Navigation**: Breadcrumb `Stories / [Title]` in story header — "Stories" is a clickable link back to the feed.
+
+#### **6.9.2 Story Reader (`/stories/:id` — view mode)** (updated)
+
+- **Body**: `@N_xxx` and `[[N_xxx]]` mentions rendered as `InlinePersonMention` — inline-flex chips with person's display name and HoverCard preview.
+- **Breadcrumb**: `← Stories / [Title]` — "Stories" link navigates back to feed (restoring persisted filter/sort).
+- **No global breadcrumb**: The top-bar static "Home > Current Page" breadcrumb has been removed from `TopBar.tsx`.
 
 #### **6.9.4 Notebook Tab (Person Detail)**
 
-- Plain textarea with Edit/Save/Cancel toggle (not Tiptap). Renders via `react-markdown` + `remark-gfm` in view mode.
+- Milkdown Crepe editor (readonly until "Edit" is clicked). Renders via Crepe in readonly mode when not editing.
 
 ---
 
