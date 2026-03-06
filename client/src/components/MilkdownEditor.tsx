@@ -74,7 +74,7 @@ function makeMentionPlugin(
           Math.max(0, $from.parentOffset - 40),
           $from.parentOffset,
         );
-        const m = /@([a-zA-Z0-9_-]*)$/.exec(textBefore);
+        const m = /(?<![a-zA-Z0-9])@([a-zA-Z0-9_-]*)$/.exec(textBefore);
         if (m) {
           return {
             active: true,
@@ -96,7 +96,7 @@ function makeMentionPlugin(
               const c = view.coordsAtPos(s.from);
               onUpdate.current({
                 ...s,
-                rect: { left: c.left, top: c.bottom + window.scrollY + 4 },
+                rect: { left: c.left, top: c.bottom + 4 },
               });
             } catch {
               onUpdate.current({
@@ -214,6 +214,7 @@ export function MilkdownEditor({
   const contentRef = useRef(content);
   contentRef.current = content;
   const suppressChangeRef = useRef(false);
+  const pendingReadonlyRestoreRef = useRef(false);
   const contentAppliedRef = useRef(false);
   const crepeReadyRef = useRef(false);
   // Track readOnly in a ref so content-apply helpers can access it without stale closures
@@ -240,6 +241,7 @@ export function MilkdownEditor({
   const setMentionUIRef = useRef(setMentionUI);
   setMentionUIRef.current = setMentionUI;
   const mentionListRef = useRef<MentionListHandle | null>(null);
+  const mentionSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [mentionItems, setMentionItems] = useState<SlimPersonSummary[]>([]);
 
   // Name cache for mention decorations
@@ -255,17 +257,21 @@ export function MilkdownEditor({
 
   const applyContent = useCallback((crepe: Crepe, md: string) => {
     const wasReadonly = readOnlyRef.current;
-    if (wasReadonly) crepe.setReadonly(false);
+    if (wasReadonly) {
+      crepe.setReadonly(false);
+      pendingReadonlyRestoreRef.current = true;
+    }
     suppressChangeRef.current = true;
-    
-    // Sanitize the markdown
     const safeMd = md.replace(/&#x20;/g, ' ').replace(/\\_/g, '_');
     crepe.editor.action(replaceAll(safeMd));
-    
+    // Safety fallback: clear flags if markdownUpdated never fires (e.g. content unchanged)
     setTimeout(() => {
       suppressChangeRef.current = false;
-      if (wasReadonly) crepe.setReadonly(true);
-    }, 100);
+      if (pendingReadonlyRestoreRef.current) {
+        pendingReadonlyRestoreRef.current = false;
+        crepe.setReadonly(true);
+      }
+    }, 50);
   }, []);
 
   // ── Force decoration re-render ────────────────────────────────────────────
@@ -302,9 +308,16 @@ export function MilkdownEditor({
     // Register onChange listener
     crepe.on((listener) => {
       listener.markdownUpdated((_, markdown) => {
-        if (!suppressChangeRef.current) {
-          onChangeRef.current(markdown);
+        if (suppressChangeRef.current) {
+          // Self-clear: the first markdownUpdated after replaceAll ends suppression
+          suppressChangeRef.current = false;
+          if (pendingReadonlyRestoreRef.current) {
+            pendingReadonlyRestoreRef.current = false;
+            crepe.setReadonly(true);
+          }
+          return;
         }
+        onChangeRef.current(markdown);
       });
     });
 
@@ -353,14 +366,18 @@ export function MilkdownEditor({
       return;
     }
     let cancelled = false;
-    fetch(`/api/search?q=${encodeURIComponent(mentionUI.query)}&limit=8`)
-      .then((r) => (r.ok ? r.json() : { people: [] }))
-      .then((data) => {
-        if (!cancelled) setMentionItems(data.people ?? []);
-      })
-      .catch(() => {});
+    if (mentionSearchTimerRef.current) clearTimeout(mentionSearchTimerRef.current);
+    mentionSearchTimerRef.current = setTimeout(() => {
+      fetch(`/api/search?q=${encodeURIComponent(mentionUI.query)}&limit=8`)
+        .then((r) => (r.ok ? r.json() : { people: [] }))
+        .then((data) => {
+          if (!cancelled) setMentionItems(data.people ?? []);
+        })
+        .catch(() => {});
+    }, 150);
     return () => {
       cancelled = true;
+      if (mentionSearchTimerRef.current) clearTimeout(mentionSearchTimerRef.current);
     };
   }, [mentionUI.active, mentionUI.query]);
 
@@ -392,16 +409,13 @@ export function MilkdownEditor({
         }
       }
       if (changed) {
-        console.log("MILKDOWN DEBUG: forcing decor update");
         forceDecorUpdate();
       }
     });
     return () => {
       cancelled = true;
     };
-    // We only run this when content transitions from empty to non-empty (story load)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enableMentions, !!content]);
+  }, [enableMentions, content, forceDecorUpdate]);
 
   // ── Insert mention ────────────────────────────────────────────────────────
 
@@ -542,7 +556,7 @@ export function MilkdownEditor({
         createPortal(
           <div
             style={{
-              position: "absolute",
+              position: "fixed",
               left: mentionUI.rect.left,
               top: mentionUI.rect.top,
               zIndex: 9999,

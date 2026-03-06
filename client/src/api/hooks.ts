@@ -170,8 +170,10 @@ export const useUpdateStory = () => {
     return useMutation({
         mutationFn: ({ id, data }: { id: string; data: UpdateStoryInput }) =>
             storiesApi.updateStory(id, data),
-        onSuccess: (_result, variables) => {
-            queryClient.invalidateQueries({ queryKey: ['story', variables.id] });
+        onSuccess: (result, variables) => {
+            // Use setQueryData instead of invalidate so the story effect in StoryPage
+            // doesn't fire and overwrite the editor's in-progress content.
+            queryClient.setQueryData(['story', variables.id], result);
             queryClient.invalidateQueries({ queryKey: ['stories'] });
             queryClient.invalidateQueries({ queryKey: ['search'] });
         },

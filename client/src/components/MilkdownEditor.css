@@ -134,9 +134,10 @@
   display: none !important;
 }
 
-/* ── Block handle: hide everywhere ──────────────────────────────────────────── */
+/* ── Block handle ──────────────────────────────────────────────────────────── */
 
-.milkdown-crepe-wrapper .milkdown .milkdown-block-handle {
+/* Hide block handle in read-only mode */
+.milkdown-crepe-wrapper.read-only .milkdown .milkdown-block-handle {
   display: none !important;
 }
 

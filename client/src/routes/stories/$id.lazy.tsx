@@ -153,8 +153,12 @@ function StoryPage() {
     const [isSaving, setIsSaving] = useState(false);
 
     const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isEditModeRef = useRef(isEditMode);
+    isEditModeRef.current = isEditMode;
 
     // Sync story data → local state on load
+    // In edit mode, skip content/dirty reset so in-progress edits aren't clobbered
+    // (e.g. after auto-save triggers a cache update)
     useEffect(() => {
         if (!story) return;
         setFm({
@@ -163,8 +167,10 @@ function StoryPage() {
             place: story.metadata.place ?? '',
             isPrivate: story.metadata.private ?? false,
         });
-        setContent(story.content ?? '');
-        setIsDirty(false);
+        if (!isEditModeRef.current) {
+            setContent(story.content ?? '');
+            setIsDirty(false);
+        }
     }, [story]);
 
     // Auto-save (3s debounce) while in edit mode
@@ -453,7 +459,7 @@ function StoryPage() {
                     )}
 
                     {/* Body — always Crepe, readOnly toggled */}
-                    {(isNew || content) && (
+                    {(isEditMode || content) && (
                         <MilkdownEditor
                             key={`editor-${id}-${story ? 'loaded' : 'unloaded'}`}
                             content={content}
