@@ -87,6 +87,13 @@ export const storiesApi = {
         }
     },
 
+    deleteStoryMedia: async (id: string, filename: string): Promise<void> => {
+        const response = await fetch(`/api/stories/${encodeURIComponent(id)}/media/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+        if (!response.ok && response.status !== 404) {
+            throw new Error(`Failed to delete story media: ${response.statusText}`);
+        }
+    },
+
     uploadMedia: async (id: string, file: File): Promise<FullStory> => {
         const formData = new FormData();
         formData.append('file', file);

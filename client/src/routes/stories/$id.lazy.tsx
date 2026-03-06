@@ -3,6 +3,11 @@ import {
 } from 'react';
 import { createLazyFileRoute, useNavigate, useSearch as useRouterSearch, Link } from '@tanstack/react-router';
 import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia, usePlacesSearch } from '@/api/hooks';
+import { storiesApi } from '@/api/stories';
+import {
+    Dialog, DialogContent, DialogHeader, DialogTitle,
+    DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
 import { PersonChip } from '@/components/PersonChip';
 import { MilkdownEditor } from '@/components/MilkdownEditor';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
@@ -155,10 +160,56 @@ function StoryPage() {
     const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isEditModeRef = useRef(isEditMode);
     isEditModeRef.current = isEditMode;
-    // When uploading images on a new (unsaved) story we silently create it first.
-    // This ref tracks the created ID so subsequent uploads and explicit saves
-    // update it rather than creating duplicates.
+
+    // When uploading images on a new (unsaved) story, or when auto-saving a new
+    // story for the first time, we silently create it to get an ID.
     const silentlyCreatedIdRef = useRef<string | null>(null);
+    // True only when user explicitly clicked Save/Create — prevents cleanup on unmount.
+    const userExplicitlySavedRef = useRef(false);
+    // Snapshot of content+fm at the moment edit mode was entered (for Discard).
+    const snapRef = useRef<{ content: string; fm: FrontmatterState } | null>(null);
+
+    // Confirmation dialog for Discard / back-button navigation in edit mode
+    const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+    // Incrementing this key forces the editor to remount after Discard resets content
+    const [editorResetKey, setEditorResetKey] = useState(0);
+
+    // Take a snapshot when first entering edit mode for an existing story.
+    // The guard prevents re-snapshotting after auto-save updates the cache.
+    useEffect(() => {
+        if (!isEditMode || isNew || !story || snapRef.current) return;
+        snapRef.current = {
+            content: story.content ?? '',
+            fm: {
+                title: story.metadata.title ?? '',
+                date: story.metadata.date ?? '',
+                place: story.metadata.place ?? '',
+                isPrivate: story.metadata.private ?? false,
+            },
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isEditMode, isNew, story?.id]);
+
+    // Clear snapshot when leaving edit mode (so the next edit session gets a fresh one)
+    useEffect(() => {
+        if (!isEditMode) snapRef.current = null;
+    }, [isEditMode]);
+
+    // On unmount: if a draft was auto-created but never explicitly saved, delete it + its assets.
+    useEffect(() => {
+        return () => {
+            const draftId = silentlyCreatedIdRef.current;
+            if (!draftId || userExplicitlySavedRef.current) return;
+            // Fire-and-forget: purge uploaded assets then delete the draft story
+            storiesApi.getStory(draftId)
+                .then((s) => Promise.allSettled(
+                    (s.metadata.assets ?? []).map((a) => storiesApi.deleteStoryMedia(draftId, a))
+                ))
+                .catch(() => {})
+                .finally(() => storiesApi.deleteStory(draftId).catch(() => {}));
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     const fmRef = useRef(fm);
     fmRef.current = fm;
     const contentRef2 = useRef(content);
@@ -181,9 +232,11 @@ function StoryPage() {
         }
     }, [story]);
 
-    // Auto-save (3s debounce) while in edit mode
+    // Auto-save (3s debounce) while in edit mode — covers both new and existing stories.
+    // New stories require a title before the first auto-save creates the draft.
     useEffect(() => {
-        if (!isEditMode || isNew || !isDirty) return;
+        if (!isEditMode || !isDirty) return;
+        if (isNew && !fm.title.trim()) return;
         if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
         autoSaveTimer.current = setTimeout(async () => {
             await doSave(false);
@@ -207,23 +260,28 @@ function StoryPage() {
                 private: fm.isPrivate,
             };
             if (isNew && silentlyCreatedIdRef.current) {
-                // Already auto-created during image upload — just update content
                 const createdId = silentlyCreatedIdRef.current;
                 await updateStory.mutateAsync({ id: createdId, data: payload });
-                toast.success('Story saved');
+                setIsDirty(false);
                 if (navigateAfter) {
+                    toast.success('Story created');
+                    userExplicitlySavedRef.current = true;
                     navigate({ to: '/stories/$id', params: { id: createdId } });
                 }
             } else if (isNew) {
                 const created = await createStory.mutateAsync({ ...payload, title: fm.title });
-                toast.success('Story created');
+                silentlyCreatedIdRef.current = created.id;
+                setIsDirty(false);
                 if (navigateAfter) {
+                    toast.success('Story created');
+                    userExplicitlySavedRef.current = true;
                     navigate({ to: '/stories/$id', params: { id: created.id } });
                 }
             } else {
                 await updateStory.mutateAsync({ id, data: payload });
                 setIsDirty(false);
                 if (navigateAfter) {
+                    userExplicitlySavedRef.current = true;
                     navigate({ to: '/stories/$id', params: { id }, search: {} });
                 }
             }
@@ -233,6 +291,56 @@ function StoryPage() {
             setIsSaving(false);
         }
     }, [fm, content, isNew, id, createStory, updateStory, navigate]);
+
+    // ── Discard ───────────────────────────────────────────────────────────────
+
+    const handleDiscard = useCallback(async () => {
+        setShowDiscardConfirm(false);
+        if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+
+        if (isNew) {
+            // Purge draft + its assets, then go back to the feed
+            const draftId = silentlyCreatedIdRef.current;
+            if (draftId) {
+                try {
+                    const s = await storiesApi.getStory(draftId);
+                    await Promise.allSettled(
+                        (s.metadata.assets ?? []).map((a) => storiesApi.deleteStoryMedia(draftId, a))
+                    );
+                    await storiesApi.deleteStory(draftId);
+                    silentlyCreatedIdRef.current = null;
+                } catch { /* best-effort */ }
+            }
+            navigate({ to: '/stories' });
+        } else {
+            // Revert server to the snapshot captured when entering edit mode
+            const snap = snapRef.current;
+            if (snap) {
+                setIsSaving(true);
+                try {
+                    await updateStory.mutateAsync({
+                        id,
+                        data: {
+                            title: snap.fm.title,
+                            content: snap.content,
+                            date: parseToISO(snap.fm.date) ?? (snap.fm.date || undefined),
+                            place: snap.fm.place || undefined,
+                            people: extractMentionIds(snap.content),
+                            private: snap.fm.isPrivate,
+                        },
+                    });
+                } catch { /* ignore */ } finally {
+                    setIsSaving(false);
+                }
+                setContent(snap.content);
+                setFm(snap.fm);
+            }
+            setIsDirty(false);
+            setEditorResetKey((k) => k + 1);
+            snapRef.current = null;
+            navigate({ to: '/stories/$id', params: { id }, search: {} });
+        }
+    }, [isNew, id, updateStory, navigate]);
 
     // ── Image upload handler ──────────────────────────────────────────────────
 
@@ -261,7 +369,7 @@ function StoryPage() {
                 });
                 silentlyCreatedIdRef.current = created.id;
                 targetId = created.id;
-                toast.success('Story saved — uploading image…');
+                toast.info('Uploading image — click Create to keep this story');
             }
         } else {
             targetId = id;
@@ -320,22 +428,21 @@ function StoryPage() {
 
     // ── Shared header ─────────────────────────────────────────────────────────
 
+    const needsConfirmOnBack = isEditMode && (isDirty || !!silentlyCreatedIdRef.current);
+
     const header = (
         <div className="flex items-center gap-3 px-4 py-2 border-b border-border shrink-0 bg-card">
             <Button
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
-                onClick={() => navigate({ to: '/stories' })}
+                onClick={() => needsConfirmOnBack ? setShowDiscardConfirm(true) : navigate({ to: '/stories' })}
                 aria-label="Back to Stories"
             >
                 <ArrowLeft className="h-4 w-4" />
             </Button>
             <nav className="text-sm text-muted-foreground flex items-center gap-1">
-                <Link
-                    to="/stories"
-                    className="hover:text-foreground transition-colors"
-                >
+                <Link to="/stories" className="hover:text-foreground transition-colors">
                     Stories
                 </Link>
                 <span>/</span>
@@ -345,20 +452,33 @@ function StoryPage() {
             </nav>
 
             <div className="ml-auto flex items-center gap-2">
-                {isDirty && !isNew && (
-                    <span className="text-xs text-muted-foreground italic">{isSaving ? 'Saving…' : 'Unsaved'}</span>
+                {isEditMode && (
+                    <span className="text-xs text-muted-foreground italic">
+                        {isSaving ? 'Saving…' : isDirty ? 'Unsaved' : 'Saved'}
+                    </span>
                 )}
                 {isEditMode ? (
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8"
-                        onClick={() => doSave(true)}
-                        disabled={isSaving}
-                    >
-                        <Save className="h-3.5 w-3.5 mr-1.5" />
-                        {isNew ? 'Create' : 'Save'}
-                    </Button>
+                    <>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-muted-foreground"
+                            onClick={() => setShowDiscardConfirm(true)}
+                            disabled={isSaving}
+                        >
+                            Discard
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => doSave(true)}
+                            disabled={isSaving || (isNew && !fm.title.trim())}
+                        >
+                            <Save className="h-3.5 w-3.5 mr-1.5" />
+                            {isNew ? 'Create' : 'Save'}
+                        </Button>
+                    </>
                 ) : (
                     <Button
                         variant="outline"
@@ -503,7 +623,7 @@ function StoryPage() {
                     {/* Body — always Crepe, readOnly toggled */}
                     {(isEditMode || content) && (
                         <MilkdownEditor
-                            key={`editor-${id}-${story ? 'loaded' : 'unloaded'}`}
+                            key={`editor-${id}-${story ? 'loaded' : 'unloaded'}-${editorResetKey}`}
                             content={content}
                             onChange={(md) => { setContent(md); setIsDirty(true); }}
                             onImageUpload={handleImageUpload}
@@ -516,6 +636,28 @@ function StoryPage() {
                     {filmstrip}
                 </div>
             </div>
+
+            {/* Discard confirmation */}
+            <Dialog open={showDiscardConfirm} onOpenChange={setShowDiscardConfirm}>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>Discard changes?</DialogTitle>
+                        <DialogDescription>
+                            {isNew
+                                ? 'This story will not be saved and any uploaded images will be deleted.'
+                                : 'Your unsaved changes will be reverted to the last saved version.'}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button variant="ghost" onClick={() => setShowDiscardConfirm(false)}>
+                            Keep editing
+                        </Button>
+                        <Button variant="destructive" onClick={handleDiscard} disabled={isSaving}>
+                            Discard
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Lightbox */}
             {lightbox && (

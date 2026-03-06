@@ -313,6 +313,34 @@ export async function storiesRoutes(server: FastifyInstance) {
         return reply.status(204).send();
     });
 
+    // ── DELETE /api/stories/:id/media/:filename ───────────────────────────
+
+    server.delete<{ Params: { id: string; filename: string } }>('/api/stories/:id/media/:filename', async (request, reply) => {
+        const { id, filename } = request.params;
+        const filePath = path.join(storiesDir, `${id}.md`);
+
+        let existingRaw: string;
+        try {
+            existingRaw = await fs.readFile(filePath, 'utf8');
+        } catch {
+            return reply.status(404).send({ error: 'Story not found', code: 'STORY_NOT_FOUND' });
+        }
+
+        // Remove asset file from disk (best-effort)
+        const assetPath = path.join(dataDir, 'assets', filename);
+        try { await fs.unlink(assetPath); } catch { /* already gone */ }
+
+        // Remove reference from story frontmatter
+        const { data: frontmatter, content } = matter(existingRaw);
+        const currentAssets: string[] = Array.isArray(frontmatter.assets) ? frontmatter.assets : [];
+        const updatedMetadata = { ...frontmatter, assets: currentAssets.filter((a: string) => a !== filename) };
+
+        const story = await writeStoryFile(id, updatedMetadata, content,
+            (rel, fc) => txManager.writeFile(rel, fc, `story ${id}`));
+        await graphEngine.applyStoryWriteSideEffects(path.join(dataDir, 'stories', `${id}.md`));
+        return reply.status(200).send(story);
+    });
+
     // ── PUT /api/stories/:id/media ────────────────────────────────────────
 
     server.put<{ Params: { id: string } }>('/api/stories/:id/media', async (request, reply) => {
