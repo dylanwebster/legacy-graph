@@ -247,10 +247,14 @@ function StoryPage() {
 
     const doSave = useCallback(async (navigateAfter = true) => {
         if (!fm.title.trim()) { toast.error('Title is required'); return; }
+        if (fm.date && !parseToISO(fm.date)) {
+            toast.error('Invalid date — try "15 Jun 1944" or "1944-06-15"');
+            return;
+        }
         setIsSaving(true);
         try {
             const mentionedPeople = extractMentionIds(content);
-            const isoDate = parseToISO(fm.date) ?? (fm.date || undefined);
+            const isoDate = parseToISO(fm.date) || undefined;
             const payload: UpdateStoryInput = {
                 title: fm.title,
                 content,
@@ -323,7 +327,7 @@ function StoryPage() {
                         data: {
                             title: snap.fm.title,
                             content: snap.content,
-                            date: parseToISO(snap.fm.date) ?? (snap.fm.date || undefined),
+                            date: parseToISO(snap.fm.date) || undefined,
                             place: snap.fm.place || undefined,
                             people: extractMentionIds(snap.content),
                             private: snap.fm.isPrivate,
@@ -358,7 +362,7 @@ function StoryPage() {
                     throw new Error('No title');
                 }
                 // Auto-create the story so we have an ID to attach media to
-                const isoDate = parseToISO(currentFm.date) ?? (currentFm.date || undefined);
+                const isoDate = parseToISO(currentFm.date) || undefined;
                 const created = await createStory.mutateAsync({
                     title: currentFm.title,
                     content: contentRef2.current,
