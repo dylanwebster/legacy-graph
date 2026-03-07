@@ -799,7 +799,7 @@ function StoryPage() {
                         {/* Tip — below editor, inside content boundary */}
                         {isEditMode && (
                             <p className="text-[10px] text-muted-foreground/50 mt-3">
-                                Tip: type <kbd className="font-mono bg-muted px-0.5 rounded">@</kbd> in the body to mention a person — they'll be linked automatically.
+                                Tip: type <kbd className="font-mono bg-muted px-0.5 rounded">@</kbd> to mention a person, <kbd className="font-mono bg-muted px-0.5 rounded">/</kbd> for block commands, or write raw Markdown.
                             </p>
                         )}
                     </div>
