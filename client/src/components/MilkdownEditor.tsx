@@ -369,7 +369,17 @@ export function MilkdownEditor({
     const crepe = new Crepe({
       root: containerRef.current,
       defaultValue: initialContent,
+      features: {
+        [CrepeFeature.CodeMirror]: false,
+        [CrepeFeature.Latex]: false,
+      },
       featureConfigs: {
+        [CrepeFeature.BlockEdit]: {
+          advancedGroup: {
+            codeBlock: null,
+            math: null,
+          },
+        },
         [CrepeFeature.ImageBlock]: {
           onUpload: async (file: File) => {
             const handler = onImageUploadRef.current;
