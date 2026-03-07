@@ -80,12 +80,8 @@ export const storiesApi = {
             body: JSON.stringify(data),
         }),
 
-    deleteStory: async (id: string) => {
-        const response = await fetch(`/api/stories/${id}`, { method: 'DELETE' });
-        if (!response.ok) {
-            throw new Error(`Failed to delete story: ${response.statusText}`);
-        }
-    },
+    deleteStory: (id: string) =>
+        apiFetch<void>(`/stories/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
     deleteStoryMedia: async (id: string, filename: string): Promise<void> => {
         const response = await fetch(`/api/stories/${encodeURIComponent(id)}/media/${encodeURIComponent(filename)}`, { method: 'DELETE' });

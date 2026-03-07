@@ -20,7 +20,7 @@ export interface StoryFeedItem {
     date?: string;
     place?: string;
     people: string[];      // union of metadata.people + body @mentions
-    excerpt: string;       // first 200 chars of body text
+    excerpt: string;       // first 280 chars of body text
     firstAsset?: string;
     private: boolean;
 }

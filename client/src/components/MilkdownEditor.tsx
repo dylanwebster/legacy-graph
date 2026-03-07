@@ -692,16 +692,18 @@ export function MilkdownEditor({
         }
       }
 
-      // External link handling: normalize protocol-less hrefs and open in new tab
+      // External link handling: normalize protocol-less hostnames and open in new tab.
+      // Leave absolute paths (/...), relative paths (./...), and hash links to the SPA/router.
       const anchor = target.closest("a") as HTMLAnchorElement | null;
       if (anchor) {
-        e.preventDefault();
-        let href = anchor.getAttribute("href") ?? "";
-        // Prepend https:// if the URL has no protocol (prevents relative resolution)
-        if (href && !/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(href) && !href.startsWith("#")) {
-          href = `https://${href}`;
+        const rawHref = anchor.getAttribute("href") ?? "";
+        if (!rawHref || rawHref.startsWith("#") || rawHref.startsWith("/") || rawHref.startsWith("./") || rawHref.startsWith("../")) {
+          return;
         }
-        if (href) window.open(href, "_blank", "noopener,noreferrer");
+        e.preventDefault();
+        const hasProtocol = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(rawHref);
+        const href = hasProtocol ? rawHref : `https://${rawHref}`;
+        window.open(href, "_blank", "noopener,noreferrer");
       }
     },
     [onMentionClick, readOnly],

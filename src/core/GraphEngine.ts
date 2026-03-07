@@ -849,10 +849,6 @@ export class GraphEngine extends EventEmitter {
     }
 
     /**
-     * Handle story file create/update from the watcher or direct invocation.
-     * Parses story, updates graph node + edges, updates search index.
-     */
-    /**
      * Immediately update the graph for an API-written story file.
      * Call this after writing a story via the API so the graph reflects the change
      * without waiting for the file watcher. Also registers as a self-write so the
@@ -907,6 +903,27 @@ export class GraphEngine extends EventEmitter {
      * Handle story file deletion from the watcher or direct invocation.
      * Removes story node, edges, and search index entry.
      */
+    /**
+     * Immediately update the graph for an API-deleted story file.
+     * Call this after deleting a story via the API so the graph reflects the change
+     * without waiting for the file watcher. Also registers as a self-write so the
+     * watcher does not double-process the deletion.
+     */
+    public applyStoryDeleteSideEffects(filePath: string): void {
+        this.registerSelfWrite(filePath);
+        const storyId = path.basename(filePath);
+        if (this.graph.hasNode(storyId)) {
+            const mentionedPersons = this.graph.outNeighbors(storyId);
+            this.graph.dropNode(storyId);
+            this.searchService.removeStory(storyId);
+            for (const personId of mentionedPersons) {
+                if (this.graph.hasNode(personId)) {
+                    invalidateComputed(this.graph, personId);
+                }
+            }
+        }
+    }
+
     private handleStoryRemove(filePath: string): void {
         if (this.consumeSelfWrite(filePath)) return;
 

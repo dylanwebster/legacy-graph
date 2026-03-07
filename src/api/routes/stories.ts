@@ -279,6 +279,15 @@ export async function storiesRoutes(server: FastifyInstance) {
             return reply.status(404).send({ error: 'Story not found', code: 'STORY_NOT_FOUND' });
         }
 
+        // Validate and normalize title if provided
+        if (body.title !== undefined) {
+            const trimmed = body.title.trim();
+            if (!trimmed) {
+                return reply.status(400).send({ error: 'Title must not be empty', code: 'VALIDATION_ERROR' });
+            }
+            body.title = trimmed;
+        }
+
         // Merge updates
         const metadata: Record<string, unknown> = {
             ...existing.data,
@@ -354,11 +363,13 @@ export async function storiesRoutes(server: FastifyInstance) {
                 if (!referencedByStories.has(asset) && !referencedByPeople.has(asset)) {
                     try {
                         await fs.unlink(path.join(dataDir, 'assets', asset));
+                        await txManager.removeFile(path.join('assets', asset), `asset ${asset}`);
                     } catch { /* already gone or inaccessible — ignore */ }
                 }
             }
         }
 
+        graphEngine.applyStoryDeleteSideEffects(filePath);
         return reply.status(204).send();
     });
 
@@ -377,7 +388,10 @@ export async function storiesRoutes(server: FastifyInstance) {
 
         // Remove asset file from disk (best-effort)
         const assetPath = path.join(dataDir, 'assets', filename);
-        try { await fs.unlink(assetPath); } catch { /* already gone */ }
+        try {
+            await fs.unlink(assetPath);
+            await txManager.removeFile(path.join('assets', filename), `asset ${filename}`);
+        } catch { /* already gone */ }
 
         // Remove reference from story frontmatter
         const { data: frontmatter, content } = matter(existingRaw);

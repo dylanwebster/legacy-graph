@@ -66,7 +66,7 @@ export async function searchRoutes(server: FastifyInstance) {
                     names: slim.names,
                     sex: slim.sex,
                     birthDate: slim.events?.find((e: any) => e.type === 'birth')?.sort_date as string | undefined,
-                    deathDate: slim.events?.find((e: any) => e.type === 'death')?.date as string | undefined,
+                    deathDate: slim.events?.find((e: any) => e.type === 'death')?.sort_date as string | undefined,
                     tags: slim.tags ?? [],
                     assetCount: slim.assets?.length ?? 0,
                     primaryAsset: slim.assets?.[0] as string | undefined,
@@ -86,10 +86,14 @@ export async function searchRoutes(server: FastifyInstance) {
                 if (!storyData) {
                     return { id: apiId, title: s.name, people: [] as string[], private: false, excerpt: s.snippet ?? '' };
                 }
-                const content: string = storyData.content ?? '';
+                const raw: string = storyData.content ?? '';
+                // Sanitize Milkdown serialization artifacts (mirrors toFeedItem logic)
+                const content = raw.replace(/&#x20;/g, ' ').replace(/\_/g, '_');
                 const bodyText = content
                     .replace(/@N_[a-zA-Z0-9_-]+/g, (match) => resolvePersonName(match.slice(1)))
                     .replace(/\[\[N_[a-zA-Z0-9_-]+\]\]/g, (match) => resolvePersonName(match.slice(2, -2)))
+                    .replace(/<[^>]+>/g, '')
+                    .replace(/&[a-z]+;|&#\d+;|&#x[0-9a-f]+;/gi, '')
                     .replace(/\s+/g, ' ')
                     .trim();
                 return {
@@ -101,7 +105,7 @@ export async function searchRoutes(server: FastifyInstance) {
                         ...(storyData.metadata?.people ?? []),
                         ...(storyData.mentions ?? [])
                     ])) as string[],
-                    excerpt: bodyText.length > 200 ? bodyText.slice(0, 200) : bodyText,
+                    excerpt: bodyText.length > 280 ? bodyText.slice(0, 280) : bodyText,
                     firstAsset: storyData.metadata?.assets?.[0],
                     private: storyData.metadata?.private ?? false,
                 };
