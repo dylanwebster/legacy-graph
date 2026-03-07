@@ -1,7 +1,7 @@
 import {
     useState, useEffect, useRef, useCallback,
 } from 'react';
-import { createLazyFileRoute, useNavigate, useSearch as useRouterSearch, Link } from '@tanstack/react-router';
+import { createLazyFileRoute, useNavigate, useSearch as useRouterSearch, Link, useBlocker } from '@tanstack/react-router';
 import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia, usePlacesSearch } from '@/api/hooks';
 import { storiesApi } from '@/api/stories';
 import {
@@ -166,6 +166,9 @@ function StoryPage() {
     const silentlyCreatedIdRef = useRef<string | null>(null);
     // True only when user explicitly clicked Save/Create — prevents cleanup on unmount.
     const userExplicitlySavedRef = useRef(false);
+    // Set to true immediately before any intentional navigate() call to suppress the
+    // navigation blocker (e.g. after save, or after toolbar-initiated discard).
+    const allowNavigationRef = useRef(false);
     // Snapshot of content+fm at the moment edit mode was entered (for Discard).
     const snapRef = useRef<{ content: string; fm: FrontmatterState } | null>(null);
 
@@ -194,6 +197,24 @@ function StoryPage() {
     useEffect(() => {
         if (!isEditMode) snapRef.current = null;
     }, [isEditMode]);
+
+    // ── Navigation guard ──────────────────────────────────────────────────────
+    // Block all router navigation (sidebar, back, programmatic) when there are
+    // unsaved edits. allowNavigationRef bypasses the guard for intentional saves/discards.
+
+    const blocker = useBlocker({
+        shouldBlockFn: useCallback(() => {
+            if (allowNavigationRef.current) return false;
+            return isEditMode && (isDirty || !!silentlyCreatedIdRef.current);
+        }, [isEditMode, isDirty]),
+        withResolver: true,
+        enableBeforeUnload: true,
+    });
+
+    // Surface the existing discard dialog whenever the blocker intercepts navigation
+    useEffect(() => {
+        if (blocker.status === 'blocked') setShowDiscardConfirm(true);
+    }, [blocker.status]);
 
     // On unmount: if a draft was auto-created but never explicitly saved, delete it + its assets.
     useEffect(() => {
@@ -270,6 +291,7 @@ function StoryPage() {
                 if (navigateAfter) {
                     toast.success('Story created');
                     userExplicitlySavedRef.current = true;
+                    allowNavigationRef.current = true;
                     navigate({ to: '/stories/$id', params: { id: createdId } });
                 }
             } else if (isNew) {
@@ -279,6 +301,7 @@ function StoryPage() {
                 if (navigateAfter) {
                     toast.success('Story created');
                     userExplicitlySavedRef.current = true;
+                    allowNavigationRef.current = true;
                     navigate({ to: '/stories/$id', params: { id: created.id } });
                 }
             } else {
@@ -286,6 +309,7 @@ function StoryPage() {
                 setIsDirty(false);
                 if (navigateAfter) {
                     userExplicitlySavedRef.current = true;
+                    allowNavigationRef.current = true;
                     navigate({ to: '/stories/$id', params: { id }, search: {} });
                 }
             }
@@ -302,8 +326,13 @@ function StoryPage() {
         setShowDiscardConfirm(false);
         if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
 
+        // Was navigation blocked by the router, or was this triggered by the toolbar?
+        // In the blocker case we call proceed() and the router takes the user to their
+        // intended destination. In the toolbar case we navigate explicitly.
+        const viaBlocker = blocker.status === 'blocked';
+
         if (isNew) {
-            // Purge draft + its assets, then go back to the feed
+            // Purge draft + its assets, then allow navigation
             const draftId = silentlyCreatedIdRef.current;
             if (draftId) {
                 try {
@@ -315,7 +344,12 @@ function StoryPage() {
                     silentlyCreatedIdRef.current = null;
                 } catch { /* best-effort */ }
             }
-            navigate({ to: '/stories' });
+            if (viaBlocker) {
+                blocker.proceed?.();
+            } else {
+                allowNavigationRef.current = true;
+                navigate({ to: '/stories' });
+            }
         } else {
             // Revert server to the snapshot captured when entering edit mode
             const snap = snapRef.current;
@@ -342,9 +376,14 @@ function StoryPage() {
             setIsDirty(false);
             setEditorResetKey((k) => k + 1);
             snapRef.current = null;
-            navigate({ to: '/stories/$id', params: { id }, search: {} });
+            if (viaBlocker) {
+                blocker.proceed?.();
+            } else {
+                allowNavigationRef.current = true;
+                navigate({ to: '/stories/$id', params: { id }, search: {} });
+            }
         }
-    }, [isNew, id, updateStory, navigate]);
+    }, [isNew, id, updateStory, navigate, blocker]);
 
     // ── Image upload handler ──────────────────────────────────────────────────
 
@@ -432,15 +471,13 @@ function StoryPage() {
 
     // ── Shared header ─────────────────────────────────────────────────────────
 
-    const needsConfirmOnBack = isEditMode && (isDirty || !!silentlyCreatedIdRef.current);
-
     const header = (
         <div className="flex items-center gap-3 px-4 py-2 border-b border-border shrink-0 bg-card">
             <Button
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
-                onClick={() => needsConfirmOnBack ? setShowDiscardConfirm(true) : navigate({ to: '/stories' })}
+                onClick={() => navigate({ to: '/stories' })}
                 aria-label="Back to Stories"
             >
                 <ArrowLeft className="h-4 w-4" />
@@ -658,7 +695,10 @@ function StoryPage() {
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter className="gap-2 sm:gap-0">
-                        <Button variant="ghost" onClick={() => setShowDiscardConfirm(false)}>
+                        <Button variant="ghost" onClick={() => {
+                            if (blocker.status === 'blocked') blocker.reset?.();
+                            setShowDiscardConfirm(false);
+                        }}>
                             Keep editing
                         </Button>
                         <Button variant="destructive" onClick={handleDiscard} disabled={isSaving}>
