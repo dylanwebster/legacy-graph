@@ -608,19 +608,35 @@ export function MilkdownEditor({
     hoverTimeoutRef.current = setTimeout(() => setMentionHover(null), 120);
   }, []);
 
-  // ── Click: navigate to person in readonly mode ────────────────────────────
+  // ── Click: handle mention chips + external links ─────────────────────────
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
-      if (!onMentionClick || !readOnly) return;
       const target = e.target as HTMLElement;
-      const chip = target.closest("[data-mention-id]") as HTMLElement | null;
-      if (chip) {
-        const id = chip.getAttribute("data-mention-id");
-        if (id) {
-          e.preventDefault();
-          onMentionClick(id);
+
+      // Mention chip navigation (read-only mode)
+      if (onMentionClick && readOnly) {
+        const chip = target.closest("[data-mention-id]") as HTMLElement | null;
+        if (chip) {
+          const id = chip.getAttribute("data-mention-id");
+          if (id) {
+            e.preventDefault();
+            onMentionClick(id);
+            return;
+          }
         }
+      }
+
+      // External link handling: normalize protocol-less hrefs and open in new tab
+      const anchor = target.closest("a") as HTMLAnchorElement | null;
+      if (anchor) {
+        e.preventDefault();
+        let href = anchor.getAttribute("href") ?? "";
+        // Prepend https:// if the URL has no protocol (prevents relative resolution)
+        if (href && !/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(href) && !href.startsWith("#")) {
+          href = `https://${href}`;
+        }
+        if (href) window.open(href, "_blank", "noopener,noreferrer");
       }
     },
     [onMentionClick, readOnly],
