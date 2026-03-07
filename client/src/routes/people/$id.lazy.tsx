@@ -1,4 +1,4 @@
-import { createLazyFileRoute, Link } from '@tanstack/react-router';
+import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { usePerson, useUpdatePerson, useDeleteAsset } from '@/api/hooks';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { PersonChip } from '@/components/PersonChip';
@@ -59,6 +59,7 @@ const SEX_OPTIONS = ['M', 'F', 'I', 'U'] as const;
 
 function PersonDetail() {
     const { id } = Route.useParams();
+    const navigate = useNavigate();
     const { data: person, isLoading, isError } = usePerson(id);
     const updatePerson = useUpdatePerson();
     const queryClient = useQueryClient();
@@ -570,9 +571,17 @@ function PersonDetail() {
                     <div className="h-full flex flex-col">
                         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                             <h3 className="text-sm font-semibold">Timeline</h3>
-                            <Button variant="outline" size="sm" className="gap-1" onClick={openAddEvent}>
-                                <Plus className="h-3 w-3" /> Add Event
-                            </Button>
+                            <div className="flex flex-col items-end gap-1">
+                                <Button variant="outline" size="sm" className="gap-1" onClick={openAddEvent}>
+                                    <Plus className="h-3 w-3" /> Add Event
+                                </Button>
+                                <button
+                                    className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                                    onClick={() => navigate({ to: '/stories/$id', params: { id: 'new' }, search: { person: id } })}
+                                >
+                                    <BookOpen className="h-3 w-3" /> Write a story
+                                </button>
+                            </div>
                         </div>
                         <div ref={timelineParentRef} className="flex-1 overflow-y-auto">
                             <VirtualizedTimeline

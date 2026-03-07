@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
     Pencil, Save, ArrowLeft, MapPin, CalendarDays,
-    X, Lock, Unlock, Loader2,
+    X, Lock, Unlock, Loader2, ChevronLeft, ChevronRight, Star,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Place } from '@/api/people';
@@ -133,7 +133,7 @@ function PlaceSearchCombobox({
 
 function StoryPage() {
     const { id } = Route.useParams();
-    const routerSearch = useRouterSearch({ strict: false }) as { mode?: string };
+    const routerSearch = useRouterSearch({ strict: false }) as { mode?: string; person?: string };
     const navigate = useNavigate();
 
     const isNew = id === 'new';
@@ -153,8 +153,12 @@ function StoryPage() {
     });
 
     // Editor content (raw Markdown)
-    const [content, setContent] = useState('');
-    const [isDirty, setIsDirty] = useState(false);
+    // When launched from a person page via ?person=N_xxx, seed the draft with a mention.
+    const [content, setContent] = useState(() =>
+        isNew && routerSearch.person ? `@${routerSearch.person} ` : ''
+    );
+    // Pre-seeded content (from ?person=) counts as unsaved from the start
+    const [isDirty, setIsDirty] = useState(() => !!(isNew && routerSearch.person));
     const [isSaving, setIsSaving] = useState(false);
 
     const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -425,14 +429,34 @@ function StoryPage() {
 
     // ── Lightbox for filmstrip ────────────────────────────────────────────────
 
-    const [lightbox, setLightbox] = useState<string | null>(null);
+    const [lightboxAsset, setLightboxAsset] = useState<string | null>(null);
 
     useEffect(() => {
-        if (!lightbox) return;
-        const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightbox(null); };
+        if (!lightboxAsset) return;
+        const currentAssets = story?.metadata.assets ?? [];
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') { setLightboxAsset(null); return; }
+            if (currentAssets.length <= 1) return;
+            const idx = currentAssets.indexOf(lightboxAsset);
+            if (e.key === 'ArrowLeft') setLightboxAsset(currentAssets[(idx - 1 + currentAssets.length) % currentAssets.length]);
+            if (e.key === 'ArrowRight') setLightboxAsset(currentAssets[(idx + 1) % currentAssets.length]);
+        };
         document.addEventListener('keydown', handler);
         return () => document.removeEventListener('keydown', handler);
-    }, [lightbox]);
+    }, [lightboxAsset, story?.metadata.assets]);
+
+    // Set an asset as cover (first in the assets array)
+    const handleSetCover = useCallback(async (filename: string) => {
+        const currentAssets = story?.metadata.assets ?? [];
+        if (currentAssets[0] === filename) return;
+        const reordered = [filename, ...currentAssets.filter((a) => a !== filename)];
+        try {
+            await updateStory.mutateAsync({ id: isNew ? (silentlyCreatedIdRef.current ?? id) : id, data: { assets: reordered } });
+            toast.success('Cover image updated');
+        } catch {
+            toast.error('Failed to update cover image');
+        }
+    }, [story?.metadata.assets, updateStory, id, isNew]);
 
     // ── Mention click handler ─────────────────────────────────────────────────
 
@@ -543,20 +567,41 @@ function StoryPage() {
                 Photos & Attachments
             </h3>
             <div className="flex gap-2 overflow-x-auto pb-2">
-                {assets.map((asset) => (
-                    <button
-                        key={asset}
-                        onClick={() => setLightbox(asset)}
-                        className="shrink-0 w-24 h-24 rounded-md overflow-hidden border border-border hover:border-primary/50 transition-colors"
-                    >
-                        <img
-                            src={`/assets/${asset}`}
-                            alt={asset}
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                        />
-                    </button>
-                ))}
+                {assets.map((asset, i) => {
+                    const isCover = i === 0;
+                    return (
+                        <div key={asset} className="relative shrink-0 group/thumb">
+                            <button
+                                onClick={() => setLightboxAsset(asset)}
+                                className={`w-24 h-24 rounded-md overflow-hidden border transition-colors ${
+                                    isCover ? 'border-primary/60' : 'border-border hover:border-primary/50'
+                                }`}
+                            >
+                                <img
+                                    src={`/assets/${asset}`}
+                                    alt={asset}
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                />
+                            </button>
+                            {/* Cover badge */}
+                            {isCover && (
+                                <span className="absolute top-1 left-1 flex items-center gap-0.5 bg-primary/80 text-primary-foreground text-[9px] font-semibold px-1 py-0.5 rounded leading-none pointer-events-none">
+                                    <Star className="h-2 w-2 fill-current" /> Cover
+                                </span>
+                            )}
+                            {/* Set as cover — edit mode only, non-cover thumbnails */}
+                            {isEditMode && !isCover && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handleSetCover(asset); }}
+                                    className="absolute inset-0 flex items-end justify-center pb-1.5 opacity-0 group-hover/thumb:opacity-100 transition-opacity bg-black/30 rounded-md text-white text-[9px] font-semibold gap-0.5"
+                                >
+                                    <Star className="h-2.5 w-2.5" /> Set cover
+                                </button>
+                            )}
+                        </div>
+                    );
+                })}
             </div>
         </div>
     ) : null;
@@ -709,25 +754,85 @@ function StoryPage() {
             </Dialog>
 
             {/* Lightbox */}
-            {lightbox && (
-                <div
-                    className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center"
-                    onClick={() => setLightbox(null)}
-                >
-                    <button
-                        className="absolute top-4 right-4 text-white/80 hover:text-white"
-                        onClick={() => setLightbox(null)}
+            {lightboxAsset && (() => {
+                const lbAssets = story?.metadata.assets ?? [];
+                const lbIdx = lbAssets.indexOf(lightboxAsset);
+                const isCover = lbIdx === 0;
+                return (
+                    <div
+                        className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center"
+                        onClick={() => setLightboxAsset(null)}
                     >
-                        <X className="h-6 w-6" />
-                    </button>
-                    <img
-                        src={`/assets/${lightbox}`}
-                        alt={lightbox}
-                        className="max-w-[90vw] max-h-[90vh] object-contain rounded"
-                        onClick={(e) => e.stopPropagation()}
-                    />
-                </div>
-            )}
+                        <button
+                            type="button"
+                            onClick={() => setLightboxAsset(null)}
+                            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
+                        >
+                            <X className="h-5 w-5" />
+                        </button>
+
+                        {/* Prev */}
+                        {lbAssets.length > 1 && (
+                            <button
+                                type="button"
+                                className="absolute left-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLightboxAsset(lbAssets[(lbIdx - 1 + lbAssets.length) % lbAssets.length]);
+                                }}
+                            >
+                                <ChevronLeft className="h-6 w-6" />
+                            </button>
+                        )}
+
+                        <div className="flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                            <img
+                                src={`/assets/${lightboxAsset}`}
+                                alt={lightboxAsset}
+                                className="max-w-[90vw] max-h-[80vh] object-contain rounded-lg shadow-2xl"
+                            />
+                            {/* Footer: counter + set cover */}
+                            <div className="flex items-center gap-4">
+                                {lbAssets.length > 1 && (
+                                    <span className="text-white/60 text-sm tabular-nums">
+                                        {lbIdx + 1} / {lbAssets.length}
+                                    </span>
+                                )}
+                                {isEditMode && !isCover && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSetCover(lightboxAsset)}
+                                        className="flex items-center gap-1.5 text-sm text-white/80 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full transition-colors"
+                                    >
+                                        <Star className="h-3.5 w-3.5" />
+                                        Set as cover
+                                    </button>
+                                )}
+                                {isCover && (
+                                    <span className="flex items-center gap-1.5 text-sm text-primary-foreground/80 bg-primary/60 px-3 py-1.5 rounded-full">
+                                        <Star className="h-3.5 w-3.5 fill-current" />
+                                        Cover image
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Next */}
+                        {lbAssets.length > 1 && (
+                            <button
+                                type="button"
+                                className="absolute right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLightboxAsset(lbAssets[(lbIdx + 1) % lbAssets.length]);
+                                }}
+                            >
+                                <ChevronRight className="h-6 w-6" />
+                            </button>
+                        )}
+                    </div>
+                );
+            })()}
         </div>
     );
 }
