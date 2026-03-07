@@ -65,7 +65,7 @@ export async function searchRoutes(server: FastifyInstance) {
                     id: slim.id,
                     names: slim.names,
                     sex: slim.sex,
-                    birthDate: slim.events?.find((e: any) => e.type === 'birth')?.date as string | undefined,
+                    birthDate: slim.events?.find((e: any) => e.type === 'birth')?.sort_date as string | undefined,
                     deathDate: slim.events?.find((e: any) => e.type === 'death')?.date as string | undefined,
                     tags: slim.tags ?? [],
                     assetCount: slim.assets?.length ?? 0,

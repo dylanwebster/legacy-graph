@@ -141,9 +141,20 @@ const MENTION_KEY = new PluginKey<MentionPluginState>("legacy_mention");
 
 function makeMentionPlugin(
   onUpdate: React.MutableRefObject<(state: MentionUIState) => void>,
+  onKeyDown: React.MutableRefObject<(key: string) => boolean>,
 ): Plugin {
   return new Plugin<MentionPluginState>({
     key: MENTION_KEY,
+    props: {
+      handleKeyDown(view, event) {
+        const s = MENTION_KEY.getState(view.state);
+        if (!s?.active) return false;
+        if (["ArrowUp", "ArrowDown", "Enter", "Escape"].includes(event.key)) {
+          return onKeyDown.current(event.key);
+        }
+        return false;
+      },
+    },
     state: {
       init: () => ({ active: false, query: "", from: 0, to: 0 }),
       apply(tr): MentionPluginState {
@@ -154,7 +165,9 @@ function makeMentionPlugin(
           Math.max(0, $from.parentOffset - 40),
           $from.parentOffset,
         );
-        const m = /(?<![a-zA-Z0-9])@([a-zA-Z0-9_-]*)$/.exec(textBefore);
+        // Allow spaces within the query so multi-word names like "Dylan Patrick Webster" work.
+        // Require at least one non-space char after @ to avoid triggering on "@ ".
+        const m = /(?<![a-zA-Z0-9])@([a-zA-Z0-9_-][a-zA-Z0-9_\- ]*)$/.exec(textBefore);
         if (m) {
           return {
             active: true,
@@ -332,10 +345,14 @@ export function MilkdownEditor({
   const nameCacheRef = useRef<Map<string, string>>(new Map());
   const [nameCacheVersion, setNameCacheVersion] = useState(0);
 
+  // Ref used by the ProseMirror mention plugin to forward Arrow/Enter/Escape
+  // key events to the MentionList before ProseMirror handles them.
+  const mentionKeyDownRef = useRef<(key: string) => boolean>(() => false);
+
   // Create plugins once (stable across renders)
   const imageDropPlugin = useRef(makeImageDropPlugin(onImageUploadRef)).current;
   const mentionPlugin = useRef(
-    enableMentions ? makeMentionPlugin(setMentionUIRef) : null,
+    enableMentions ? makeMentionPlugin(setMentionUIRef, mentionKeyDownRef) : null,
   ).current;
   const decorPlugin = useRef(makeMentionDecorPlugin(nameCacheRef)).current;
 
@@ -462,14 +479,15 @@ export function MilkdownEditor({
   // ── Fetch mention suggestions ─────────────────────────────────────────────
 
   useEffect(() => {
-    if (!mentionUI.active || mentionUI.query.length < 1) {
+    const trimmedQuery = mentionUI.query.trim();
+    if (!mentionUI.active || trimmedQuery.length < 1) {
       setMentionItems([]);
       return;
     }
     let cancelled = false;
     if (mentionSearchTimerRef.current) clearTimeout(mentionSearchTimerRef.current);
     mentionSearchTimerRef.current = setTimeout(() => {
-      fetch(`/api/search?q=${encodeURIComponent(mentionUI.query)}&limit=8`)
+      fetch(`/api/search?q=${encodeURIComponent(trimmedQuery)}&limit=8`)
         .then((r) => (r.ok ? r.json() : { people: [] }))
         .then((data) => {
           if (!cancelled) setMentionItems(data.people ?? []);
@@ -575,24 +593,35 @@ export function MilkdownEditor({
   );
 
   // ── Keyboard: mention navigation ─────────────────────────────────────────
+  // mentionKeyDownRef is called by the ProseMirror plugin (before ProseMirror
+  // handles the key), so Arrow/Enter keys reach the MentionList first.
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // Fallback path for keys that bubble to the wrapper div
       if (!mentionUI.active) return;
-      if (["ArrowUp", "ArrowDown", "Enter"].includes(e.key)) {
-        const handled =
-          mentionListRef.current?.onKeyDown(e.nativeEvent) ?? false;
-        if (handled) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      }
-      if (e.key === "Escape") {
-        setMentionUI({ active: false, query: "", from: 0, to: 0, rect: null });
+      if (["ArrowUp", "ArrowDown", "Enter", "Escape"].includes(e.key)) {
+        e.preventDefault();
       }
     },
     [mentionUI.active],
   );
+
+  // Keep mentionKeyDownRef pointing at the current handler so the plugin
+  // can call it without stale closure issues.
+  useEffect(() => {
+    mentionKeyDownRef.current = (key: string) => {
+      if (key === "Escape") {
+        setMentionUI({ active: false, query: "", from: 0, to: 0, rect: null });
+        return true;
+      }
+      if (["ArrowUp", "ArrowDown", "Enter"].includes(key)) {
+        const syntheticEvent = new KeyboardEvent("keydown", { key, bubbles: true });
+        return mentionListRef.current?.onKeyDown(syntheticEvent) ?? false;
+      }
+      return false;
+    };
+  }, []);
 
   // ── Hover: show person preview card on mention chips ─────────────────────
 
