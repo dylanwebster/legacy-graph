@@ -215,6 +215,31 @@ function makeMentionPlugin(
   });
 }
 
+// ── Mention backspace plugin ─────────────────────────────────────────────────
+// When the cursor is immediately after a @N_xxx mention (stored as plain text),
+// Backspace should delete the entire token at once rather than char-by-char.
+
+function makeMentionBackspacePlugin(): Plugin {
+  return new Plugin({
+    props: {
+      handleKeyDown(view, event) {
+        if (event.key !== "Backspace") return false;
+        if (!view.state.selection.empty) return false;
+        const { $from } = view.state.selection;
+        const textBefore = $from.parent.textBetween(
+          Math.max(0, $from.parentOffset - 80),
+          $from.parentOffset,
+        );
+        const m = /@N_[a-zA-Z0-9_-]+$/.exec(textBefore);
+        if (!m) return false;
+        const from = $from.pos - m[0].length;
+        view.dispatch(view.state.tr.delete(from, $from.pos));
+        return true;
+      },
+    },
+  });
+}
+
 // ── Mention decoration plugin ────────────────────────────────────────────────
 
 const DECOR_KEY = new PluginKey("mention_decor");
@@ -351,6 +376,7 @@ export function MilkdownEditor({
 
   // Create plugins once (stable across renders)
   const imageDropPlugin = useRef(makeImageDropPlugin(onImageUploadRef)).current;
+  const mentionBackspacePlugin = useRef(makeMentionBackspacePlugin()).current;
   const mentionPlugin = useRef(
     enableMentions ? makeMentionPlugin(setMentionUIRef, mentionKeyDownRef) : null,
   ).current;
@@ -411,7 +437,7 @@ export function MilkdownEditor({
     // Add ProseMirror plugins — imageDropPlugin goes FIRST so its handleDrop
     // and handlePaste win priority over all other handlers (including Milkdown's
     // default base64-uploader). Decoration/mention plugins go after built-ins.
-    const afterPlugins: Plugin[] = [decorPlugin];
+    const afterPlugins: Plugin[] = [mentionBackspacePlugin, decorPlugin];
     if (mentionPlugin) afterPlugins.push(mentionPlugin);
 
     crepe.editor.config((ctx) => {
