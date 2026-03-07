@@ -308,14 +308,57 @@ export async function storiesRoutes(server: FastifyInstance) {
         const { id } = request.params;
         const filePath = path.join(storiesDir, `${id}.md`);
 
+        // Read story before deleting so we know which assets to consider for cleanup.
+        let storyAssets: string[] = [];
         try {
-            await fs.access(filePath);
+            const raw = await fs.readFile(filePath, 'utf8');
+            const { data } = matter(raw);
+            storyAssets = Array.isArray(data.assets) ? data.assets : [];
         } catch {
             return reply.status(404).send({ error: 'Story not found', code: 'STORY_NOT_FOUND' });
         }
 
         await fs.unlink(filePath);
         await txManager.removeFile(path.join('stories', `${id}.md`), `story ${id}`);
+
+        // Clean up orphaned assets — delete any asset that is no longer referenced
+        // by any remaining story (frontmatter assets list) or any person (assets array).
+        if (storyAssets.length > 0) {
+            // Collect all assets still referenced by remaining stories
+            const referencedByStories = new Set<string>();
+            try {
+                const remainingFiles = (await fs.readdir(storiesDir)).filter(f => f.endsWith('.md'));
+                for (const file of remainingFiles) {
+                    try {
+                        const raw = await fs.readFile(path.join(storiesDir, file), 'utf8');
+                        const { data } = matter(raw);
+                        if (Array.isArray(data.assets)) {
+                            for (const a of data.assets) referencedByStories.add(a);
+                        }
+                    } catch { /* skip malformed */ }
+                }
+            } catch { /* stories dir unreadable */ }
+
+            // Collect all assets referenced by people (from in-memory graph)
+            const referencedByPeople = new Set<string>();
+            const graph = graphEngine.getGraph();
+            graph.forEachNode((_nodeId, attrs) => {
+                const personAssets: unknown[] = (attrs?.data as any)?.assets ?? [];
+                for (const a of personAssets) {
+                    if (typeof a === 'string') referencedByPeople.add(a);
+                }
+            });
+
+            // Delete asset files that are no longer referenced anywhere
+            for (const asset of storyAssets) {
+                if (!referencedByStories.has(asset) && !referencedByPeople.has(asset)) {
+                    try {
+                        await fs.unlink(path.join(dataDir, 'assets', asset));
+                    } catch { /* already gone or inaccessible — ignore */ }
+                }
+            }
+        }
+
         return reply.status(204).send();
     });
 

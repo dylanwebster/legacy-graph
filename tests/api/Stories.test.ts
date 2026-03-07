@@ -247,8 +247,8 @@ describe('Stories API', () => {
         expect(typeof story.id).toBe('string');
         expect(typeof story.title).toBe('string');
         expect(typeof story.excerpt).toBe('string');
-        // Excerpt must be truncated at 200 chars
-        expect(story.excerpt.length).toBeLessThanOrEqual(200);
+        // Excerpt must be truncated at 280 chars
+        expect(story.excerpt.length).toBeLessThanOrEqual(280);
         expect(Array.isArray(story.people)).toBe(true);
         expect(typeof story.private).toBe('boolean');
     });

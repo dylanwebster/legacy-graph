@@ -2,7 +2,8 @@ import {
     useState, useEffect, useRef, useCallback,
 } from 'react';
 import { createLazyFileRoute, useNavigate, useSearch as useRouterSearch, Link, useBlocker } from '@tanstack/react-router';
-import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia, usePlacesSearch, useDeleteStory } from '@/api/hooks';
+import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia, useDeleteStoryMedia, usePlacesSearch, useDeleteStory } from '@/api/hooks';
+import { useQueryClient } from '@tanstack/react-query';
 import { storiesApi } from '@/api/stories';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -144,6 +145,46 @@ function StoryPage() {
     const updateStory = useUpdateStory();
     const deleteStory = useDeleteStory();
     const uploadMedia = useUploadStoryMedia();
+
+    const queryClient = useQueryClient();
+    const deleteStoryMedia = useDeleteStoryMedia();
+    const [deleteAssetTarget, setDeleteAssetTarget] = useState<string | null>(null);
+    const [lightboxAsset, setLightboxAsset] = useState<string | null>(null);
+
+    const handleDeleteAsset = useCallback(async () => {
+        if (!deleteAssetTarget) return;
+        const filename = deleteAssetTarget;
+        setDeleteAssetTarget(null);
+        if (lightboxAsset === filename) setLightboxAsset(null);
+
+        // Optimistically remove the asset from the cached story so the filmstrip
+        // updates immediately without waiting for a refetch.
+        queryClient.setQueryData(['story', id], (old: any) => {
+            if (!old) return old;
+            return { ...old, metadata: { ...old.metadata, assets: (old.metadata.assets ?? []).filter((a: string) => a !== filename) } };
+        });
+
+        try {
+            await deleteStoryMedia.mutateAsync({ id, filename });
+
+            // Strip any inline image references to the deleted asset from the body.
+            // Milkdown serializes images as ![caption](/assets/filename).
+            const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const imagePattern = new RegExp(`!\\[[^\\]]*\\]\\(/assets/${escapedFilename}\\)\\n?`, 'g');
+            const cleaned = contentRef2.current.replace(imagePattern, '').replace(/\n{3,}/g, '\n\n').trim();
+            if (cleaned !== contentRef2.current) {
+                setContent(cleaned);
+                setIsDirty(true);
+                setEditorResetKey((k) => k + 1);
+                await updateStory.mutateAsync({ id, data: { content: cleaned } });
+            }
+            toast.success('Asset deleted');
+        } catch {
+            // Roll back the optimistic update on failure
+            queryClient.invalidateQueries({ queryKey: ['story', id] });
+            toast.error('Failed to delete asset');
+        }
+    }, [deleteAssetTarget, deleteStoryMedia, updateStory, queryClient, id, lightboxAsset]);
 
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -444,8 +485,6 @@ function StoryPage() {
 
     // ── Lightbox for filmstrip ────────────────────────────────────────────────
 
-    const [lightboxAsset, setLightboxAsset] = useState<string | null>(null);
-
     useEffect(() => {
         if (!lightboxAsset) return;
         const currentAssets = story?.metadata.assets ?? [];
@@ -616,14 +655,29 @@ function StoryPage() {
                                     <Star className="h-2 w-2 fill-current" /> Cover
                                 </span>
                             )}
-                            {/* Set as cover — edit mode only, non-cover thumbnails */}
-                            {isEditMode && !isCover && (
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); handleSetCover(asset); }}
-                                    className="absolute inset-0 flex items-end justify-center pb-1.5 opacity-0 group-hover/thumb:opacity-100 transition-opacity bg-black/30 rounded-md text-white text-[9px] font-semibold gap-0.5"
-                                >
-                                    <Star className="h-2.5 w-2.5" /> Set cover
-                                </button>
+                            {/* Edit mode overlays */}
+                            {isEditMode && (
+                                <div className="absolute inset-0 opacity-0 group-hover/thumb:opacity-100 transition-opacity rounded-md overflow-hidden">
+                                    {/* Dim */}
+                                    <div className="absolute inset-0 bg-black/40" />
+                                    {/* Delete — top-right */}
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setDeleteAssetTarget(asset); }}
+                                        className="absolute top-1 right-1 p-0.5 rounded bg-black/50 hover:bg-destructive text-white"
+                                        aria-label="Delete asset"
+                                    >
+                                        <Trash2 className="h-3 w-3" />
+                                    </button>
+                                    {/* Set cover — bottom, non-cover only */}
+                                    {!isCover && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleSetCover(asset); }}
+                                            className="absolute bottom-0 inset-x-0 flex items-center justify-center pb-1.5 text-white text-[9px] font-semibold gap-0.5"
+                                        >
+                                            <Star className="h-2.5 w-2.5" /> Set cover
+                                        </button>
+                                    )}
+                                </div>
                             )}
                         </div>
                     );
@@ -753,6 +807,24 @@ function StoryPage() {
                     {filmstrip}
                 </div>
             </div>
+
+            {/* Asset delete confirmation */}
+            <Dialog open={!!deleteAssetTarget} onOpenChange={(open) => !open && setDeleteAssetTarget(null)}>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>Delete photo?</DialogTitle>
+                        <DialogDescription>
+                            This photo will be permanently removed from the story. This cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button variant="outline" onClick={() => setDeleteAssetTarget(null)}>Cancel</Button>
+                        <Button variant="destructive" onClick={handleDeleteAsset} disabled={deleteStoryMedia.isPending}>
+                            {deleteStoryMedia.isPending ? 'Deleting…' : 'Delete'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Delete confirmation */}
             <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>

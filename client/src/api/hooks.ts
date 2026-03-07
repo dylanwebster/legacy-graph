@@ -191,6 +191,18 @@ export const useDeleteStory = () => {
     });
 };
 
+export const useDeleteStoryMedia = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, filename }: { id: string; filename: string }) =>
+            storiesApi.deleteStoryMedia(id, filename),
+        onSuccess: (_result, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['story', variables.id] });
+            queryClient.invalidateQueries({ queryKey: ['stories'] });
+        },
+    });
+};
+
 export const useUploadStoryMedia = () => {
     const queryClient = useQueryClient();
     return useMutation({
