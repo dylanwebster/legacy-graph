@@ -16,6 +16,9 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  define: {
+    __VERSION__: JSON.stringify('0.16.34'),
+  },
   server: {
     proxy: {
       '/api': {

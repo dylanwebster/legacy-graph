@@ -31,8 +31,8 @@ export class StoryLoader {
             // 2. AST Parsing for Mentions
             remark().use(() => (tree) => {
                 visit(tree, 'text', (node: any) => {
-                    // Regex for @N_xxxx or [[N_xxxx]]
-                    const regex = /(@N_[a-zA-Z0-9_]+)|(\[\[(N_[a-zA-Z0-9_]+)\]\])/g;
+                    // Regex for @N_xxxx or [[N_xxxx]] — include hyphens (person IDs use N_first-last-year-nanoid8)
+                    const regex = /(@N_[a-zA-Z0-9_-]+)|(\[\[(N_[a-zA-Z0-9_-]+)\]\])/g;
                     let match;
                     while ((match = regex.exec(node.value)) !== null) {
                         const id = match[1] || match[3];

@@ -64,7 +64,7 @@ export function sliceTimeline(graph: Graph, personId: string, options?: Timeline
 
     const person = nodeAttr.data as Person;
     const sortable: Array<{ sort_date: string; item: TimelineEvent | TimelineStory }> = [];
-    const undated: Array<TimelineEvent> = [];
+    const undated: Array<TimelineEvent | TimelineStory> = [];
 
     // 1. Collect Person Events — separate dated from undated
     for (const event of person.events) {
@@ -91,17 +91,18 @@ export function sliceTimeline(graph: Graph, personId: string, options?: Timeline
         const storyAttr = graph.getNodeAttributes(storyId);
         const storyData = storyAttr.data;
         const sortDate = storyData.sort_date || storyData.metadata?.date || '';
-        if (!sortDate) continue; // Skip stories without dates
-
-        sortable.push({
+        const storyItem: TimelineStory = {
+            type: 'story',
             sort_date: sortDate,
-            item: {
-                type: 'story',
-                sort_date: sortDate,
-                id: storyId,
-                title: storyData.metadata?.title || storyId
-            }
-        });
+            id: storyId,
+            title: storyData.metadata?.title || storyId
+        };
+
+        if (sortDate) {
+            sortable.push({ sort_date: sortDate, item: storyItem });
+        } else {
+            undated.push(storyItem); // Show undated stories in undated section
+        }
     }
 
     if (sortable.length === 0 && undated.length === 0) return emptyResult as any;
@@ -130,8 +131,8 @@ export function sliceTimeline(graph: Graph, personId: string, options?: Timeline
     const allItems: TimelineItem[] = [];
     if (undated.length > 0) {
         allItems.push({ type: 'unknown_date_header' });
-        for (const undatedEvent of undated) {
-            allItems.push(undatedEvent);
+        for (const undatedItem of undated) {
+            allItems.push(undatedItem);
         }
     }
     for (const datedItem of datedItems) {

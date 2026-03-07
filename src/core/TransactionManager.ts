@@ -14,6 +14,7 @@ export interface TransactionManagerOptions {
 interface PendingWrite {
     relativePath: string;
     label: string;
+    deleted?: boolean;
 }
 
 export class TransactionManager {
@@ -58,6 +59,17 @@ export class TransactionManager {
             this.pendingWrites.push({ relativePath, label });
 
             // Reset debounce timer
+            this.resetDebounce();
+        });
+    }
+
+    /**
+     * Stage a file deletion for the next batched git commit.
+     * The file must already be removed from disk before calling this.
+     */
+    async removeFile(relativePath: string, label: string): Promise<void> {
+        await this.writeMutex.runExclusive(async () => {
+            this.pendingWrites.push({ relativePath, label, deleted: true });
             this.resetDebounce();
         });
     }
@@ -129,11 +141,19 @@ export class TransactionManager {
             try {
                 // Stage all pending files using isomorphic-git
                 for (const write of batch) {
-                    await git.add({
-                        fs: nodeFs,
-                        dir: this.rootDir,
-                        filepath: write.relativePath
-                    });
+                    if (write.deleted) {
+                        await git.remove({
+                            fs: nodeFs,
+                            dir: this.rootDir,
+                            filepath: write.relativePath
+                        });
+                    } else {
+                        await git.add({
+                            fs: nodeFs,
+                            dir: this.rootDir,
+                            filepath: write.relativePath
+                        });
+                    }
                 }
 
                 // Build commit message (truncated at 72 chars per git convention)

@@ -89,7 +89,7 @@ export function SmartDateInput({ value, onChange, placeholder, className }: Smar
                 value={value}
                 onChange={(e) => onChange(e.target.value, parseToISO(e.target.value))}
                 placeholder={placeholder ?? 'e.g. 15 Jun 1950'}
-                className={`${className ?? 'h-8 text-sm'} pr-24 ${unparseable ? 'border-yellow-500/70' : ''}`}
+                className={`${className ?? 'h-8 text-sm'} ${showHint ? 'pr-24' : ''} ${unparseable ? 'border-yellow-500/70' : ''}`}
             />
             {showHint && (
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-muted-foreground pointer-events-none select-none">

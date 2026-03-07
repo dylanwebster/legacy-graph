@@ -2,6 +2,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { peopleApi } from './people';
 import type { CreatePersonInput } from './people';
 import { apiFetch, deleteAsset, searchPlaces, resolvePlace } from './client';
+import { storiesApi } from './stories';
+import type { CreateStoryInput, UpdateStoryInput } from './stories';
 
 export interface GraphNodeData {
     id: string;
@@ -134,6 +136,85 @@ export const useResolvePlace = () => {
         mutationFn: (name: string) => resolvePlace(name),
     });
 };
+
+// ── Stories ────────────────────────────────────────────────────────────────
+
+export const useStories = (params?: { limit?: number; offset?: number; sort?: string }) => {
+    return useQuery({
+        queryKey: ['stories', params],
+        queryFn: () => storiesApi.getStories(params),
+    });
+};
+
+export const useStory = (id: string) => {
+    return useQuery({
+        queryKey: ['story', id],
+        queryFn: () => storiesApi.getStory(id),
+        enabled: !!id && id !== 'new',
+    });
+};
+
+export const useCreateStory = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (data: CreateStoryInput) => storiesApi.createStory(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['stories'] });
+            queryClient.invalidateQueries({ queryKey: ['search'] });
+        },
+    });
+};
+
+export const useUpdateStory = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: UpdateStoryInput }) =>
+            storiesApi.updateStory(id, data),
+        onSuccess: (result, variables) => {
+            // Use setQueryData instead of invalidate so the story effect in StoryPage
+            // doesn't fire and overwrite the editor's in-progress content.
+            queryClient.setQueryData(['story', variables.id], result);
+            queryClient.invalidateQueries({ queryKey: ['stories'] });
+            queryClient.invalidateQueries({ queryKey: ['search'] });
+        },
+    });
+};
+
+export const useDeleteStory = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => storiesApi.deleteStory(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['stories'] });
+            queryClient.invalidateQueries({ queryKey: ['search'] });
+        },
+    });
+};
+
+export const useDeleteStoryMedia = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, filename }: { id: string; filename: string }) =>
+            storiesApi.deleteStoryMedia(id, filename),
+        onSuccess: (_result, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['story', variables.id] });
+            queryClient.invalidateQueries({ queryKey: ['stories'] });
+        },
+    });
+};
+
+export const useUploadStoryMedia = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, file }: { id: string; file: File }) =>
+            storiesApi.uploadMedia(id, file),
+        onSuccess: (_result, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['story', variables.id] });
+        },
+    });
+};
+
+// ── People mutations ───────────────────────────────────────────────────────
 
 export const useUpdatePerson = () => {
     const queryClient = useQueryClient();

@@ -6,9 +6,14 @@ Self-hosted genealogy platform. File-system-first, Git-versioned, in-memory grap
 
 ## Commands
 
+### Testing
+```bash
+npm test          # Logic/Unit: Fast Vitest suite (excludes tests/e2e)
+npm run test:e2e  # Full Stack: Playwright in browser (starts server/client)
+```
+
 ### Backend
 ```bash
-npm test          # Run all Vitest tests
 npm run build     # tsc --noEmit (type-check only)
 npm start         # tsx --env-file=.env src/index.ts
 ```
@@ -53,7 +58,8 @@ You must always abide by these rules:
 
 1. **TDD is mandatory** — write a failing test before writing implementation code.
 2. **Spec-first** — `SPECIFICATION.md` is authoritative. Discrepancies between spec and code are critical bugs.
-3. **Keep track of implementation state and remaining work ** — `PROGRESS.md` must be updated with implementation state and remaining steps.
+3. **Keep track of implementation state and remaining work** — `PROGRESS.md` must be updated with implementation state and remaining steps.
+4. **Use the playwright-cli skill for e2e test development**. When appropriate, use the playwright-cli skill to write e2e tests.
 
 ---
 

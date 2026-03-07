@@ -2,12 +2,13 @@ import { Link } from '@tanstack/react-router';
 import { useUIStore } from '@/store/uiStore';
 import { cn } from '@/lib/utils';
 import { StatusDot } from './StatusDot';
-import { LayoutDashboard, Users, Import, Settings, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { LayoutDashboard, Users, BookOpen, Import, Settings, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const navItems = [
     { icon: LayoutDashboard, label: 'Dashboard', to: '/' },
     { icon: Users, label: 'People', to: '/people' },
+    { icon: BookOpen, label: 'Stories', to: '/stories' },
     { icon: Import, label: 'Import GEDCOM', to: '/import' },
 ];
 

@@ -23,6 +23,13 @@ export default async function globalSetup() {
         }
     }
 
+    // Delete stale cache files — these accumulate person IDs from past runs and
+    // cause FlexSearch to return stale results. They will be rebuilt by the server.
+    for (const cacheFile of ['.search-index.json', '.graph-cache.json', '.geocode-cache.json']) {
+        const p = path.join(E2E_DATA, '_meta', cacheFile);
+        if (fs.existsSync(p)) fs.rmSync(p);
+    }
+
     // Ensure a git repo exists (required by TransactionManager)
     if (!fs.existsSync(path.join(E2E_DATA, '.git'))) {
         execSync('git init && git add . && git commit -m "e2e fixture init" --allow-empty', {

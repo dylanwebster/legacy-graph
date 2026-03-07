@@ -86,10 +86,33 @@ export class SearchService {
     }
 
     /**
+     * Reset both indices to fresh empty instances (clears all stale entries).
+     */
+    private resetIndices(): void {
+        this.personIndex = new Document({
+            document: {
+                id: "id",
+                index: ["fullName", "names:first", "names:last", "names:nickname", "bio", "locations"],
+                store: true
+            },
+            tokenize: "forward"
+        });
+        this.storyIndex = new Document({
+            document: {
+                id: "id",
+                index: ["title", "content"],
+                store: true
+            },
+            tokenize: "forward"
+        });
+    }
+
+    /**
      * Completely rebuilds all indices from the Graph.
-     * Called on Hydration.
+     * Called on Hydration. Resets indices first to remove stale entries.
      */
     public async rebuild(graph: Graph): Promise<void> {
+        this.resetIndices();
         this.placeMap.clear();
 
         graph.forEachNode((node, attributes) => {

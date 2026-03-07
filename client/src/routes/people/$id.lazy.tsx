@@ -1,4 +1,4 @@
-import { createLazyFileRoute } from '@tanstack/react-router';
+import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { usePerson, useUpdatePerson, useDeleteAsset } from '@/api/hooks';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { PersonChip } from '@/components/PersonChip';
@@ -29,8 +29,7 @@ import {
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { MilkdownEditor } from '@/components/MilkdownEditor';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -60,6 +59,7 @@ const SEX_OPTIONS = ['M', 'F', 'I', 'U'] as const;
 
 function PersonDetail() {
     const { id } = Route.useParams();
+    const navigate = useNavigate();
     const { data: person, isLoading, isError } = usePerson(id);
     const updatePerson = useUpdatePerson();
     const queryClient = useQueryClient();
@@ -571,9 +571,17 @@ function PersonDetail() {
                     <div className="h-full flex flex-col">
                         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                             <h3 className="text-sm font-semibold">Timeline</h3>
-                            <Button variant="outline" size="sm" className="gap-1" onClick={openAddEvent}>
-                                <Plus className="h-3 w-3" /> Add Event
-                            </Button>
+                            <div className="flex flex-col items-end gap-1">
+                                <Button variant="outline" size="sm" className="gap-1" onClick={openAddEvent}>
+                                    <Plus className="h-3 w-3" /> Add Event
+                                </Button>
+                                <button
+                                    className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                                    onClick={() => navigate({ to: '/stories/$id', params: { id: 'new' }, search: { person: id } })}
+                                >
+                                    <BookOpen className="h-3 w-3" /> Write a story
+                                </button>
+                            </div>
                         </div>
                         <div ref={timelineParentRef} className="flex-1 overflow-y-auto">
                             <VirtualizedTimeline
@@ -700,19 +708,15 @@ function PersonDetail() {
                                     </Button>
                                 )}
                             </div>
-                            {editingNotebook ? (
-                                <textarea
-                                    value={notebookContent}
-                                    onChange={(e) => setNotebookContent(e.target.value)}
-                                    rows={12}
-                                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] resize-none font-mono"
-                                />
-                            ) : (
-                                <div className="prose prose-sm dark:prose-invert max-w-none">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                        {person.scrapbook_md || '*No notebook entries. Click Edit to add notes.*'}
-                                    </ReactMarkdown>
-                                </div>
+                            <MilkdownEditor
+                                content={editingNotebook ? notebookContent : (person.scrapbook_md ?? '')}
+                                onChange={setNotebookContent}
+                                readOnly={!editingNotebook}
+                                enableMentions={false}
+                                className="rounded-md border border-input bg-transparent text-sm"
+                            />
+                            {!editingNotebook && !person.scrapbook_md && (
+                                <p className="text-sm text-muted-foreground italic">No notebook entries. Click Edit to add notes.</p>
                             )}
                         </TabsContent>
 
@@ -890,6 +894,26 @@ function VirtualizedTimeline({
                                 </span>
                                 <div className="h-px flex-1 bg-border" />
                             </div>
+                        ) : item.type === 'story' ? (
+                            <Link
+                                to="/stories/$id"
+                                params={{ id: String((item as Record<string, unknown>).id ?? '').replace(/\.md$/, '') }}
+                                className="flex gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors group"
+                            >
+                                <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/20">
+                                    <BookOpen className="h-4 w-4 text-primary" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-medium text-sm">{String((item as Record<string, unknown>).title ?? 'Story')}</span>
+                                        {!!(item as Record<string, unknown>).sort_date && (
+                                            <span className="text-xs text-muted-foreground font-mono">{String((item as Record<string, unknown>).sort_date)}</span>
+                                        )}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground mt-0.5">Mentioned in this story</p>
+                                </div>
+                                <ChevronRight className="h-4 w-4 text-muted-foreground self-center opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </Link>
                         ) : (
                             <button
                                 className="w-full flex gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 cursor-pointer transition-colors group text-left"

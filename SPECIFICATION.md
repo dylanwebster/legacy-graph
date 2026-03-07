@@ -187,10 +187,6 @@ Events are typed objects acting as state reducers. They determine the "current s
 | `cremation`        | Cremation record.                                                                     |
 | `generic`          | Custom events. Field: `title`.                                                        |
 
-**Witnessing**: Any event may include a `witness_ids: string[]` field listing person IDs who were present. The `TimelineSlicer` treats witnessed events as appearing on **both** the subject's timeline and each witness's timeline — as a distinct `WitnessEventCard` item showing "Witness at [Subject Name]'s [event type]".
-
-**Event Visibility Rule**: The `private` field on a Person is a profile-level flag (see Section 3.1). Witnessed events that belong to a private person are hidden for non-authenticated viewers.
-
 ### **3.3 Asset Index (`/_meta/assets.yaml`)**
 
 To avoid scanning thousands of binaries on boot, metadata is cached.
@@ -336,8 +332,7 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
   4.  **Gap Detection**: Iterate sorted dated list. If `Item[i+1].year - Item[i].year > 10`, insert a `Gap` object: `{ type: 'gap', years: diff }`.
   5.  **Assemble**: If any undated items exist, prepend `{ type: 'unknown_date_header' }` followed by all undated items before the dated+gap stream. This ensures undated events are visible at the top, not lost at the bottom.
   6.  **Pagination**: Apply `offset` and `limit` to the final combined array. Return `totalCount` alongside the page slice.
-- **Output**: `{ items: Array<Event | Story | Gap | UnknownDateHeader | WitnessEvent>, totalCount: number, offset: number, limit: number }`.
-- **`WitnessEvent`**: `{ type: 'witness_event', subjectId: string, subjectName: string, eventType: string, sort_date: string, location?: Place }` — rendered as a `WitnessEventCard` in the Timeline Feed.
+- **Output**: `{ items: Array<Event | Story | Gap | UnknownDateHeader>, totalCount: number, offset: number, limit: number }`.
 - **`UnknownDateHeader`**: `{ type: 'unknown_date_header' }` — rendered as a section divider "Undated Events" in the UI.
 
 ### **4.3 GEDCOM Engine**
@@ -631,7 +626,6 @@ The integrated feed of life events, stories, and gaps. **Virtualized** — only 
   - `EventCard`: Displays event type icon, date (fuzzy `date` + sort-date), location, description excerpt. Expandable for full detail. **If the event has a geocoded `location` (lat/lng populated)**, renders a small static **map snippet** below the location text — a thumbnail tile showing the pinned location. Clicking the map snippet opens the `/map` view filtered to that place.
   - `StoryCard`: Title, excerpt, mentioned persons as `PersonChip` links. **If the story has attached assets**, shows a **thumbnail of the first asset** as a leading image (aspect-ratio 16/9, `object-cover`). Clicking the card navigates to `/stories/:id`.
   - `GapIndicator`: Visual break showing year gap.
-  - `WitnessEventCard`: Appears on the witness's timeline (not the subject's). Shows "Witness at [Subject Name]'s [event type]" with date, location, and a `PersonChip` link to the subject. Styled with a distinct "eye" icon to differentiate from own events.
 - **Add Event**: Floating action button or "+" button at bottom of timeline. Opens the Event Editor modal.
 - **Edit Event**: Click an `EventCard` to open the Event Editor modal pre-filled with that event's data.
 
@@ -640,7 +634,7 @@ The integrated feed of life events, stories, and gaps. **Virtualized** — only 
 Tabbed panel with three tabs:
 
 1. **Assets**: Grid of thumbnails (from `/assets/` static delivery). Click to expand/lightbox. Drag-and-drop upload via `PUT /people/:id/media`. Each thumbnail uses `object-cover` within a square aspect-ratio container (crops to square). Lightbox/full-size view uses `object-contain` to show the full image without cropping. Each thumbnail has a **delete button (×)** — clicking opens a confirmation dialog ("Delete this file permanently? This cannot be undone."). On confirm, calls `DELETE /api/people/:id/media/:filename`; asset removed from YAML and binary deleted from disk. **Optimistic update**: on confirm, immediately remove the asset from the local React Query cache before the API response (reverts on error). If the deleted asset was the primary photo, the avatar in the Identity Panel must immediately fall back to generated initials — no page reload required.
-2. **Notebook**: Rendered Markdown view of `scrapbook_md` (lazy-loaded per spec 2.3B). In view mode, renders Markdown to HTML via `react-markdown` + `remark-gfm`, styled with Tailwind `prose` class. **Theme-aware prose**: use `prose-invert` only when dark mode is active; do not use it in light mode (it would make text invisible on a light background). Click to switch to edit mode — plain `<textarea>` (Phase 4) / Tiptap rich editor (Phase 5.1). Saves via `PUT /people/:id` with optimistic update.
+2. **Notebook**: Rendered Markdown view of `scrapbook_md` (lazy-loaded per spec 2.3B). In view mode, renders Markdown to HTML via `react-markdown` + `remark-gfm`, styled with Tailwind `prose` class. **Theme-aware prose**: use `prose-invert` only when dark mode is active. Click "Edit" button → plain `<textarea>` editor with Save/Cancel. Saves via `PUT /people/:id` with optimistic update.
 3. **Raw YAML**: Read-only syntax-highlighted view of the source YAML file. Useful for power users and debugging.
 
 #### **6.5.5 Event Editor**
@@ -751,21 +745,42 @@ Clean reading experience for a single story.
 - **Edit Button**: "Edit Story" in top-right → switches to editor mode (same URL, `?mode=edit`).
 - **Back Navigation**: Breadcrumb `Stories / [Title]` in Top Bar.
 
+#### **6.9.2 Story Reader (`/stories/:id` — view mode)** (updated)
+
+- **Body**: `@N_xxx` and `[[N_xxx]]` mentions rendered as `InlinePersonMention` — inline-flex chips with person's display name and HoverCard preview. No block-level avatar; renders inline within prose text.
+- **People header**: Shows people derived from `people` frontmatter field (auto-populated from @mentions on save).
+
+#### **6.9.1 Stories Feed (`/stories`)** (updated)
+
+- **Whole-card click**: Entire `StoryFeedCard` container navigates to the story (not just title).
+- **Sort/filter persistence**: Filter text and sort order persisted in Zustand (`storiesFeedFilter`, `storiesFeedSort`) — restored when user navigates back from a story.
+- **Excerpts**: Plain text only — markdown formatting (bold, headings, lists, etc.) stripped server-side before truncation.
+
 #### **6.9.3 Story Editor (`/stories/:id?mode=edit` or `/stories/new`)**
 
-Split-pane editing experience.
+Rich WYSIWYG editing experience powered by **Milkdown Crepe**.
 
-- **Layout**: 50/50 split — Markdown textarea on left, live preview on right.
-  - Preview uses same rendering pipeline as Story Reader.
-  - Panels resizable via drag handle.
-- **Frontmatter Fields** (above editor): Title, Date range, Tagged People (searchable selector), Tagged Place.
-- **Slash Commands**: Type `/` in the textarea to open an insertion menu:
-  - `/image` → opens asset picker, inserts `![alt](../assets/filename)` syntax
-  - `/person` → same as `@mention` (convenience alias)
-- **@Mentions**: Type `@` to open a live type-ahead of people. Select → inserts `@N_xxx` tag. Rendered in preview as a `PersonChip`.
-- **Asset Attachment**: Drag-and-drop zone at the bottom of the editor — uploads via `PUT /stories/:id/media` (new endpoint, Phase 5.1).
-- **Save**: `PUT /stories/:id` (or `POST /stories` for new). Optimistic update. Saves Markdown frontmatter + body to disk.
-- **Auto-save**: Debounced 3-second auto-save while editing (shows "Saving…" indicator).
+- **Unified layout**: Both view and edit modes use the same `max-w-[720px]` centered column width.
+- **Editor**: Milkdown Crepe (`@milkdown/crepe`) with full feature set: ListItem (todo lists, bullets, ordered), LinkTooltip, ImageBlock, BlockEdit (slash commands + drag handles), Table, Toolbar (formatting bar), Cursor, Placeholder.
+- **Frontmatter fields** (above editor in edit mode): Title (large serif input), Date (SmartDateInput), Place (PlaceSearchCombobox), Private toggle.
+- **@Mentions**: Type `@` to open suggestion dropdown (queries `GET /api/search?q=`). Shows person name + birth year. Arrow-key + Enter selection. Inserted as `@N_xxx` in Markdown. While typing `@` a query using name fragments works (space-separated).
+  - In editor: `@N_xxx` text decorated as styled chips with person's name (via ProseMirror `Decoration.inline` + CSS `::before`). Names pre-fetched from `GET /api/people/:id` on load.
+  - On mention click (readonly or editor): navigates to person's detail page.
+  - On save: auto-extracted into `people` frontmatter array.
+- **Asset Attachment**: Drag-and-drop onto editor — uploads via `PUT /stories/:id/media`, inserts `![name](/assets/filename)`.
+- **Save**: `PUT /stories/:id` (or `POST /stories` for new). Auto-extracts @mentions → `people` array.
+- **Auto-save**: Debounced 3-second auto-save while editing.
+- **Navigation**: Breadcrumb `Stories / [Title]` in story header — "Stories" is a clickable link back to the feed.
+
+#### **6.9.2 Story Reader (`/stories/:id` — view mode)** (updated)
+
+- **Body**: `@N_xxx` and `[[N_xxx]]` mentions rendered as `InlinePersonMention` — inline-flex chips with person's display name and HoverCard preview.
+- **Breadcrumb**: `← Stories / [Title]` — "Stories" link navigates back to feed (restoring persisted filter/sort).
+- **No global breadcrumb**: The top-bar static "Home > Current Page" breadcrumb has been removed from `TopBar.tsx`.
+
+#### **6.9.4 Notebook Tab (Person Detail)**
+
+- Milkdown Crepe editor (readonly until "Edit" is clicked). Renders via Crepe in readonly mode when not editing.
 
 ---
 
@@ -893,7 +908,6 @@ The Settings sidebar entry is enhanced:
   - Persons with `private: true` are **excluded** from `GET /api/people` list responses.
   - `GET /api/people/:id` for a private person returns `404` (not `403`) to avoid revealing existence.
   - Search results exclude private persons.
-  - Timeline witness events that reference a private person are anonymized: name shown as "Private Individual".
   - Force Graph, Fan Chart, and Pedigree Chart nodes for private persons are hidden or replaced with "Private" placeholder nodes.
 - **"Living Surname" anonymization** (Phase 6+): For living persons (no death event) marked private, display only last name with a "Living" prefix (e.g., "Living Smith") in public/guest contexts.
 
@@ -1072,7 +1086,6 @@ This spec defines _what_ to build. `PROGRESS.md` tracks _how far_ and _what's ne
 *   **CUJ: Holy Grail (Import → View → Edit → Persist)**: Upload GEDCOM → navigate to person → edit name → reload → assert persisted. ✅ Complete.
 *   **CUJ: Search Navigation**: Cmd+K → type query → click result → assert navigation. ✅ Complete.
 *   **CUJ: Responsive Layout**: Mobile viewport → hamburger → expand sidebar. Desktop → sidebar visible. ✅ Complete.
-*   **CUJ: Fly-Through Timeline**: Load immersive mode → Scroll wheel → Verify camera Z position advances → Verify ancestor photo cards float by at correct birth years. (Phase 5.2 — not started)
 
 ### **9.4 New Unit Tests Required (Phases 3.11–3.15)**
 
