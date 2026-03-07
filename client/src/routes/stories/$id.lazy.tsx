@@ -2,7 +2,7 @@ import {
     useState, useEffect, useRef, useCallback,
 } from 'react';
 import { createLazyFileRoute, useNavigate, useSearch as useRouterSearch, Link, useBlocker } from '@tanstack/react-router';
-import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia, usePlacesSearch } from '@/api/hooks';
+import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia, usePlacesSearch, useDeleteStory } from '@/api/hooks';
 import { storiesApi } from '@/api/stories';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
     Pencil, Save, ArrowLeft, MapPin, CalendarDays,
-    X, Lock, Unlock, Loader2, ChevronLeft, ChevronRight, Star,
+    X, Lock, Unlock, Loader2, ChevronLeft, ChevronRight, Star, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Place } from '@/api/people';
@@ -142,7 +142,22 @@ function StoryPage() {
     const { data: story, isLoading, isError } = useStory(id);
     const createStory = useCreateStory();
     const updateStory = useUpdateStory();
+    const deleteStory = useDeleteStory();
     const uploadMedia = useUploadStoryMedia();
+
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+    const handleDelete = useCallback(async () => {
+        setShowDeleteConfirm(false);
+        try {
+            await deleteStory.mutateAsync(id);
+            toast.success('Story deleted');
+            allowNavigationRef.current = true;
+            navigate({ to: '/stories' });
+        } catch {
+            toast.error('Failed to delete story');
+        }
+    }, [deleteStory, id, navigate]);
 
     // Frontmatter state
     const [fm, setFm] = useState<FrontmatterState>({
@@ -517,6 +532,17 @@ function StoryPage() {
             </nav>
 
             <div className="ml-auto flex items-center gap-2">
+                {!isNew && (
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        onClick={() => setShowDeleteConfirm(true)}
+                        aria-label="Delete story"
+                    >
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
+                )}
                 {isEditMode && (
                     <span className="text-xs text-muted-foreground italic">
                         {isSaving ? 'Saving…' : isDirty ? 'Unsaved' : 'Saved'}
@@ -727,6 +753,26 @@ function StoryPage() {
                     {filmstrip}
                 </div>
             </div>
+
+            {/* Delete confirmation */}
+            <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>Delete story?</DialogTitle>
+                        <DialogDescription>
+                            "{fm.title || story?.metadata.title}" will be permanently deleted. This cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>
+                            Cancel
+                        </Button>
+                        <Button variant="destructive" onClick={handleDelete} disabled={deleteStory.isPending}>
+                            {deleteStory.isPending ? 'Deleting…' : 'Delete'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Discard confirmation */}
             <Dialog open={showDiscardConfirm} onOpenChange={setShowDiscardConfirm}>
