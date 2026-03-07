@@ -9,11 +9,6 @@
   background: transparent;
   outline: none;
   box-shadow: none;
-}
-
-/* ── Font ───────────────────────────────────────────────────────────────────── */
-
-.milkdown-crepe-wrapper .milkdown {
   --crepe-font-default: inherit;
   --crepe-font-title: "Merriweather", Georgia, serif;
   font-family: inherit;
@@ -92,7 +87,7 @@
 .milkdown-crepe-wrapper .milkdown .ProseMirror {
   padding: 0.5rem 0;
   min-height: 240px;
-  caret-color: hsl(var(--foreground));
+  caret-color: var(--foreground);
 }
 
 /* Text selection highlight — override Crepe's .milkdown .ProseMirror *::selection */
@@ -166,24 +161,26 @@
 }
 
 /* ── @mention chip decoration ────────────────────────────────────────────────
-   The decoration wraps raw "@N_xxx" text in a span. We want it to look like
-   a named chip when the person name is cached, and like a dimmed ID otherwise. */
+   The decoration wraps raw "@N_xxx" text in a span. Named chips (data-mention-label
+   present) hide the raw ID via font-size:0 and display the person name via ::before. */
 
 .milkdown-crepe-wrapper .milkdown .mention-chip {
-  display: inline;
-  background-color: color-mix(in srgb, var(--primary) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
-  border-radius: 3px;
-  padding: 1px 3px;
+  display: inline-block;
+  vertical-align: baseline;
+  background-color: color-mix(in srgb, var(--primary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
+  border-radius: 9999px;
+  padding: 0 7px;
   white-space: nowrap;
   cursor: default;
-  /* Default (no name loaded yet): show raw @N_xxx as a dimmed chip */
-  color: color-mix(in srgb, var(--primary) 70%, transparent);
+  /* Fallback (name not yet cached): show raw @N_xxx dimmed */
+  color: color-mix(in srgb, var(--primary) 55%, transparent);
   font-size: 0.75rem;
   font-weight: 500;
+  line-height: 1.5;
 }
 
-/* Name is loaded: hide raw ID, show "@Name" via ::before */
+/* Name is loaded: hide raw ID text, show "@Name" via ::before */
 .milkdown-crepe-wrapper .milkdown .mention-chip[data-mention-label] {
   font-size: 0;
   color: transparent;
@@ -192,18 +189,17 @@
 .milkdown-crepe-wrapper .milkdown .mention-chip[data-mention-label]::before {
   content: "@" attr(data-mention-label);
   color: var(--primary);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 
-/* Hover underline on named chips */
-.milkdown-crepe-wrapper
-  .milkdown
-  .mention-chip[data-mention-label]:hover::before {
-  text-decoration: underline;
+/* Hover highlight — only in read-only mode where chips are clickable */
+.milkdown-crepe-wrapper.read-only .milkdown .mention-chip[data-mention-label]:hover {
+  background-color: color-mix(in srgb, var(--primary) 20%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
 }
 
-/* Pointer cursor on chips in view (read-only) mode */
-.milkdown-crepe-wrapper.read-only .milkdown .mention-chip[data-mention-id] {
+/* Pointer cursor in read-only mode */
+.milkdown-crepe-wrapper.read-only .milkdown .mention-chip {
   cursor: pointer;
 }
