@@ -40,8 +40,11 @@ function toFeedItem(
     resolvePersonName?: (personId: string) => string,
 ): StoryFeedItem {
     const people = Array.from(new Set([...(metadata.people ?? []), ...mentions]));
+    // Sanitize Milkdown serialization artifacts before processing
+    // (Milkdown escapes _ as \_ and encodes spaces as &#x20; in raw markdown)
+    const sanitized = content.replace(/&#x20;/g, ' ').replace(/\\_/g, '_');
     // Replace @N_xxx / [[N_xxx]] with resolved person names (or strip if resolver unavailable)
-    const withNames = content
+    const withNames = sanitized
         .replace(/@N_[a-zA-Z0-9_-]+/g, (match) => {
             const personId = match.slice(1);
             return resolvePersonName ? resolvePersonName(personId) : '';
@@ -52,6 +55,8 @@ function toFeedItem(
         });
     // Strip markdown formatting to produce plain text
     const bodyText = withNames
+        .replace(/<[^>]+>/g, '')                       // HTML tags (e.g. <br />, <p>)
+        .replace(/&[a-z]+;|&#\d+;|&#x[0-9a-f]+;/gi, '') // Remaining HTML entities
         .replace(/#{1,6}\s+/g, '')                    // Headings
         .replace(/\*\*([^*]+)\*\*/g, '$1')            // Bold **text**
         .replace(/__([^_]+)__/g, '$1')                // Bold __text__
@@ -65,10 +70,11 @@ function toFeedItem(
         .replace(/^\s*\d+\.\s/gm, '')                  // Ordered list numbers
         .replace(/^\s*>\s?/gm, '')                     // Blockquotes
         .replace(/[-_*]{3,}/g, '')                     // Horizontal rules
-        .replace(/\n+/g, ' ')
+        .replace(/\n{2,}/g, ' · ')                    // Paragraph breaks → visual separator
+        .replace(/\n/g, ' ')                           // Single newlines → space
         .replace(/\s+/g, ' ')
         .trim();
-    const excerpt = bodyText.length > 200 ? bodyText.slice(0, 200) : bodyText;
+    const excerpt = bodyText.length > 280 ? bodyText.slice(0, 280) : bodyText;
     return {
         id,
         title: metadata.title,

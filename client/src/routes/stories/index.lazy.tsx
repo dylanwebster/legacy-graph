@@ -289,7 +289,7 @@ function StoryFeedCard({
 
                 {/* Excerpt */}
                 {story.excerpt && (
-                    <p className="mt-2 text-sm text-muted-foreground line-clamp-3 leading-relaxed">
+                    <p className="mt-2 text-sm text-muted-foreground line-clamp-4 leading-relaxed">
                         {story.excerpt}
                     </p>
                 )}
