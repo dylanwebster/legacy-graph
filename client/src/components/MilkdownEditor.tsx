@@ -326,8 +326,11 @@ export function MilkdownEditor({
   const mentionSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [mentionItems, setMentionItems] = useState<SlimPersonSummary[]>([]);
 
-  // Name cache for mention decorations
+  // Name cache for mention decorations.
+  // nameCacheRef is read by the ProseMirror decoration plugin (stable ref, no re-render).
+  // nameCacheVersion increments when new names arrive, triggering a DOM-patch effect.
   const nameCacheRef = useRef<Map<string, string>>(new Map());
+  const [nameCacheVersion, setNameCacheVersion] = useState(0);
 
   // Create plugins once (stable across renders)
   const imageDropPlugin = useRef(makeImageDropPlugin(onImageUploadRef)).current;
@@ -355,18 +358,6 @@ export function MilkdownEditor({
         crepe.setReadonly(true);
       }
     }, 50);
-  }, []);
-
-  // ── Force decoration re-render ────────────────────────────────────────────
-
-  const forceDecorUpdate = useCallback(() => {
-    if (!crepeRef.current || !crepeReadyRef.current) return;
-    crepeRef.current.editor.action((ctx) => {
-      const view = ctx.get(editorViewCtx);
-      if (view) {
-        view.dispatch(view.state.tr.setMeta(DECOR_KEY, true));
-      }
-    });
   }, []);
 
   // ── Initialize Crepe on mount ─────────────────────────────────────────────
@@ -427,6 +418,11 @@ export function MilkdownEditor({
         contentAppliedRef.current = true;
         applyContent(crepe, contentRef.current);
       }
+
+      // If names were cached before Crepe was ready (fast-fetch path), patch chips now
+      if (nameCacheRef.current.size > 0) {
+        patchChipLabels();
+      }
     });
 
     return () => {
@@ -480,7 +476,10 @@ export function MilkdownEditor({
 
   useEffect(() => {
     if (!enableMentions || !content) return;
-    const ids = Array.from(content.matchAll(/@(N_[a-zA-Z0-9_-]+)/g)).map(
+    // Sanitize escaped underscores/spaces before extracting IDs (Milkdown serializes
+    // underscores as \_ and spaces as &#x20; in the raw markdown it stores)
+    const sanitized = content.replace(/&#x20;/g, ' ').replace(/\\_/g, '_');
+    const ids = Array.from(sanitized.matchAll(/@(N_[a-zA-Z0-9_-]+)/g)).map(
       (m) => m[1],
     );
     const toFetch = ids.filter((id) => !nameCacheRef.current.has(id));
@@ -504,13 +503,40 @@ export function MilkdownEditor({
         }
       }
       if (changed) {
-        forceDecorUpdate();
+        setNameCacheVersion((v) => v + 1);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [enableMentions, content, forceDecorUpdate]);
+  }, [enableMentions, content]);
+
+  // ── Patch mention chip labels directly in the DOM ─────────────────────────
+  // ProseMirror skips re-calling decorations() when only metadata changes on a
+  // transaction (doc unchanged), so forceDecorUpdate() alone is unreliable for
+  // applying names to already-rendered chips. Directly setting data-mention-label
+  // on the DOM nodes bypasses that optimisation entirely.
+  // Two paths cover both race outcomes:
+  //   A) Fetches resolve AFTER Crepe is ready → nameCacheVersion effect patches chips
+  //   B) Fetches resolve BEFORE Crepe is ready → patchChipLabels() called from
+  //      crepe.create().then() once chips are in the DOM
+
+  const patchChipLabels = useCallback(() => {
+    if (!containerRef.current) return;
+    containerRef.current
+      .querySelectorAll<HTMLElement>("[data-mention-id]")
+      .forEach((el) => {
+        const id = el.getAttribute("data-mention-id");
+        if (!id) return;
+        const name = nameCacheRef.current.get(id);
+        if (name) el.setAttribute("data-mention-label", name);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (nameCacheVersion === 0) return;
+    patchChipLabels();
+  }, [nameCacheVersion, patchChipLabels]);
 
   // ── Insert mention ────────────────────────────────────────────────────────
 
@@ -518,7 +544,10 @@ export function MilkdownEditor({
     (person: SlimPersonSummary) => {
       const { from, to } = mentionUI;
       const name = getDisplayName(person);
-      if (name) nameCacheRef.current.set(person.id, name);
+      if (name) {
+        nameCacheRef.current.set(person.id, name);
+        setNameCacheVersion((v) => v + 1);
+      }
 
       if (crepeRef.current) {
         crepeRef.current.editor.action((ctx) => {
@@ -531,10 +560,8 @@ export function MilkdownEditor({
         });
       }
       setMentionUI({ active: false, query: "", from: 0, to: 0, rect: null });
-      // Force decoration update after inserting
-      setTimeout(forceDecorUpdate, 0);
     },
-    [mentionUI, forceDecorUpdate],
+    [mentionUI],
   );
 
   // ── Keyboard: mention navigation ─────────────────────────────────────────
