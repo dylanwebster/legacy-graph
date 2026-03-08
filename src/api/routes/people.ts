@@ -15,10 +15,12 @@ const ALLOWED_EXTS = new Set([...IMAGE_EXTS, '.pdf', '.txt', '.md']);
 const ALLOWED_MIME_PREFIXES = ['image/'];
 const ALLOWED_MIMES = new Set(['application/pdf', 'text/plain', 'text/markdown', 'text/x-markdown']);
 const isImageFile = (filename: string) => IMAGE_EXTS.has(path.extname(filename).toLowerCase());
-const isAllowedFile = (filename: string, mimetype: string) =>
-    ALLOWED_EXTS.has(path.extname(filename).toLowerCase()) ||
-    ALLOWED_MIME_PREFIXES.some(p => mimetype.startsWith(p)) ||
-    ALLOWED_MIMES.has(mimetype);
+const isAllowedFile = (filename: string, mimetype: string) => {
+    const ext = path.extname(filename).toLowerCase();
+    if (!ALLOWED_EXTS.has(ext)) return false;
+    if (IMAGE_EXTS.has(ext)) return ALLOWED_MIME_PREFIXES.some(p => mimetype.startsWith(p));
+    return ALLOWED_MIMES.has(mimetype);
+};
 
 export async function peopleRoutes(server: FastifyInstance) {
     const { graphEngine, txManager, dataDir } = (server as AppInstance).appServices;
@@ -295,8 +297,9 @@ export async function peopleRoutes(server: FastifyInstance) {
                 });
             }
 
-            const ext = path.extname(data.filename);
-            const baseName = path.basename(data.filename, ext).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
+            const ext = path.extname(data.filename).toLowerCase();
+            const rawBase = path.basename(data.filename, path.extname(data.filename)).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
+            const baseName = rawBase || 'upload';
 
             const assetsDir = path.join(dataDir, 'assets');
             await fs.mkdir(assetsDir, { recursive: true });

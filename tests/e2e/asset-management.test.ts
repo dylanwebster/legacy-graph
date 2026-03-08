@@ -36,12 +36,16 @@ test.describe('CUJ 4: Asset Management — Upload, View, Reject', () => {
     // Poll until hydration is complete before creating the person — the status
     // endpoint responds immediately on startup but data routes return 503 until ready.
     test.beforeAll(async ({ request }) => {
+        let ready = false;
+        let lastState: string | undefined;
         for (let i = 0; i < 60; i++) {
             const status = await request.get('http://localhost:3000/api/system/status');
             const body = await status.json();
-            if (body.hydrationState === 'ready') break;
+            lastState = body.hydrationState;
+            if (lastState === 'ready') { ready = true; break; }
             await new Promise(r => setTimeout(r, 1000));
         }
+        expect(ready, `Hydration did not reach 'ready' within 60s (last: ${lastState})`).toBe(true);
 
         const res = await request.post('http://localhost:3000/api/people', {
             data: {
