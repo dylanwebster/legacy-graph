@@ -33,6 +33,7 @@ import {
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useRef, useState } from 'react';
 import { MilkdownEditor } from '@/components/MilkdownEditor';
+import ReactMarkdown from 'react-markdown';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -831,7 +832,7 @@ function PersonDetail() {
                                 onClick={(e) => e.stopPropagation()}
                             />
                         );
-                        if (type === 'text' || type === 'markdown') return (
+                        if (type === 'text') return (
                             <div
                                 className="w-[90vw] max-w-2xl h-[80vh] bg-background rounded-lg shadow-2xl overflow-auto p-6"
                                 onClick={(e) => e.stopPropagation()}
@@ -851,6 +852,31 @@ function PersonDetail() {
                                 <pre className="text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed">
                                     {lightboxTextContent ?? 'Loading…'}
                                 </pre>
+                            </div>
+                        );
+                        if (type === 'markdown') return (
+                            <div
+                                className="w-[90vw] max-w-2xl h-[80vh] bg-background rounded-lg shadow-2xl overflow-auto p-6"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div className="flex items-center justify-between mb-4">
+                                    <span className="text-sm font-medium text-foreground">{lightboxAsset}</span>
+                                    <a
+                                        href={`/assets/${lightboxAsset}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <ExternalLink className="h-3 w-3" /> Open
+                                    </a>
+                                </div>
+                                {lightboxTextContent == null
+                                    ? <p className="text-sm text-muted-foreground">Loading…</p>
+                                    : <div className="prose prose-sm dark:prose-invert max-w-none">
+                                        <ReactMarkdown>{lightboxTextContent}</ReactMarkdown>
+                                    </div>
+                                }
                             </div>
                         );
                         // Default: image

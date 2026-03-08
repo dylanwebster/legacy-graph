@@ -1,5 +1,4 @@
 import { FastifyInstance } from 'fastify';
-import { nanoid } from 'nanoid';
 import { generatePersonId } from '../../utils/idGenerator';
 import * as nodeFs from 'fs';
 import * as fs from 'fs/promises';
@@ -297,10 +296,24 @@ export async function peopleRoutes(server: FastifyInstance) {
             }
 
             const ext = path.extname(data.filename);
-            const uniqueFilename = `${nanoid()}${ext}`;
+            const baseName = path.basename(data.filename, ext).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
 
             const assetsDir = path.join(dataDir, 'assets');
             await fs.mkdir(assetsDir, { recursive: true });
+
+            // Find a unique filename — keep original, add -1, -2, … only on conflict
+            let uniqueFilename = `${baseName}${ext}`;
+            let counter = 1;
+            while (true) {
+                try {
+                    await fs.access(path.join(assetsDir, uniqueFilename));
+                    // File exists — try next suffix
+                    uniqueFilename = `${baseName}-${counter}${ext}`;
+                    counter++;
+                } catch {
+                    break; // File doesn't exist — name is available
+                }
+            }
 
             const filepath = path.join(assetsDir, uniqueFilename);
             await pipeline(data.file, nodeFs.createWriteStream(filepath));
