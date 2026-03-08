@@ -1,9 +1,35 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { peopleApi } from './people';
-import type { CreatePersonInput } from './people';
+import type { CreatePersonInput, PersonDetail, SlimPersonSummary } from './people';
 import { apiFetch, deleteAsset, searchPlaces, resolvePlace } from './client';
 import { storiesApi } from './stories';
-import type { CreateStoryInput, UpdateStoryInput } from './stories';
+import type { CreateStoryInput, UpdateStoryInput, StoryFeedItem } from './stories';
+
+export interface SearchResponse {
+    people: SlimPersonSummary[];
+    stories: StoryFeedItem[];
+    places: string[];
+    totalCounts: {
+        people: number;
+        stories: number;
+        places: number;
+    };
+}
+
+export interface SystemStatus {
+    nodeCount: number;
+    edgeCount: number;
+    hydrationState: string;
+    cacheAge: number | null;
+    gitBranch: string;
+    gitDirty: boolean;
+}
+
+export interface StatsResponse {
+    totalPeople: number;
+    totalFamilies: number;
+    lastModified: string | null;
+}
 
 export interface GraphNodeData {
     id: string;
@@ -43,7 +69,7 @@ export const useSearch = (q: string, params?: { limit?: number; offset?: number 
             if (q) searchParams.append('q', q);
             if (params?.limit !== undefined) searchParams.append('limit', String(params.limit));
             if (params?.offset !== undefined) searchParams.append('offset', String(params.offset));
-            return apiFetch<any>(`/search?${searchParams.toString()}`);
+            return apiFetch<SearchResponse>(`/search?${searchParams.toString()}`);
         },
         enabled: !!q
     });
@@ -52,9 +78,9 @@ export const useSearch = (q: string, params?: { limit?: number; offset?: number 
 export const useSystemStatus = () => {
     return useQuery({
         queryKey: ['systemStatus'],
-        queryFn: () => apiFetch<any>('/system/status'),
+        queryFn: () => apiFetch<SystemStatus>('/system/status'),
         refetchInterval: (query) => {
-            const stateData = query.state.data as any;
+            const stateData = query.state.data as SystemStatus | undefined;
             return stateData?.hydrationState === 'ready' ? false : 1000;
         }
     });
@@ -63,7 +89,7 @@ export const useSystemStatus = () => {
 export const useStats = () => {
     return useQuery({
         queryKey: ['stats'],
-        queryFn: () => apiFetch<any>('/stats')
+        queryFn: () => apiFetch<StatsResponse>('/stats')
     });
 };
 
@@ -100,9 +126,9 @@ export const useDeleteAsset = () => {
             const previousData = queryClient.getQueriesData({ queryKey: ['person', personId] });
             queryClient.setQueriesData(
                 { queryKey: ['person', personId] },
-                (old: any) => {
+                (old: PersonDetail | undefined) => {
                     if (!old) return old;
-                    return { ...old, assets: (old.assets as string[]).filter((a) => a !== filename) };
+                    return { ...old, assets: old.assets.filter((a) => a !== filename) };
                 }
             );
             return { previousData };
@@ -220,8 +246,8 @@ export const useUpdatePerson = () => {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: async ({ id, updates }: { id: string; updates: any }) => {
-            return apiFetch<any>(`/people/${id}`, {
+        mutationFn: async ({ id, updates }: { id: string; updates: Record<string, unknown> }) => {
+            return apiFetch<PersonDetail>(`/people/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updates)

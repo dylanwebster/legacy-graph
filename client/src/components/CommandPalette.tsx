@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useUIStore } from '@/store/uiStore';
 import { useSearch } from '@/api/hooks';
+import type { SlimPersonSummary } from '@/api/people';
+import type { StoryFeedItem } from '@/api/stories';
 import { CustomAvatar } from './CustomAvatar';
 import {
     CommandDialog,
@@ -61,9 +63,9 @@ export function CommandPalette() {
     }, [debouncedQuery, navigate, setSearchOpen]);
 
     // Extract result categories from the search response { people, stories, places }
-    const people: Record<string, unknown>[] = data?.people ?? [];
-    const stories: Record<string, unknown>[] = data?.stories ?? [];
-    const places: Record<string, unknown>[] = data?.places ?? [];
+    const people: SlimPersonSummary[] = data?.people ?? [];
+    const stories: StoryFeedItem[] = data?.stories ?? [];
+    const places: string[] = data?.places ?? [];
 
     return (
         <CommandDialog
@@ -94,17 +96,16 @@ export function CommandPalette() {
 
                 {people.length > 0 && (
                     <CommandGroup heading="People">
-                        {people.map((person: Record<string, unknown>) => {
-                            const names = person.names as Array<Record<string, string>> ?? [];
-                            const n = names[0] ?? {};
-                            const firstName = n.first || n.given || '';
-                            const lastName = n.last || n.surname || '';
+                        {people.map((person) => {
+                            const n = person.names?.[0];
+                            const firstName = n?.first ?? n?.given ?? '';
+                            const lastName = n?.last ?? n?.surname ?? '';
                             const displayName = `${firstName} ${lastName}`.trim() || 'Unknown';
                             return (
                                 <CommandItem
-                                    key={person.id as string}
+                                    key={person.id}
                                     value={`person-${person.id}-${displayName}`}
-                                    onSelect={() => handleSelect(person.id as string)}
+                                    onSelect={() => handleSelect(person.id)}
                                     className="flex items-center gap-3 py-2"
                                 >
                                     <CustomAvatar
@@ -115,7 +116,7 @@ export function CommandPalette() {
                                     <div className="flex flex-col min-w-0">
                                         <span className="font-medium truncate">{displayName}</span>
                                         {!!person.birthDate && (
-                                            <span className="text-xs text-muted-foreground truncate">b. {String(person.birthDate)}</span>
+                                            <span className="text-xs text-muted-foreground truncate">b. {person.birthDate}</span>
                                         )}
                                     </div>
                                     <Users className="ml-auto h-4 w-4 text-muted-foreground shrink-0" />
@@ -129,18 +130,18 @@ export function CommandPalette() {
                     <>
                         <CommandSeparator />
                         <CommandGroup heading="Stories">
-                            {stories.map((story: Record<string, unknown>) => (
+                            {stories.map((story) => (
                                 <CommandItem
-                                    key={story.id as string}
+                                    key={story.id}
                                     value={`story-${story.id}`}
                                     onSelect={handleViewAll}
                                     className="flex items-center gap-3 py-2"
                                 >
                                     <BookOpen className="h-5 w-5 text-muted-foreground shrink-0" />
                                     <div className="flex flex-col min-w-0">
-                                        <span className="font-medium truncate">{story.name as string}</span>
-                                        {!!story.snippet && (
-                                            <span className="text-xs text-muted-foreground truncate">{String(story.snippet)}</span>
+                                        <span className="font-medium truncate">{story.title}</span>
+                                        {!!story.excerpt && (
+                                            <span className="text-xs text-muted-foreground truncate">{story.excerpt}</span>
                                         )}
                                     </div>
                                 </CommandItem>
@@ -153,14 +154,14 @@ export function CommandPalette() {
                     <>
                         <CommandSeparator />
                         <CommandGroup heading="Places">
-                            {places.map((place: Record<string, unknown>, idx: number) => (
+                            {places.map((place, idx) => (
                                 <CommandItem
                                     key={`place-${idx}`}
-                                    value={`place-${place.name}`}
+                                    value={`place-${place}`}
                                     className="flex items-center gap-3 py-2"
                                 >
                                     <MapPin className="h-5 w-5 text-muted-foreground shrink-0" />
-                                    <span className="font-medium truncate">{place.name as string}</span>
+                                    <span className="font-medium truncate">{place}</span>
                                 </CommandItem>
                             ))}
                         </CommandGroup>

@@ -19,5 +19,15 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // Dialog/form reset pattern (useEffect + isOpen guard) is intentional
+      'react-hooks/set-state-in-effect': 'off',
+      // React Compiler compatibility warning for TanStack Virtual — library limitation
+      'react-hooks/incompatible-library': 'off',
+      // Utility functions co-located with components (parseToISO, deriveName, badgeVariants, etc.)
+      'react-refresh/only-export-components': 'off',
+      // D3 simulation node mutation is standard D3 practice
+      'react-hooks/immutability': 'off',
+    },
   },
 ])

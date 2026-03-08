@@ -1,3 +1,4 @@
+import React from 'react';
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import ForceGraph2D from 'react-force-graph-2d';
 import type { ForceGraphMethods, NodeObject, LinkObject } from 'react-force-graph-2d';
@@ -81,13 +82,13 @@ function computeEffectiveBirthYears(
 
     for (const l of links) {
         if (l.type === 'parent_child') {
-            const childId = typeof l.source === 'object' ? (l.source as any).id : l.source;
-            const parentId = typeof l.target === 'object' ? (l.target as any).id : l.target;
+            const childId = typeof l.source === 'object' ? (l.source as { id: string }).id : l.source;
+            const parentId = typeof l.target === 'object' ? (l.target as { id: string }).id : l.target;
             parentIds.get(childId)?.push(parentId);
             childIds.get(parentId)?.push(childId);
         } else if (l.type === 'spouse') {
-            const a = typeof l.source === 'object' ? (l.source as any).id : l.source;
-            const b = typeof l.target === 'object' ? (l.target as any).id : l.target;
+            const a = typeof l.source === 'object' ? (l.source as { id: string }).id : l.source;
+            const b = typeof l.target === 'object' ? (l.target as { id: string }).id : l.target;
             spouseIds.get(a)?.push(b);
             spouseIds.get(b)?.push(a);
         }
@@ -211,7 +212,7 @@ function saveGraphState(
         if (typeof n.x === 'number' && typeof n.y === 'number')
             positions[n.id as string] = { x: n.x, y: n.y };
     }
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ positions, zoom, rootPersonId })); } catch { }
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ positions, zoom, rootPersonId })); } catch { /* ignore storage errors */ }
 }
 
 // ─── Topological Y Pre-Sorter ─────────────────────────────────────────────────
@@ -373,7 +374,7 @@ function makeCenteringYForce() {
             node.vy += (0 - node.y) * 0.02 * alpha;
         }
     }
-    (force as any).initialize = (n: SimNode[]) => { nodes = n; };
+    (force as unknown as { initialize: (n: SimNode[]) => void }).initialize = (n: SimNode[]) => { nodes = n; };
     return force;
 }
 
@@ -532,8 +533,10 @@ function FamilyGraphPanel() {
         const fg = fgRef.current;
         const bounds = yearBoundsRef.current ?? { midYear: 1900, minYear: 1800, maxYear: 2000 };
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const fgAny = fg as any;
+        type FgWithD3Setter = ForceGraphMethods & {
+            d3Force(name: string, force: object | null): void;
+        };
+        const fgAny = fg as unknown as FgWithD3Setter;
 
         // 1. Kill chaotic 2D forces — in a 1D-constrained layout they cause permanent tangles
         fg.d3Force('charge')?.strength?.(-5); // Very weak residual repulsion
@@ -552,8 +555,8 @@ function FamilyGraphPanel() {
         // Configure the existing link force (don't create a new one — react-force-graph manages node refs)
         const existingLink = fg.d3Force('link');
         if (existingLink) {
-            existingLink.distance?.((link: any) => link.type === 'spouse' ? SPOUSE_LINK_DIST : PARENT_CHILD_LINK_DIST);
-            existingLink.strength?.((link: any) => link.type === 'spouse' ? 0.9 : 0.2);
+            existingLink.distance?.((link: SimLink) => link.type === 'spouse' ? SPOUSE_LINK_DIST : PARENT_CHILD_LINK_DIST);
+            existingLink.strength?.((link: SimLink) => link.type === 'spouse' ? 0.9 : 0.2);
         }
 
         // 4. Global centering force (keeps everything on screen without distortion)
@@ -1276,10 +1279,11 @@ function FamilyGraphPanel() {
         ctx.restore();
     }, [isDark]);
 
-    const getParentChildLinkColor = useCallback((link: any) => {
-        if (link.type !== 'parent_child') return 'transparent';
-        const srcId = typeof link.source === 'object' ? link.source.id : link.source;
-        const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
+    const getParentChildLinkColor = useCallback((link: LinkObject) => {
+        const l = link as SimLink;
+        if (l.type !== 'parent_child') return 'transparent';
+        const srcId = typeof l.source === 'object' ? String((l.source as NodeObject).id) : String(l.source);
+        const tgtId = typeof l.target === 'object' ? String((l.target as NodeObject).id) : String(l.target);
 
         const hasFilt = matchingIds !== null;
         const bothMatch = hasFilt ? (matchingIds.has(srcId) && matchingIds.has(tgtId)) : true;
@@ -1299,10 +1303,11 @@ function FamilyGraphPanel() {
         return isDark ? `rgba(148,163,184,${alpha})` : `rgba(71,85,105,${alpha})`;
     }, [matchingIds, genLevels, isDark]);
 
-    const getParentChildArrowColor = useCallback((link: any) => {
-        if (link.type !== 'parent_child') return 'transparent';
-        const srcId = typeof link.source === 'object' ? link.source.id : link.source;
-        const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
+    const getParentChildArrowColor = useCallback((link: LinkObject) => {
+        const l = link as SimLink;
+        if (l.type !== 'parent_child') return 'transparent';
+        const srcId = typeof l.source === 'object' ? String((l.source as NodeObject).id) : String(l.source);
+        const tgtId = typeof l.target === 'object' ? String((l.target as NodeObject).id) : String(l.target);
 
         const hasFilt = matchingIds !== null;
         const bothMatch = hasFilt ? (matchingIds.has(srcId) && matchingIds.has(tgtId)) : true;
@@ -1553,11 +1558,11 @@ function FamilyGraphPanel() {
 
                 {!isLoading && !isError && nodeCount > 0 && (
                     <ForceGraph2D
-                        ref={fgRef as any}
+                        ref={fgRef as React.RefObject<ForceGraphMethods>}
                         width={dims.width}
                         height={dims.height}
                         backgroundColor="transparent"
-                        graphData={stableGraphData as any}
+                        graphData={stableGraphData as unknown as { nodes: NodeObject[]; links: LinkObject[] }}
                         nodeId="id"
                         nodeLabel="label"
                         nodeRelSize={NODE_R}
@@ -1569,13 +1574,13 @@ function FamilyGraphPanel() {
                         linkDirectionalArrowRelPos={1}
                         linkDirectionalArrowColor={getParentChildArrowColor}
                         linkCanvasObject={drawLink}
-                        linkCanvasObjectMode={(link: any) => (link.type === 'spouse' || link.type === 'parent_child') ? 'replace' : undefined}
+                        linkCanvasObjectMode={(link: LinkObject) => ((link as SimLink).type === 'spouse' || (link as SimLink).type === 'parent_child') ? 'replace' : undefined}
                         onNodeClick={handleNodeClick}
                         onNodeDragEnd={handleNodeDragEnd}
                         onNodeHover={handleNodeHover}
                         onZoom={handleZoom}
                         onRenderFramePre={drawBackground}
-                        onRenderFramePost={handleRenderFramePost as any}
+                        onRenderFramePost={handleRenderFramePost as (ctx: CanvasRenderingContext2D, globalScale: number) => void}
                         onEngineStop={handleEngineStop}
                         cooldownTicks={150}
                         d3AlphaDecay={0.022}

@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Place } from '@/api/people';
-import type { UpdateStoryInput } from '@/api/stories';
+import type { UpdateStoryInput, FullStory } from '@/api/stories';
 
 export const Route = createLazyFileRoute('/stories/$id')({
     component: StoryPage,
@@ -159,7 +159,7 @@ function StoryPage() {
 
         // Optimistically remove the asset from the cached story so the filmstrip
         // updates immediately without waiting for a refetch.
-        queryClient.setQueryData(['story', id], (old: any) => {
+        queryClient.setQueryData(['story', id], (old: FullStory | undefined) => {
             if (!old) return old;
             return { ...old, metadata: { ...old.metadata, assets: (old.metadata.assets ?? []).filter((a: string) => a !== filename) } };
         });
@@ -289,7 +289,6 @@ function StoryPage() {
                 .catch(() => {})
                 .finally(() => storiesApi.deleteStory(draftId).catch(() => {}));
         };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     const fmRef = useRef(fm);
     fmRef.current = fm;
