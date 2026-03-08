@@ -11,6 +11,13 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    ignore:
+      # eslint-plugin-react-hooks@7.0.1 only supports eslint ^9; hold until a stable
+      # release declares support for eslint 10+
+      - dependency-name: "eslint"
+        versions: ["10.x", ">=10"]
+      - dependency-name: "@eslint/js"
+        versions: ["10.x", ">=10"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
