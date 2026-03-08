@@ -21,10 +21,10 @@ function SearchPage() {
 
     const { data, isLoading } = useSearch(query || initialQuery, { limit: 50 });
 
-    const results = data?.results ?? [];
-    const people = results.filter((r: Record<string, unknown>) => r.type === 'person');
-    const stories = results.filter((r: Record<string, unknown>) => r.type === 'story');
-    const places = results.filter((r: Record<string, unknown>) => r.type === 'place');
+    const people = data?.people ?? [];
+    const stories = data?.stories ?? [];
+    const places = data?.places ?? [];
+    const hasResults = people.length > 0 || stories.length > 0 || places.length > 0;
 
     return (
         <div className="h-full overflow-auto p-6 max-w-4xl mx-auto space-y-6">
@@ -48,7 +48,7 @@ function SearchPage() {
                 </div>
             )}
 
-            {!isLoading && results.length === 0 && (query || initialQuery) && (
+            {!isLoading && !hasResults && (query || initialQuery) && (
                 <div className="p-8 text-center text-muted-foreground">
                     No results found for "{query || initialQuery}"
                 </div>
@@ -60,26 +60,32 @@ function SearchPage() {
                         <Users className="h-5 w-5" /> People ({people.length})
                     </h2>
                     <div className="space-y-2">
-                        {people.map((person: Record<string, unknown>) => (
-                            <Button
-                                key={String(person.id)}
-                                variant="ghost"
-                                className="w-full justify-start h-auto p-3 gap-3"
-                                onClick={() => navigate({ to: '/people/$id', params: { id: String(person.id) } })}
-                            >
-                                <CustomAvatar
-                                    firstName={String(person.name ?? '').split(' ')[0]}
-                                    lastName={String(person.name ?? '').split(' ').slice(-1)[0]}
-                                    className="h-10 w-10"
-                                />
-                                <div className="text-left min-w-0">
-                                    <div className="font-medium">{String(person.name)}</div>
-                                    {!!person.snippet && (
-                                        <div className="text-xs text-muted-foreground truncate">{String(person.snippet)}</div>
-                                    )}
-                                </div>
-                            </Button>
-                        ))}
+                        {people.map((person) => {
+                            const n = person.names?.[0];
+                            const firstName = n?.first ?? n?.given ?? '';
+                            const lastName = n?.last ?? n?.surname ?? '';
+                            const displayName = [firstName, lastName].filter(Boolean).join(' ') || person.id;
+                            return (
+                                <Button
+                                    key={person.id}
+                                    variant="ghost"
+                                    className="w-full justify-start h-auto p-3 gap-3"
+                                    onClick={() => navigate({ to: '/people/$id', params: { id: person.id } })}
+                                >
+                                    <CustomAvatar
+                                        firstName={firstName}
+                                        lastName={lastName}
+                                        className="h-10 w-10"
+                                    />
+                                    <div className="text-left min-w-0">
+                                        <div className="font-medium">{displayName}</div>
+                                        {!!person.birthDate && (
+                                            <div className="text-xs text-muted-foreground truncate">{person.birthDate}</div>
+                                        )}
+                                    </div>
+                                </Button>
+                            );
+                        })}
                     </div>
                 </div>
             )}
@@ -90,10 +96,14 @@ function SearchPage() {
                         <BookOpen className="h-5 w-5" /> Stories ({stories.length})
                     </h2>
                     <div className="space-y-2">
-                        {stories.map((story: Record<string, unknown>, idx: number) => (
-                            <div key={idx} className="p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors cursor-pointer">
-                                <div className="font-medium text-sm">{String(story.name)}</div>
-                                {!!story.snippet && <div className="text-xs text-muted-foreground mt-1">{String(story.snippet)}</div>}
+                        {stories.map((story) => (
+                            <div
+                                key={story.id}
+                                className="p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors cursor-pointer"
+                                onClick={() => navigate({ to: '/stories/$id', params: { id: story.id } })}
+                            >
+                                <div className="font-medium text-sm">{story.title}</div>
+                                {!!story.excerpt && <div className="text-xs text-muted-foreground mt-1">{story.excerpt}</div>}
                             </div>
                         ))}
                     </div>
@@ -106,9 +116,9 @@ function SearchPage() {
                         <MapPin className="h-5 w-5" /> Places ({places.length})
                     </h2>
                     <div className="flex flex-wrap gap-2">
-                        {places.map((place: Record<string, unknown>, idx: number) => (
+                        {places.map((place, idx) => (
                             <Badge key={idx} variant="secondary" className="text-sm py-1.5 px-3">
-                                {String(place.name)}
+                                {place.location}
                             </Badge>
                         ))}
                     </div>

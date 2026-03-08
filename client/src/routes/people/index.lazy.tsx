@@ -55,11 +55,11 @@ function PeopleBrowse() {
     const isError = isSearchMode ? searchError : peopleError;
 
     const people: SlimPersonSummary[] = isSearchMode
-        ? ((searchData as any)?.people ?? []) as SlimPersonSummary[]
+        ? (searchData?.people ?? [])
         : (peopleData?.people ?? []);
 
     const searchTotalCount: number = isSearchMode
-        ? ((searchData as any)?.totalCounts?.people ?? 0)
+        ? (searchData?.totalCounts?.people ?? 0)
         : 0;
 
     const totalCount = isSearchMode ? searchTotalCount : (peopleData?.totalCount ?? 0);

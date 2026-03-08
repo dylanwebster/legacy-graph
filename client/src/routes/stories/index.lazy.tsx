@@ -69,11 +69,11 @@ function StoriesFeed() {
     const deleteStory = useDeleteStory();
 
     const stories: StoryFeedItem[] = isSearchMode
-        ? ((searchData as any)?.stories ?? [])
+        ? (searchData?.stories ?? [])
         : (storiesData?.stories ?? []);
 
     const totalCount = isSearchMode
-        ? ((searchData as any)?.totalCounts?.stories ?? stories.length)
+        ? (searchData?.totalCounts?.stories ?? stories.length)
         : (storiesData?.totalCount ?? 0);
 
     const isLoading = isSearchMode ? searchLoading : storiesLoading;
