@@ -1,73 +1,58 @@
-# React + TypeScript + Vite
+# LegacyGraph — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + Vite 7 + TypeScript client for the LegacyGraph genealogy platform.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Framework**: React 19 + Vite 7 + TypeScript
+- **Routing**: TanStack Router (file-based, `src/routes/`)
+- **Data fetching**: TanStack Query with optimistic updates
+- **UI state**: Zustand (`src/store/uiStore.ts`)
+- **Components**: shadcn/ui (Radix + Tailwind v4)
+- **Icons**: Lucide React
+- **Toasts**: Sonner
+- **Virtualization**: `@tanstack/react-virtual` (Timeline, People table, Stories feed, Search results, Asset gallery)
+- **Resizable panels**: `react-resizable-panels` (Holy Grail 3-column layout)
+- **Rich text editor**: Milkdown Crepe (`@milkdown/crepe`) with `@mention` support
+- **Map**: `react-leaflet` + OpenStreetMap
+- **Graph viz**: `react-force-graph-2d` (Force Graph); D3 (Fan Chart, Pedigree)
 
-## React Compiler
+## Commands
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run dev       # Vite dev server at http://localhost:5173 (proxies /api → localhost:3000)
+npm run build     # TypeScript check + production build → dist/
+npm run lint      # ESLint
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+> The backend must be running on port 3000 for API calls to work. See the root `README.md` for backend setup.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Structure
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
 ```
+src/
+  api/           client.ts, hooks.ts (TanStack Query), people.ts, stories.ts
+  components/    Shared UI components (PersonChip, EventEditorDialog, MilkdownEditor, ...)
+  components/ui/ shadcn/ui primitives (Button, Dialog, Command, Tabs, ...)
+  routes/        File-based TanStack Router pages
+  store/         uiStore.ts — sidebar, modals, theme, Stories feed state
+```
+
+## Key Routes
+
+| Path | Description |
+|:-----|:------------|
+| `/` | Dashboard — stats, Force Graph / Fan Chart / Pedigree |
+| `/people` | Virtualised searchable table of all people |
+| `/people/:id` | Person detail — Holy Grail 3-column layout |
+| `/stories` | Blog-style story feed |
+| `/stories/:id` | Story view + Milkdown Crepe editor |
+| `/map` | Interactive world map of geocoded event locations |
+| `/assets` | Universal asset gallery + orphan detection |
+| `/import` | GEDCOM import with SSE progress stream |
+| `/settings` | System status, auth, cache, Git state |
+| `/search` | Full-text search across people, stories, and places |
+
+## Dark Mode
+
+Toggled via the theme button in the top bar. The active theme (`"dark"` or `"light"`) is persisted to `localStorage.theme`. An inline script in `index.html` applies the `.dark` class to `<html>` before React mounts to prevent flash of unstyled content.

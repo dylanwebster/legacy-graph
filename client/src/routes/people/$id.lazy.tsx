@@ -1,9 +1,11 @@
 import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { usePerson, useUpdatePerson, useDeleteAsset } from '@/api/hooks';
 import { CustomAvatar } from '@/components/CustomAvatar';
+import { loadAvatarCrop, saveAvatarCrop, clearAvatarCrop } from '@/lib/avatarCrop';
 import { PersonChip } from '@/components/PersonChip';
 import { EventEditorDialog } from '@/components/EventEditorDialog';
 import { RelationshipEditorDialog } from '@/components/RelationshipEditorDialog';
+import { AvatarCropDialog } from '@/components/AvatarCropDialog';
 import {
     Dialog as ConfirmDialog,
     DialogContent as ConfirmDialogContent,
@@ -23,9 +25,9 @@ import {
     ResizablePanelGroup,
 } from '@/components/ui/resizable';
 import {
-    Calendar, MapPin, Heart, Sunset, Leaf, GraduationCap, Briefcase, Church,
+    Calendar, MapPin, Heart, Sunrise, Sunset, Leaf, GraduationCap, Briefcase, Church,
     Ship, ScrollText, FileText, Plus, ChevronRight, Image, BookOpen, Code,
-    Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2,
+    Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2, Crop,
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useRef, useState } from 'react';
@@ -38,7 +40,7 @@ export const Route = createLazyFileRoute('/people/$id')({
 });
 
 const EVENT_ICONS: Record<string, typeof Calendar> = {
-    birth: Calendar,
+    birth: Sunrise,
     death: Sunset,
     marriage: Heart,
     divorce: Heart,
@@ -56,6 +58,9 @@ const EVENT_ICONS: Record<string, typeof Calendar> = {
 };
 
 const SEX_OPTIONS = ['M', 'F', 'I', 'U'] as const;
+const SEX_LABELS: Record<string, string> = { M: 'Male', F: 'Female', I: 'Intersex', U: 'Unknown' };
+
+type CropArea = { x: number; y: number; width: number; height: number };
 
 function PersonDetail() {
     const { id } = Route.useParams();
@@ -90,6 +95,8 @@ function PersonDetail() {
     const [deleteConfirmAsset, setDeleteConfirmAsset] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const deleteAssetMutation = useDeleteAsset();
+    const [showCropDialog, setShowCropDialog] = useState(false);
+    const [avatarCrop, setAvatarCrop] = useState<CropArea | null>(null);
 
     // Timeline virtualizer
     const timelineParentRef = useRef<HTMLDivElement>(null);
@@ -117,6 +124,8 @@ function PersonDetail() {
         setRelationshipDialogOpen(false);
         setEditingNotebook(false);
         setLightboxAsset(null);
+        setShowCropDialog(false);
+        setAvatarCrop(loadAvatarCrop(id));
     }, [id]);
 
     // Lightbox keyboard navigation: ESC to close, arrow keys to navigate
@@ -300,7 +309,11 @@ function PersonDetail() {
         updatePerson.mutate(
             { id, updates: { assets: updated } },
             {
-                onSuccess: () => toast.success('Primary photo updated.'),
+                onSuccess: () => {
+                    clearAvatarCrop(id);
+                    setAvatarCrop(null);
+                    toast.success('Primary photo updated.');
+                },
                 onError: () => toast.error('Failed to update primary photo.'),
             }
         );
@@ -356,13 +369,25 @@ function PersonDetail() {
                     <div className="h-full overflow-y-auto p-4 space-y-6">
                         {/* Avatar + Name */}
                         <div className="flex flex-col items-center text-center gap-3 pt-2">
-                            <CustomAvatar
-                                firstName={primaryName?.given ?? firstName}
-                                lastName={primaryName?.surname ?? lastName}
-                                photoFilename={person.assets?.[0]}
-                                className="h-20 w-20 text-2xl"
-                                onClick={person.assets?.length ? () => setLightboxAsset((person.assets as string[])[0]) : undefined}
-                            />
+                            <div
+                                className={`relative group ${!person.assets?.length ? 'cursor-pointer' : ''}`}
+                                onClick={!person.assets?.length ? () => fileInputRef.current?.click() : undefined}
+                                title={!person.assets?.length ? 'Upload a photo' : undefined}
+                            >
+                                <CustomAvatar
+                                    firstName={primaryName?.given ?? firstName}
+                                    lastName={primaryName?.surname ?? lastName}
+                                    photoFilename={person.assets?.[0]}
+                                    className="h-20 w-20 text-2xl"
+                                    cropData={avatarCrop}
+                                    onClick={person.assets?.length ? () => setLightboxAsset((person.assets as string[])[0]) : undefined}
+                                />
+                                {!person.assets?.length && (
+                                    <div className="absolute inset-0 rounded-full flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <Upload className="h-5 w-5 text-white" />
+                                    </div>
+                                )}
+                            </div>
                             <div className="w-full">
                                 {editingName ? (
                                     <div className="space-y-2">
@@ -429,7 +454,7 @@ function PersonDetail() {
                                                         : 'border-border hover:bg-muted'
                                                 }`}
                                             >
-                                                {s}
+                                                {SEX_LABELS[s]}
                                             </button>
                                         ))}
                                         <button
@@ -445,7 +470,7 @@ function PersonDetail() {
                                         className="group flex items-center gap-1"
                                         title="Click to edit sex"
                                     >
-                                        <Badge variant="outline" className="text-xs px-1.5">{person.sex ?? 'U'}</Badge>
+                                        <Badge variant="outline" className="text-xs px-1.5">{SEX_LABELS[person.sex ?? 'U']}</Badge>
                                         <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                                     </button>
                                 )}
@@ -456,7 +481,7 @@ function PersonDetail() {
                                     onClick={() => openEventDialog('birth', events.findIndex((e) => e.type === 'birth'))}
                                     title="Edit birth event"
                                 >
-                                    <Calendar className="h-4 w-4 shrink-0" />
+                                    <Sunrise className="h-4 w-4 shrink-0" />
                                     <span>b. {birthDate}</span>
                                     <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                                 </button>
@@ -466,7 +491,7 @@ function PersonDetail() {
                                     onClick={() => openEventDialog('birth')}
                                     title="Add birth event"
                                 >
-                                    <Calendar className="h-4 w-4 shrink-0" />
+                                    <Sunrise className="h-4 w-4 shrink-0" />
                                     <span>Add birth date</span>
                                     <Plus className="h-3 w-3" />
                                 </button>
@@ -767,6 +792,27 @@ function PersonDetail() {
                         className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
                         onClick={(e) => e.stopPropagation()}
                     />
+                    {/* Bottom bar — only for primary image */}
+                    {lightboxAsset === (person.assets as string[])[0] && (
+                        <div
+                            className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-black/60 backdrop-blur-sm rounded-full px-4 py-2"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="flex items-center gap-1.5 text-white text-xs">
+                                <Star className="h-3.5 w-3.5 text-yellow-400 fill-yellow-400" />
+                                <span>Primary photo</span>
+                            </div>
+                            <div className="w-px h-4 bg-white/30" />
+                            <button
+                                type="button"
+                                onClick={() => { setLightboxAsset(null); setShowCropDialog(true); }}
+                                className="flex items-center gap-1.5 text-white/80 text-xs hover:text-white transition-colors"
+                            >
+                                <Crop className="h-3.5 w-3.5" />
+                                <span>Crop avatar</span>
+                            </button>
+                        </div>
+                    )}
                     {/* Navigate next */}
                     {(person.assets as string[]).length > 1 && (
                         <button
@@ -805,6 +851,19 @@ function PersonDetail() {
                 currentEvents={events}
                 siblings={computed.siblings ?? []}
             />
+
+            {/* Avatar crop dialog — triggered from lightbox on primary image */}
+            {showCropDialog && !!(person.assets as string[])[0] && (
+                <AvatarCropDialog
+                    imageSrc={`/assets/${(person.assets as string[])[0]}`}
+                    onConfirm={(area) => {
+                        saveAvatarCrop(id, area);
+                        setAvatarCrop(area);
+                        setShowCropDialog(false);
+                    }}
+                    onCancel={() => setShowCropDialog(false)}
+                />
+            )}
 
             {/* Asset delete confirmation */}
             <ConfirmDialog open={!!deleteConfirmAsset} onOpenChange={(o) => !o && setDeleteConfirmAsset(null)}>
