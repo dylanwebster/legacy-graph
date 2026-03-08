@@ -1,32 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
-  <path d="M 25 55 L 45 55" fill="none" stroke="#f59e0b" stroke-opacity="0.95" stroke-width="3" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%">
+  <path d="M 4.75 11.5 L 9.75 11.5" fill="none" stroke="#f59e0b" stroke-opacity="0.95" stroke-width="0.75" />
 
-  <g fill="none" stroke="#8b5cf6" stroke-opacity="0.9" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M 25 25 Q 30 40 25 55" />
-    <path d="M 25 55 Q 20 70 25 85" />
-    <path d="M 25 85 Q 40 82 55 85" />
+  <g fill="none" stroke="#8b5cf6" stroke-opacity="0.9" stroke-width="1.375" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 4.75 4 Q 6 7.75 4.75 11.5" />
+    <path d="M 4.75 11.5 Q 3.5 15.25 4.75 19" />
+    <path d="M 4.75 19 Q 8.5 18.25 12.25 19" />
     
-    <path d="M 85 25 Q 70 20 55 25" />
-    <path d="M 55 25 Q 40 35 45 55" />
-    <path d="M 45 55 Q 50 75 55 85" />
-    <path d="M 55 85 Q 70 90 85 85" />
-    <path d="M 85 85 Q 88 70 85 55" />
-    <path d="M 85 55 Q 77 53 70 55" />
+    <path d="M 19.75 4 Q 16 2.75 12.25 4" />
+    <path d="M 12.25 4 Q 8.5 6.5 9.75 11.5" />
+    <path d="M 9.75 11.5 Q 11 16.5 12.25 19" />
+    <path d="M 12.25 19 Q 16 20.25 19.75 19" />
+    <path d="M 19.75 19 Q 20.5 15.25 19.75 11.5" />
+    <path d="M 19.75 11.5 Q 17.75 11 16 11.5" />
   </g>
 
   <g>
-    <circle cx="25" cy="25" r="6" fill="#60a5fa" />
-    <circle cx="25" cy="55" r="6" fill="#f472b6" />
-    <circle cx="25" cy="85" r="6" fill="#f472b6" />
+    <circle cx="4.75" cy="4" r="1.5" fill="#60a5fa" />
+    <circle cx="4.75" cy="11.5" r="1.5" fill="#f472b6" />
+    <circle cx="4.75" cy="19" r="1.5" fill="#f472b6" />
     
-    <circle cx="55" cy="85" r="6" fill="#60a5fa" />
-    <circle cx="55" cy="85" r="10" fill="none" stroke="#f59e0b" stroke-width="2.5" />
+    <circle cx="12.25" cy="19" r="1.5" fill="#60a5fa" />
+    <circle cx="12.25" cy="19" r="2.5" fill="none" stroke="#f59e0b" stroke-width="0.625" />
     
-    <circle cx="45" cy="55" r="6" fill="#60a5fa" />
-    <circle cx="55" cy="25" r="6" fill="#f472b6" />
-    <circle cx="85" cy="25" r="6" fill="#60a5fa" />
-    <circle cx="85" cy="85" r="6" fill="#f472b6" />
-    <circle cx="85" cy="55" r="6" fill="#60a5fa" />
-    <circle cx="70" cy="55" r="6" fill="#f472b6" />
+    <circle cx="9.75" cy="11.5" r="1.5" fill="#60a5fa" />
+    <circle cx="12.25" cy="4" r="1.5" fill="#f472b6" />
+    <circle cx="19.75" cy="4" r="1.5" fill="#60a5fa" />
+    <circle cx="19.75" cy="19" r="1.5" fill="#f472b6" />
+    <circle cx="19.75" cy="11.5" r="1.5" fill="#60a5fa" />
+    <circle cx="16" cy="11.5" r="1.5" fill="#f472b6" />
   </g>
 </svg>
