@@ -2,6 +2,7 @@ import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { usePerson, useUpdatePerson, useDeleteAsset } from '@/api/hooks';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { loadAvatarCrop, saveAvatarCrop, clearAvatarCrop } from '@/lib/avatarCrop';
+import { assetType, primaryImageAsset } from '@/lib/assetUtils';
 import { PersonChip } from '@/components/PersonChip';
 import { EventEditorDialog } from '@/components/EventEditorDialog';
 import { RelationshipEditorDialog } from '@/components/RelationshipEditorDialog';
@@ -27,7 +28,7 @@ import {
 import {
     Calendar, MapPin, Heart, Sunrise, Sunset, Leaf, GraduationCap, Briefcase, Church,
     Ship, ScrollText, FileText, Plus, ChevronRight, Image, BookOpen, Code,
-    Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2, Crop,
+    Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2, Crop, ExternalLink,
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useRef, useState } from 'react';
@@ -97,6 +98,7 @@ function PersonDetail() {
     const deleteAssetMutation = useDeleteAsset();
     const [showCropDialog, setShowCropDialog] = useState(false);
     const [avatarCrop, setAvatarCrop] = useState<CropArea | null>(null);
+    const [lightboxTextContent, setLightboxTextContent] = useState<string | null>(null);
 
     // Timeline virtualizer
     const timelineParentRef = useRef<HTMLDivElement>(null);
@@ -127,6 +129,18 @@ function PersonDetail() {
         setShowCropDialog(false);
         setAvatarCrop(loadAvatarCrop(id));
     }, [id]);
+
+    // Fetch text content when lightbox opens a text/markdown asset
+    useEffect(() => {
+        if (!lightboxAsset) { setLightboxTextContent(null); return; }
+        const type = assetType(lightboxAsset);
+        if (type === 'text' || type === 'markdown') {
+            setLightboxTextContent(null);
+            fetch(`/assets/${lightboxAsset}`).then(r => r.text()).then(setLightboxTextContent).catch(() => setLightboxTextContent('(Failed to load file)'));
+        } else {
+            setLightboxTextContent(null);
+        }
+    }, [lightboxAsset]);
 
     // Lightbox keyboard navigation: ESC to close, arrow keys to navigate
     useEffect(() => {
@@ -177,6 +191,9 @@ function PersonDetail() {
     const events = (person.events ?? []) as Array<Record<string, unknown>>;
     const birthDate = events.find((e) => e.type === 'birth')?.date as string | undefined;
     const deathDate = events.find((e) => e.type === 'death')?.date as string | undefined;
+
+    const allAssets = (person.assets ?? []) as string[];
+    const primaryPhoto = primaryImageAsset(allAssets);
 
     const parentIds = person.relationships?.parents ?? [];
     const spouseIds = computed.allSpouses?.map((s) => s.id) ?? [];
@@ -370,19 +387,19 @@ function PersonDetail() {
                         {/* Avatar + Name */}
                         <div className="flex flex-col items-center text-center gap-3 pt-2">
                             <div
-                                className={`relative group ${!person.assets?.length ? 'cursor-pointer' : ''}`}
-                                onClick={!person.assets?.length ? () => fileInputRef.current?.click() : undefined}
-                                title={!person.assets?.length ? 'Upload a photo' : undefined}
+                                className={`relative group ${!primaryPhoto ? 'cursor-pointer' : ''}`}
+                                onClick={!primaryPhoto ? () => fileInputRef.current?.click() : undefined}
+                                title={!primaryPhoto ? 'Upload a photo' : undefined}
                             >
                                 <CustomAvatar
                                     firstName={primaryName?.given ?? firstName}
                                     lastName={primaryName?.surname ?? lastName}
-                                    photoFilename={person.assets?.[0]}
+                                    photoFilename={primaryPhoto}
                                     className="h-20 w-20 text-2xl"
                                     cropData={avatarCrop}
-                                    onClick={person.assets?.length ? () => setLightboxAsset((person.assets as string[])[0]) : undefined}
+                                    onClick={primaryPhoto ? () => setLightboxAsset(primaryPhoto) : undefined}
                                 />
-                                {!person.assets?.length && (
+                                {!primaryPhoto && (
                                     <div className="absolute inset-0 rounded-full flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <Upload className="h-5 w-5 text-white" />
                                     </div>
@@ -642,7 +659,7 @@ function PersonDetail() {
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept="image/*,video/*,.pdf"
+                                accept="image/*,.pdf,.txt,.md"
                                 className="hidden"
                                 onChange={handleFileInputChange}
                             />
@@ -665,18 +682,33 @@ function PersonDetail() {
                                     Browse files
                                 </button>
                             </div>
-                            {(person.assets?.length ?? 0) > 0 ? (
+                            {allAssets.length > 0 ? (
                                 <div className="grid grid-cols-2 gap-2">
-                                    {(person.assets as string[]).map((asset, idx) => (
+                                    {allAssets.map((asset) => {
+                                        const type = assetType(asset);
+                                        const isImage = type === 'image';
+                                        const isPrimary = asset === primaryPhoto;
+                                        const isDoc = type === 'pdf' || type === 'text' || type === 'markdown';
+                                        return (
                                         <div key={asset} className="group relative aspect-square rounded-lg bg-muted border border-border overflow-hidden">
-                                            <img
-                                                src={`/assets/${asset}`}
-                                                alt={asset}
-                                                className="object-contain w-full h-full"
-                                                loading="lazy"
-                                            />
-                                            {/* Primary badge */}
-                                            {idx === 0 && (
+                                            {isImage ? (
+                                                <img
+                                                    src={`/assets/${asset}`}
+                                                    alt={asset}
+                                                    className="object-contain w-full h-full"
+                                                    loading="lazy"
+                                                />
+                                            ) : (
+                                                <div className="flex flex-col items-center justify-center w-full h-full gap-2 px-2">
+                                                    <FileText className="h-8 w-8 text-muted-foreground" />
+                                                    <span className="text-[10px] text-muted-foreground text-center break-all leading-tight">{asset}</span>
+                                                    <span className="text-[9px] uppercase tracking-wide text-muted-foreground/60 font-medium">
+                                                        {type === 'pdf' ? 'PDF' : type === 'markdown' ? 'Markdown' : 'Text'}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            {/* Primary badge — only for images */}
+                                            {isPrimary && (
                                                 <div className="absolute top-1 left-1 bg-primary/80 text-primary-foreground rounded px-1 py-0.5 text-[10px] font-medium flex items-center gap-0.5">
                                                     <Star className="h-2.5 w-2.5" /> Primary
                                                 </div>
@@ -685,13 +717,14 @@ function PersonDetail() {
                                             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                                                 <button
                                                     type="button"
-                                                    title="View full size"
+                                                    title={isDoc ? 'View document' : 'View full size'}
                                                     onClick={() => setLightboxAsset(asset)}
                                                     className="p-1.5 rounded-full bg-white/20 hover:bg-white/30 text-white"
                                                 >
                                                     <ZoomIn className="h-4 w-4" />
                                                 </button>
-                                                {idx !== 0 && (
+                                                {/* Set as primary — images only, not already primary */}
+                                                {isImage && !isPrimary && (
                                                     <button
                                                         type="button"
                                                         title="Set as primary photo"
@@ -711,7 +744,8 @@ function PersonDetail() {
                                                 </button>
                                             </div>
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             ) : (
                                 <div className="text-center text-muted-foreground text-sm py-4">No assets yet</div>
@@ -786,14 +820,51 @@ function PersonDetail() {
                             <ChevronRight className="h-6 w-6 rotate-180" />
                         </button>
                     )}
-                    <img
-                        src={`/assets/${lightboxAsset}`}
-                        alt={lightboxAsset}
-                        className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
-                        onClick={(e) => e.stopPropagation()}
-                    />
-                    {/* Bottom bar — only for primary image */}
-                    {lightboxAsset === (person.assets as string[])[0] && (
+                    {/* Lightbox content — varies by asset type */}
+                    {(() => {
+                        const type = assetType(lightboxAsset);
+                        if (type === 'pdf') return (
+                            <iframe
+                                src={`/assets/${lightboxAsset}`}
+                                title={lightboxAsset}
+                                className="w-[90vw] h-[90vh] rounded-lg shadow-2xl bg-white"
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                        );
+                        if (type === 'text' || type === 'markdown') return (
+                            <div
+                                className="w-[90vw] max-w-2xl h-[80vh] bg-background rounded-lg shadow-2xl overflow-auto p-6"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div className="flex items-center justify-between mb-4">
+                                    <span className="text-sm font-medium text-foreground">{lightboxAsset}</span>
+                                    <a
+                                        href={`/assets/${lightboxAsset}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <ExternalLink className="h-3 w-3" /> Open
+                                    </a>
+                                </div>
+                                <pre className="text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed">
+                                    {lightboxTextContent ?? 'Loading…'}
+                                </pre>
+                            </div>
+                        );
+                        // Default: image
+                        return (
+                            <img
+                                src={`/assets/${lightboxAsset}`}
+                                alt={lightboxAsset}
+                                className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                        );
+                    })()}
+                    {/* Bottom bar — only for the primary image */}
+                    {lightboxAsset === primaryPhoto && (
                         <div
                             className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-black/60 backdrop-blur-sm rounded-full px-4 py-2"
                             onClick={(e) => e.stopPropagation()}
@@ -853,9 +924,9 @@ function PersonDetail() {
             />
 
             {/* Avatar crop dialog — triggered from lightbox on primary image */}
-            {showCropDialog && !!(person.assets as string[])[0] && (
+            {showCropDialog && !!primaryPhoto && (
                 <AvatarCropDialog
-                    imageSrc={`/assets/${(person.assets as string[])[0]}`}
+                    imageSrc={`/assets/${primaryPhoto}`}
                     onConfirm={(area) => {
                         saveAvatarCrop(id, area);
                         setAvatarCrop(area);

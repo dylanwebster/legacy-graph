@@ -11,6 +11,16 @@ import { sliceTimeline } from '../../core/TimelineSlicer';
 import { invalidateComputed } from '../../core/GraphLogic';
 import type { AppInstance } from '../types';
 
+const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif', '.svg']);
+const ALLOWED_EXTS = new Set([...IMAGE_EXTS, '.pdf', '.txt', '.md']);
+const ALLOWED_MIME_PREFIXES = ['image/'];
+const ALLOWED_MIMES = new Set(['application/pdf', 'text/plain', 'text/markdown', 'text/x-markdown']);
+const isImageFile = (filename: string) => IMAGE_EXTS.has(path.extname(filename).toLowerCase());
+const isAllowedFile = (filename: string, mimetype: string) =>
+    ALLOWED_EXTS.has(path.extname(filename).toLowerCase()) ||
+    ALLOWED_MIME_PREFIXES.some(p => mimetype.startsWith(p)) ||
+    ALLOWED_MIMES.has(mimetype);
+
 export async function peopleRoutes(server: FastifyInstance) {
     const { graphEngine, txManager, dataDir } = (server as AppInstance).appServices;
 
@@ -49,7 +59,7 @@ export async function peopleRoutes(server: FastifyInstance) {
                     deathDate: p.events?.find((e: any) => e.type === 'death')?.date,
                     tags: p.tags,
                     assetCount: p.assets?.length || 0,
-                    primaryAsset: p.assets?.[0],
+                    primaryAsset: p.assets?.find(isImageFile),
                     last_modified: p.last_modified
                 });
             }
@@ -275,6 +285,14 @@ export async function peopleRoutes(server: FastifyInstance) {
                 return reply.status(400).send({
                     error: 'No file provided',
                     code: 'MISSING_FILE'
+                });
+            }
+
+            if (!isAllowedFile(data.filename, data.mimetype)) {
+                data.file.resume(); // drain stream to avoid hanging connection
+                return reply.status(415).send({
+                    error: 'File type not allowed. Supported types: images, PDF, TXT, MD.',
+                    code: 'UNSUPPORTED_FILE_TYPE'
                 });
             }
 
