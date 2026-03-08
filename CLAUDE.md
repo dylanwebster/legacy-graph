@@ -10,6 +10,8 @@ Self-hosted genealogy platform. File-system-first, Git-versioned, in-memory grap
 ```bash
 npm test          # Logic/Unit: Fast Vitest suite (excludes tests/e2e)
 npm run test:e2e  # Full Stack: Playwright in browser (starts server/client)
+                  # NOTE: stop the dev backend (port 3000) before running — e2e always
+                  # starts a fresh server on port 3000 pointed at tests/fixtures/e2e-data.
 ```
 
 ### Backend

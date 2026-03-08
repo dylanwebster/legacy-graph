@@ -32,9 +32,18 @@ test.describe('CUJ 4: Asset Management — Upload, View, Reject', () => {
     let personId: string;
     const uploadedAssets: string[] = [];
 
-    // Create a fresh person with no assets before all tests in this suite
+    // Create a fresh person with no assets before all tests in this suite.
+    // Poll until hydration is complete before creating the person — the status
+    // endpoint responds immediately on startup but data routes return 503 until ready.
     test.beforeAll(async ({ request }) => {
-        const res = await request.post('http://localhost:3001/api/people', {
+        for (let i = 0; i < 60; i++) {
+            const status = await request.get('http://localhost:3000/api/system/status');
+            const body = await status.json();
+            if (body.hydrationState === 'ready') break;
+            await new Promise(r => setTimeout(r, 1000));
+        }
+
+        const res = await request.post('http://localhost:3000/api/people', {
             data: {
                 names: [{ first: 'Asset', last: 'TestPerson', primary: true }],
                 sex: 'F',
@@ -47,7 +56,7 @@ test.describe('CUJ 4: Asset Management — Upload, View, Reject', () => {
     // Clean up uploaded assets so they don't accumulate across test runs
     test.afterAll(async ({ request }) => {
         for (const filename of uploadedAssets) {
-            await request.delete(`http://localhost:3001/api/people/${personId}/media/${filename}`);
+            await request.delete(`http://localhost:3000/api/people/${personId}/media/${filename}`);
         }
     });
 
