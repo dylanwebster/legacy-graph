@@ -2,8 +2,12 @@ import { Link } from '@tanstack/react-router';
 import { useUIStore } from '@/store/uiStore';
 import { cn } from '@/lib/utils';
 import { StatusDot } from './StatusDot';
-import { LayoutDashboard, Users, BookOpen, Import, Settings, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { LayoutDashboard, Users, BookOpen, Import, Settings, ChevronLeft, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+
+function LGLogo({ className }: { className?: string }) {
+    return <img src="/lg.svg" alt="LegacyGraph" className={className} />;
+}
 
 const navItems = [
     { icon: LayoutDashboard, label: 'Dashboard', to: '/' },
@@ -40,7 +44,7 @@ export function Sidebar() {
                 <div className="flex h-14 items-center border-b border-border shrink-0">
                     {sidebarOpen ? (
                         <>
-                            {/* Mobile: X on the left — same x-position as the TopBar hamburger */}
+                            {/* Mobile: X on the left */}
                             <button
                                 onClick={toggleSidebar}
                                 className="md:hidden flex items-center justify-center h-9 w-9 ml-2.5 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0"
@@ -48,7 +52,15 @@ export function Sidebar() {
                             >
                                 <X className="h-5 w-5" />
                             </button>
-                            <span className="font-bold text-lg flex-1 pl-2 md:pl-4 tracking-tight">LegacyGraph</span>
+                            {/* Logo + wordmark — links to Dashboard */}
+                            <Link
+                                to="/"
+                                className="flex items-center gap-2 flex-1 pl-2 md:pl-3 min-w-0"
+                                aria-label="LegacyGraph — Dashboard"
+                            >
+                                <LGLogo className="h-7 w-7 shrink-0" />
+                                <span className="font-bold text-base tracking-tight truncate">LegacyGraph</span>
+                            </Link>
                             {/* Desktop: ChevronLeft on the right */}
                             <button
                                 onClick={toggleSidebar}
@@ -59,14 +71,21 @@ export function Sidebar() {
                             </button>
                         </>
                     ) : (
-                        /* Desktop collapsed: ChevronRight centered */
-                        <button
-                            onClick={toggleSidebar}
-                            className="mx-auto flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                            aria-label="Expand sidebar"
-                        >
-                            <ChevronRight className="h-4 w-4" />
-                        </button>
+                        /* Desktop collapsed: logo icon centered, toggles sidebar open */
+                        <TooltipProvider delayDuration={0}>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <button
+                                        onClick={toggleSidebar}
+                                        className="mx-auto flex items-center justify-center rounded-md transition-colors"
+                                        aria-label="Expand sidebar"
+                                    >
+                                        <LGLogo className="h-8 w-8" />
+                                    </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right">LegacyGraph</TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
                     )}
                 </div>
 
