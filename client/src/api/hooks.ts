@@ -5,10 +5,15 @@ import { apiFetch, deleteAsset, searchPlaces, resolvePlace } from './client';
 import { storiesApi } from './stories';
 import type { CreateStoryInput, UpdateStoryInput, StoryFeedItem } from './stories';
 
+export interface PlaceResult {
+    location: string;
+    count: number;
+}
+
 export interface SearchResponse {
     people: SlimPersonSummary[];
     stories: StoryFeedItem[];
-    places: string[];
+    places: PlaceResult[];
     totalCounts: {
         people: number;
         stories: number;
@@ -21,8 +26,6 @@ export interface SystemStatus {
     edgeCount: number;
     hydrationState: string;
     cacheAge: number | null;
-    gitBranch: string;
-    gitDirty: boolean;
 }
 
 export interface StatsResponse {

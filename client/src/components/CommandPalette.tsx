@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useUIStore } from '@/store/uiStore';
 import { useSearch } from '@/api/hooks';
+import type { PlaceResult } from '@/api/hooks';
 import type { SlimPersonSummary } from '@/api/people';
 import type { StoryFeedItem } from '@/api/stories';
 import { CustomAvatar } from './CustomAvatar';
@@ -65,7 +66,7 @@ export function CommandPalette() {
     // Extract result categories from the search response { people, stories, places }
     const people: SlimPersonSummary[] = data?.people ?? [];
     const stories: StoryFeedItem[] = data?.stories ?? [];
-    const places: string[] = data?.places ?? [];
+    const places: PlaceResult[] = data?.places ?? [];
 
     return (
         <CommandDialog
@@ -157,11 +158,11 @@ export function CommandPalette() {
                             {places.map((place, idx) => (
                                 <CommandItem
                                     key={`place-${idx}`}
-                                    value={`place-${place}`}
+                                    value={`place-${place.location}`}
                                     className="flex items-center gap-3 py-2"
                                 >
                                     <MapPin className="h-5 w-5 text-muted-foreground shrink-0" />
-                                    <span className="font-medium truncate">{place}</span>
+                                    <span className="font-medium truncate">{place.location}</span>
                                 </CommandItem>
                             ))}
                         </CommandGroup>

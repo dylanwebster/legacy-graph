@@ -289,7 +289,7 @@ function StoryPage() {
                 .catch(() => {})
                 .finally(() => storiesApi.deleteStory(draftId).catch(() => {}));
         };
-    }, []);
+    }, []); // Intentionally empty: runs only on unmount. storiesApi is a stable module singleton; refs are stable.
     const fmRef = useRef(fm);
     fmRef.current = fm;
     const contentRef2 = useRef(content);

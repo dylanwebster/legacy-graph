@@ -118,7 +118,7 @@ function SearchPage() {
                     <div className="flex flex-wrap gap-2">
                         {places.map((place, idx) => (
                             <Badge key={idx} variant="secondary" className="text-sm py-1.5 px-3">
-                                {place}
+                                {place.location}
                             </Badge>
                         ))}
                     </div>
