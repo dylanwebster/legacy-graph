@@ -1,5 +1,4 @@
 import { FastifyInstance } from 'fastify';
-import { nanoid } from 'nanoid';
 import { generatePersonId } from '../../utils/idGenerator';
 import * as nodeFs from 'fs';
 import * as fs from 'fs/promises';
@@ -10,6 +9,18 @@ import { Person, PersonSchema, SlimPerson, toSlimPerson } from '../../schemas/Pe
 import { sliceTimeline } from '../../core/TimelineSlicer';
 import { invalidateComputed } from '../../core/GraphLogic';
 import type { AppInstance } from '../types';
+
+const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif', '.svg']);
+const ALLOWED_EXTS = new Set([...IMAGE_EXTS, '.pdf', '.txt', '.md']);
+const ALLOWED_MIME_PREFIXES = ['image/'];
+const ALLOWED_MIMES = new Set(['application/pdf', 'text/plain', 'text/markdown', 'text/x-markdown']);
+const isImageFile = (filename: string) => IMAGE_EXTS.has(path.extname(filename).toLowerCase());
+const isAllowedFile = (filename: string, mimetype: string) => {
+    const ext = path.extname(filename).toLowerCase();
+    if (!ALLOWED_EXTS.has(ext)) return false;
+    if (IMAGE_EXTS.has(ext)) return ALLOWED_MIME_PREFIXES.some(p => mimetype.startsWith(p));
+    return ALLOWED_MIMES.has(mimetype);
+};
 
 export async function peopleRoutes(server: FastifyInstance) {
     const { graphEngine, txManager, dataDir } = (server as AppInstance).appServices;
@@ -49,7 +60,7 @@ export async function peopleRoutes(server: FastifyInstance) {
                     deathDate: p.events?.find((e: any) => e.type === 'death')?.date,
                     tags: p.tags,
                     assetCount: p.assets?.length || 0,
-                    primaryAsset: p.assets?.[0],
+                    primaryAsset: p.assets?.find(isImageFile),
                     last_modified: p.last_modified
                 });
             }
@@ -278,11 +289,34 @@ export async function peopleRoutes(server: FastifyInstance) {
                 });
             }
 
-            const ext = path.extname(data.filename);
-            const uniqueFilename = `${nanoid()}${ext}`;
+            if (!isAllowedFile(data.filename, data.mimetype)) {
+                data.file.resume(); // drain stream to avoid hanging connection
+                return reply.status(415).send({
+                    error: 'File type not allowed. Supported types: images, PDF, TXT, MD.',
+                    code: 'UNSUPPORTED_FILE_TYPE'
+                });
+            }
+
+            const ext = path.extname(data.filename).toLowerCase();
+            const rawBase = path.basename(data.filename, path.extname(data.filename)).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
+            const baseName = rawBase || 'upload';
 
             const assetsDir = path.join(dataDir, 'assets');
             await fs.mkdir(assetsDir, { recursive: true });
+
+            // Find a unique filename — keep original, add -1, -2, … only on conflict
+            let uniqueFilename = `${baseName}${ext}`;
+            let counter = 1;
+            while (true) {
+                try {
+                    await fs.access(path.join(assetsDir, uniqueFilename));
+                    // File exists — try next suffix
+                    uniqueFilename = `${baseName}-${counter}${ext}`;
+                    counter++;
+                } catch {
+                    break; // File doesn't exist — name is available
+                }
+            }
 
             const filepath = path.join(assetsDir, uniqueFilename);
             await pipeline(data.file, nodeFs.createWriteStream(filepath));

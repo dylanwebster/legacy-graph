@@ -3,6 +3,7 @@ import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import { usePeople, useSearch } from '@/api/hooks';
 import type { SlimPersonSummary } from '@/api/people';
 import { CustomAvatar } from '@/components/CustomAvatar';
+import { loadAvatarCrop } from '@/lib/avatarCrop';
 import { CreatePersonDialog } from '@/components/CreatePersonDialog';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -196,6 +197,7 @@ function PeopleBrowse() {
                                         lastName={lastName}
                                         photoFilename={person.primaryAsset}
                                         className="h-8 w-8"
+                                        cropData={loadAvatarCrop(person.id)}
                                     />
                                     <span className="font-medium text-sm truncate">{displayName}</span>
                                     <span className="text-sm text-muted-foreground font-mono truncate">

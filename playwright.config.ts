@@ -13,9 +13,13 @@ export default defineConfig({
     },
     webServer: [
         {
+            // reuseExistingServer: false ensures E2E tests never accidentally run
+            // against a dev server pointing at real data. If port 3000 is already
+            // occupied (e.g. the dev server is running), Playwright will throw a
+            // clear error — stop the dev server before running e2e tests.
             command: 'DATA_DIR=./tests/fixtures/e2e-data PORT=3000 npm start',
             url: 'http://localhost:3000/api/system/status',
-            reuseExistingServer: !process.env.CI,
+            reuseExistingServer: false,
             timeout: 30_000,
         },
         {

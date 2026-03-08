@@ -3,8 +3,9 @@ import { Link } from '@tanstack/react-router';
 import { usePerson } from '@/api/hooks';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
-import { Calendar, Skull } from 'lucide-react';
+import { Sunrise, Sunset } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { loadAvatarCrop } from '@/lib/avatarCrop';
 
 interface PersonChipProps {
     id: string;
@@ -47,6 +48,7 @@ export function PersonChip({ id, name, photoFilename, className }: PersonChipPro
                         lastName={avatarLast}
                         photoFilename={firstAsset}
                         className="h-6 w-6 text-[10px]"
+                        cropData={loadAvatarCrop(id)}
                     />
                     <span className="truncate">
                         {displayName ?? <span className="font-mono text-xs text-muted-foreground">{id}</span>}
@@ -76,6 +78,7 @@ export function PersonHoverContent({
     const birthDate = events.find((e) => e.type === 'birth')?.date;
     const deathDate = events.find((e) => e.type === 'death')?.date;
     const spouse = person._computed?.currentSpouse;
+    const cropData = loadAvatarCrop(id);
 
     return (
         <div className="space-y-2">
@@ -85,6 +88,7 @@ export function PersonHoverContent({
                     lastName={person.names?.[0]?.last || person.names?.[0]?.surname || ''}
                     photoFilename={person.assets?.[0]}
                     className="h-10 w-10 text-sm"
+                    cropData={cropData}
                 />
                 <div>
                     <p className="font-semibold text-sm">{displayName}</p>
@@ -95,13 +99,13 @@ export function PersonHoverContent({
                 <div className="space-y-1">
                     {birthDate && (
                         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <Calendar className="h-3 w-3" />
+                            <Sunrise className="h-3 w-3" />
                             <span>b. {birthDate}</span>
                         </div>
                     )}
                     {deathDate && (
                         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <Skull className="h-3 w-3" />
+                            <Sunset className="h-3 w-3" />
                             <span>d. {deathDate}</span>
                         </div>
                     )}

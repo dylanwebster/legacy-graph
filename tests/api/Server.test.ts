@@ -293,6 +293,133 @@ describe('Fastify API Server', () => {
 
             expect(response.status).toBe(400);
         });
+
+        it('should reject disallowed file types with 415 and UNSUPPORTED_FILE_TYPE code', async () => {
+            const createResponse = await request
+                .post('/api/people')
+                .send({ names: [{ first: 'Test', last: 'Reject', primary: true }], sex: 'M' });
+            const personId = createResponse.body.id;
+
+            const response = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', Buffer.from('#!/bin/sh\necho hi'), { filename: 'script.sh', contentType: 'application/x-sh' });
+
+            expect(response.status).toBe(415);
+            expect(response.body.code).toBe('UNSUPPORTED_FILE_TYPE');
+        });
+
+        it('should accept PDF, TXT, and MD uploads', async () => {
+            const createResponse = await request
+                .post('/api/people')
+                .send({ names: [{ first: 'Test', last: 'Docs', primary: true }], sex: 'F' });
+            const personId = createResponse.body.id;
+
+            const pdfUpload = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', Buffer.from('%PDF-1.4 test'), { filename: 'doc.pdf', contentType: 'application/pdf' });
+            expect(pdfUpload.status).toBe(200);
+
+            const txtUpload = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', Buffer.from('plain text'), { filename: 'notes.txt', contentType: 'text/plain' });
+            expect(txtUpload.status).toBe(200);
+
+            const mdUpload = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', Buffer.from('# Heading\ncontent'), { filename: 'readme.md', contentType: 'text/markdown' });
+            expect(mdUpload.status).toBe(200);
+        });
+
+        it('should preserve original filename on upload', async () => {
+            const createResponse = await request
+                .post('/api/people')
+                .send({ names: [{ first: 'Test', last: 'Filename', primary: true }], sex: 'M' });
+            const personId = createResponse.body.id;
+
+            const pngBuffer = Buffer.from([
+                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+                0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+                0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+                0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+                0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+                0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+                0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+                0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+                0x42, 0x60, 0x82
+            ]);
+
+            const uploadResponse = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', pngBuffer, 'my-portrait.png');
+
+            expect(uploadResponse.status).toBe(200);
+            expect(uploadResponse.body.filename).toBe('my-portrait.png');
+        });
+
+        it('should deduplicate filenames when a conflict exists', async () => {
+            const createResponse = await request
+                .post('/api/people')
+                .send({ names: [{ first: 'Test', last: 'Dedup', primary: true }], sex: 'F' });
+            const personId = createResponse.body.id;
+
+            const buf = Buffer.from('plain text content');
+            // Use a test-specific filename unlikely to exist from other tests
+            const baseName = `dedup-unique-test-file.txt`;
+
+            const first = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', buf, { filename: baseName, contentType: 'text/plain' });
+            expect(first.status).toBe(200);
+            expect(first.body.filename).toBe(baseName);
+
+            const second = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', buf, { filename: baseName, contentType: 'text/plain' });
+            expect(second.status).toBe(200);
+            expect(second.body.filename).toBe('dedup-unique-test-file-1.txt');
+
+            const third = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', buf, { filename: baseName, contentType: 'text/plain' });
+            expect(third.status).toBe(200);
+            expect(third.body.filename).toBe('dedup-unique-test-file-2.txt');
+        });
+
+        it('should only use image assets as primaryAsset in the people list', async () => {
+            const createResponse = await request
+                .post('/api/people')
+                .send({ names: [{ first: 'Test', last: 'Primary', primary: true }], sex: 'M' });
+            const personId = createResponse.body.id;
+
+            // Upload a text file first
+            await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', Buffer.from('some notes'), { filename: 'notes.txt', contentType: 'text/plain' });
+
+            // Upload an image second
+            const pngBuffer = Buffer.from([
+                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+                0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+                0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+                0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+                0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+                0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+                0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+                0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+                0x42, 0x60, 0x82
+            ]);
+            const imgUpload = await request
+                .put(`/api/people/${personId}/media`)
+                .attach('file', pngBuffer, 'portrait.png');
+            const imageFilename = imgUpload.body.filename;
+
+            // GET /api/people list should have primaryAsset = the image, not the txt
+            const listResponse = await request.get('/api/people?limit=200');
+            const entry = listResponse.body.people.find((p: { id: string }) => p.id === personId);
+            expect(entry).toBeDefined();
+            expect(entry.primaryAsset).toBe(imageFilename);
+            expect(entry.primaryAsset).not.toBe('notes.txt');
+        });
     });
 
     describe('DELETE /api/people/:id/media/:filename', () => {

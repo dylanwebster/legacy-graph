@@ -22,7 +22,7 @@ test.describe('CUJ 3: Responsive Layout', () => {
 
         // Sidebar with labels should now be visible
         await expect(page.getByText('LegacyGraph')).toBeVisible({ timeout: 3_000 });
-        await expect(page.getByRole('link', { name: 'Dashboard' })).toBeVisible({ timeout: 3_000 });
+        await expect(page.getByRole('link', { name: 'Dashboard', exact: true })).toBeVisible({ timeout: 3_000 });
     });
 
     test('desktop viewport shows full sidebar with labels', async ({ page }) => {
