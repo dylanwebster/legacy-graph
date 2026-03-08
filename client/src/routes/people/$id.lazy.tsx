@@ -296,14 +296,14 @@ function PersonDetail() {
     const uploadFile = async (file: File) => {
         const formData = new FormData();
         formData.append('file', file);
-        try {
-            const res = await fetch(`/api/people/${id}/media`, { method: 'PUT', body: formData });
-            if (!res.ok) throw new Error('Upload failed');
-            toast.success('Asset uploaded.');
-            queryClient.invalidateQueries({ queryKey: ['person', id] });
-        } catch {
-            toast.error('Failed to upload asset.');
+        const res = await fetch(`/api/people/${id}/media`, { method: 'PUT', body: formData });
+        if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            toast.error(body?.error ?? 'Failed to upload asset.');
+            return;
         }
+        toast.success('Asset uploaded.');
+        queryClient.invalidateQueries({ queryKey: ['person', id] });
     };
 
     const handleDrop = async (e: React.DragEvent) => {
