@@ -1,7 +1,7 @@
 import { createLazyFileRoute, Link } from '@tanstack/react-router';
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useAssets, useUpdateAssetMeta, useDeleteGalleryAsset } from '@/api/hooks';
+import { useAssets, useUpdateAssetMeta, useDeleteGalleryAsset, useSearch } from '@/api/hooks';
 import type { AssetListItem } from '@/api/client';
 import { assetType } from '@/lib/assetUtils';
 import { PersonChip } from '@/components/PersonChip';
@@ -16,7 +16,7 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Search, FileText, Trash2, ZoomIn, ExternalLink } from 'lucide-react';
+import { Search, FileText, Trash2, ZoomIn, ExternalLink, Tag, X, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const Route = createLazyFileRoute('/assets')({
@@ -24,7 +24,9 @@ export const Route = createLazyFileRoute('/assets')({
 });
 
 const COLS = 3;
-const CELL_HEIGHT = 200;
+// Card = 160px thumbnail + 110px info panel + 8px gap
+const CARD_HEIGHT = 270;
+const CARD_INFO_HEIGHT = 110;
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif', '.svg']);
 
 function isImage(filename: string): boolean {
@@ -36,6 +38,75 @@ function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// ── Inline person search popover ──────────────────────────────────────────
+
+function TagPersonPopover({
+    onAdd,
+    excludeIds,
+}: {
+    onAdd: (id: string) => void;
+    excludeIds: string[];
+}) {
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const [debouncedQuery, setDebouncedQuery] = useState('');
+
+    useEffect(() => {
+        const t = setTimeout(() => setDebouncedQuery(query), 300);
+        return () => clearTimeout(t);
+    }, [query]);
+
+    type PersonResult = { id: string; names?: Array<{ first?: string; given?: string; last?: string; surname?: string }> };
+    const { data: searchResults } = useSearch(debouncedQuery, { limit: 6 });
+    const people = (searchResults?.people ?? []).filter(
+        (p) => !excludeIds.includes((p as PersonResult).id)
+    ) as PersonResult[];
+
+    if (!open) {
+        return (
+            <button
+                type="button"
+                onClick={() => setOpen(true)}
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                title="Tag a person"
+            >
+                <UserPlus className="h-2.5 w-2.5" /> Tag
+            </button>
+        );
+    }
+
+    return (
+        <div className="relative">
+            <Input
+                placeholder="Search people…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onBlur={() => setTimeout(() => { setOpen(false); setQuery(''); }, 150)}
+                className="h-6 text-[10px] px-1.5"
+                autoFocus
+            />
+            {debouncedQuery && people.length > 0 && (
+                <div className="absolute z-50 left-0 right-0 mt-0.5 bg-popover border border-border rounded shadow-md max-h-36 overflow-auto">
+                    {people.map((p) => {
+                        const n = p.names?.[0];
+                        const name = `${n?.first || n?.given || ''} ${n?.last || n?.surname || ''}`.trim() || p.id;
+                        return (
+                            <button
+                                key={p.id}
+                                type="button"
+                                className="w-full text-left px-2 py-1 text-[10px] hover:bg-muted"
+                                onMouseDown={() => { onAdd(p.id); setOpen(false); setQuery(''); }}
+                            >
+                                {name}
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
 }
 
 // ── AssetCard ─────────────────────────────────────────────────────────────
@@ -54,9 +125,8 @@ function AssetCard({ asset, onLightbox, onDelete }: AssetCardProps) {
     const isImg = type === 'image';
 
     const saveCaption = () => {
-        const caption = captionValue.trim();
         updateMeta.mutate(
-            { filename: asset.filename, meta: { caption: caption || undefined } },
+            { filename: asset.filename, meta: { caption: captionValue.trim() || undefined } },
             {
                 onSuccess: () => { toast.success('Caption saved.'); setEditingCaption(false); },
                 onError: () => toast.error('Failed to save caption.'),
@@ -64,10 +134,29 @@ function AssetCard({ asset, onLightbox, onDelete }: AssetCardProps) {
         );
     };
 
+    const handleTagAdd = (personId: string) => {
+        const updated = [...asset.metadata.tagged_people, personId];
+        updateMeta.mutate(
+            { filename: asset.filename, meta: { tagged_people: updated } },
+            {
+                onSuccess: () => toast.success('Person tagged.'),
+                onError: () => toast.error('Failed to tag person.'),
+            }
+        );
+    };
+
+    const handleTagRemove = (personId: string) => {
+        const updated = asset.metadata.tagged_people.filter((id) => id !== personId);
+        updateMeta.mutate(
+            { filename: asset.filename, meta: { tagged_people: updated } },
+            { onError: () => toast.error('Failed to remove tag.') }
+        );
+    };
+
     return (
-        <div className="group relative rounded-lg border border-border bg-card overflow-hidden flex flex-col">
+        <div className="rounded-lg border border-border bg-card overflow-hidden flex flex-col" style={{ height: CARD_HEIGHT }}>
             {/* Thumbnail */}
-            <div className="relative bg-muted overflow-hidden flex-shrink-0" style={{ height: 140 }}>
+            <div className="group relative bg-muted overflow-hidden flex-shrink-0" style={{ height: CARD_HEIGHT - CARD_INFO_HEIGHT }}>
                 {isImg ? (
                     <img
                         src={`/assets/${asset.filename}`}
@@ -76,7 +165,7 @@ function AssetCard({ asset, onLightbox, onDelete }: AssetCardProps) {
                         loading="lazy"
                     />
                 ) : (
-                    <div className="flex flex-col items-center justify-center w-full h-full gap-2 py-4">
+                    <div className="flex flex-col items-center justify-center w-full h-full gap-2">
                         <FileText className="h-10 w-10 text-muted-foreground" />
                         <span className="text-[10px] text-muted-foreground text-center break-all px-2 leading-tight">
                             {asset.filename}
@@ -84,14 +173,12 @@ function AssetCard({ asset, onLightbox, onDelete }: AssetCardProps) {
                     </div>
                 )}
 
-                {/* Orphan badge */}
                 {asset.isOrphan && (
                     <div className="absolute top-1.5 right-1.5">
                         <Badge variant="destructive" className="text-[9px] px-1.5 py-0">Orphan</Badge>
                     </div>
                 )}
 
-                {/* Hover overlay */}
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <button
                         type="button"
@@ -114,77 +201,81 @@ function AssetCard({ asset, onLightbox, onDelete }: AssetCardProps) {
                 </div>
             </div>
 
-            {/* Info panel */}
-            <div className="px-2 py-1.5 space-y-1 flex-1">
-                <p className="text-[10px] text-muted-foreground truncate" title={asset.filename}>
-                    {asset.filename}
+            {/* Info panel — fixed height, clipped */}
+            <div
+                className="px-2 py-1.5 flex flex-col gap-0.5 overflow-hidden"
+                style={{ height: CARD_INFO_HEIGHT }}
+            >
+                {/* Filename + size */}
+                <p className="text-[9px] text-muted-foreground/70 truncate" title={asset.filename}>
+                    {asset.filename} · {formatSize(asset.size)}
                 </p>
-                <p className="text-[9px] text-muted-foreground/70">{formatSize(asset.size)}</p>
 
-                {/* Caption */}
+                {/* Caption — editable */}
                 {editingCaption ? (
-                    <div className="flex gap-1">
-                        <Input
-                            value={captionValue}
-                            onChange={(e) => setCaptionValue(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') saveCaption();
-                                if (e.key === 'Escape') setEditingCaption(false);
-                            }}
-                            onBlur={saveCaption}
-                            className="h-6 text-[10px] px-1.5"
-                            autoFocus
-                        />
-                    </div>
+                    <Input
+                        value={captionValue}
+                        onChange={(e) => setCaptionValue(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveCaption();
+                            if (e.key === 'Escape') setEditingCaption(false);
+                        }}
+                        onBlur={saveCaption}
+                        className="h-5 text-[9px] px-1"
+                        autoFocus
+                    />
                 ) : (
                     <button
                         type="button"
                         onClick={() => { setCaptionValue(asset.metadata.caption ?? ''); setEditingCaption(true); }}
-                        className="text-[10px] text-left text-muted-foreground hover:text-foreground transition-colors w-full truncate"
+                        className="text-[9px] text-left text-muted-foreground hover:text-foreground transition-colors truncate w-full"
                         title="Click to edit caption"
                     >
-                        {asset.metadata.caption || <span className="italic opacity-50">Add caption…</span>}
+                        {asset.metadata.caption || <span className="italic opacity-40">Add caption…</span>}
                     </button>
                 )}
 
                 {/* Referenced by people */}
                 {asset.referencedBy.people.length > 0 && (
-                    <div className="flex flex-wrap gap-0.5">
-                        {asset.referencedBy.people.slice(0, 3).map((pid) => (
-                            <PersonChip key={pid} id={pid} className="text-[9px]" />
+                    <div className="flex flex-wrap gap-0.5 items-center">
+                        {asset.referencedBy.people.slice(0, 2).map((pid) => (
+                            <PersonChip key={pid} id={pid} className="text-[8px]" />
                         ))}
-                        {asset.referencedBy.people.length > 3 && (
-                            <span className="text-[9px] text-muted-foreground">+{asset.referencedBy.people.length - 3}</span>
+                        {asset.referencedBy.people.length > 2 && (
+                            <span className="text-[8px] text-muted-foreground">+{asset.referencedBy.people.length - 2}</span>
+                        )}
+                        {asset.referencedBy.stories.length > 0 && (
+                            <Link
+                                to="/stories/$id"
+                                params={{ id: asset.referencedBy.stories[0] }}
+                                className="text-[8px] text-primary flex items-center gap-0.5 hover:underline"
+                            >
+                                <ExternalLink className="h-2 w-2" />story
+                            </Link>
                         )}
                     </div>
                 )}
 
-                {/* Tagged people */}
-                {asset.metadata.tagged_people.length > 0 && (
-                    <div className="flex flex-wrap gap-0.5 items-center">
-                        <span className="text-[9px] text-muted-foreground">Tagged:</span>
-                        {asset.metadata.tagged_people.slice(0, 2).map((pid) => (
-                            <PersonChip key={pid} id={pid} className="text-[9px]" />
-                        ))}
-                    </div>
-                )}
-
-                {/* Story links */}
-                {asset.referencedBy.stories.length > 0 && (
-                    <div className="flex flex-wrap gap-0.5">
-                        {asset.referencedBy.stories.slice(0, 2).map((sid) => (
-                            <Link
-                                key={sid}
-                                to="/stories/$id"
-                                params={{ id: sid }}
-                                className="text-[9px] text-primary hover:underline flex items-center gap-0.5"
+                {/* Tagged people with remove + add */}
+                <div className="flex flex-wrap gap-0.5 items-center">
+                    <Tag className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
+                    {asset.metadata.tagged_people.map((pid) => (
+                        <span key={pid} className="flex items-center gap-0.5">
+                            <PersonChip id={pid} className="text-[8px]" />
+                            <button
+                                type="button"
+                                onClick={() => handleTagRemove(pid)}
+                                className="text-muted-foreground hover:text-destructive transition-colors"
                             >
-                                <ExternalLink className="h-2.5 w-2.5" />
-                                story
-                            </Link>
-                        ))}
-                    </div>
-                )}
+                                <X className="h-2.5 w-2.5" />
+                            </button>
+                        </span>
+                    ))}
+                    <TagPersonPopover
+                        onAdd={handleTagAdd}
+                        excludeIds={asset.metadata.tagged_people}
+                    />
+                </div>
             </div>
         </div>
     );
@@ -268,7 +359,7 @@ function AssetGallery() {
     const rowVirtualizer = useVirtualizer({
         count: rows.length,
         getScrollElement: () => parentRef.current,
-        estimateSize: () => CELL_HEIGHT + 8,
+        estimateSize: () => CARD_HEIGHT + 12,
         overscan: 3,
     });
 

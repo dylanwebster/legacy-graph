@@ -696,6 +696,7 @@ function PersonDetail() {
                                         const isImage = type === 'image';
                                         const isPrimary = asset === primaryPhoto;
                                         const isDoc = type === 'pdf' || type === 'text' || type === 'markdown';
+                                        const caption = allAssetsData?.assets.find((a) => a.filename === asset)?.metadata.caption;
                                         return (
                                         <div key={asset} className="group relative aspect-square rounded-lg bg-muted border border-border overflow-hidden">
                                             {isImage ? (
@@ -718,6 +719,12 @@ function PersonDetail() {
                                             {isPrimary && (
                                                 <div className="absolute top-1 left-1 bg-primary/80 text-primary-foreground rounded px-1 py-0.5 text-[10px] font-medium flex items-center gap-0.5">
                                                     <Star className="h-2.5 w-2.5" /> Primary
+                                                </div>
+                                            )}
+                                            {/* Caption overlay */}
+                                            {!!caption && (
+                                                <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1.5 py-0.5 pointer-events-none">
+                                                    <p className="text-[9px] text-white truncate">{caption}</p>
                                                 </div>
                                             )}
                                             {/* Hover controls */}
