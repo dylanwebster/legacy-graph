@@ -1,5 +1,5 @@
 import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { usePerson, useUpdatePerson, useDeleteAsset } from '@/api/hooks';
+import { usePerson, useUpdatePerson, useDeleteAsset, useAssets } from '@/api/hooks';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { loadAvatarCrop, saveAvatarCrop, clearAvatarCrop } from '@/lib/avatarCrop';
 import { assetType, primaryImageAsset } from '@/lib/assetUtils';
@@ -70,6 +70,7 @@ function PersonDetail() {
     const { data: person, isLoading, isError } = usePerson(id);
     const updatePerson = useUpdatePerson();
     const queryClient = useQueryClient();
+    const { data: allAssetsData } = useAssets();
 
     // Inline editing state
     const [editingName, setEditingName] = useState(false);
@@ -195,6 +196,11 @@ function PersonDetail() {
 
     const allAssets = (person.assets ?? []) as string[];
     const primaryPhoto = primaryImageAsset(allAssets);
+
+    // Tagged-in assets (from global asset index)
+    const taggedInAssets = (allAssetsData?.assets ?? []).filter(
+        (a) => a.metadata.tagged_people.includes(id)
+    );
 
     const parentIds = person.relationships?.parents ?? [];
     const spouseIds = computed.allSpouses?.map((s) => s.id) ?? [];
@@ -750,6 +756,44 @@ function PersonDetail() {
                                 </div>
                             ) : (
                                 <div className="text-center text-muted-foreground text-sm py-4">No assets yet</div>
+                            )}
+
+                            {/* Tagged In section */}
+                            {taggedInAssets.length > 0 && (
+                                <div className="mt-4">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                            Tagged In
+                                        </span>
+                                        <Link to="/assets" className="text-xs text-primary hover:underline">
+                                            Open in Gallery
+                                        </Link>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {taggedInAssets.map((asset) => {
+                                            const isImg = assetType(asset.filename) === 'image';
+                                            return (
+                                                <div key={asset.filename} className="relative aspect-square rounded-lg bg-muted border border-border overflow-hidden">
+                                                    {isImg ? (
+                                                        <img
+                                                            src={`/assets/${asset.filename}`}
+                                                            alt={asset.filename}
+                                                            className="object-contain w-full h-full"
+                                                            loading="lazy"
+                                                        />
+                                                    ) : (
+                                                        <div className="flex flex-col items-center justify-center w-full h-full gap-1">
+                                                            <FileText className="h-6 w-6 text-muted-foreground" />
+                                                            <span className="text-[9px] text-muted-foreground text-center break-all px-1 leading-tight">
+                                                                {asset.filename}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
                             )}
                         </TabsContent>
 

@@ -1,5 +1,32 @@
 import type { Place } from './people';
 
+// ── Asset types ────────────────────────────────────────────────────────────
+
+export interface AssetMetadata {
+    caption?: string;
+    tagged_people: string[];
+}
+
+export interface AssetListItem {
+    filename: string;
+    size: number;
+    mimeType: string;
+    referencedBy: {
+        people: string[];
+        stories: string[];
+        events: Array<{ personId: string; eventId: string; eventType: string }>;
+    };
+    metadata: AssetMetadata;
+    isOrphan: boolean;
+}
+
+export interface AssetListResponse {
+    assets: AssetListItem[];
+    totalCount: number;
+}
+
+// ── Generic fetch ──────────────────────────────────────────────────────────
+
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     const response = await fetch(`/api${path}`, options);
 
@@ -39,5 +66,65 @@ export async function resolvePlace(name: string): Promise<Place> {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
+    });
+}
+
+export async function getAssets(): Promise<AssetListResponse> {
+    return apiFetch<AssetListResponse>('/assets');
+}
+
+export async function updateAssetMeta(
+    filename: string,
+    meta: Partial<AssetMetadata>
+): Promise<AssetMetadata> {
+    return apiFetch<AssetMetadata>(`/assets/${encodeURIComponent(filename)}/meta`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(meta),
+    });
+}
+
+export async function deleteGalleryAsset(filename: string): Promise<void> {
+    const response = await fetch(`/api/assets/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+    if (!response.ok && response.status !== 204) {
+        let errorMessage = response.statusText;
+        try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+        } catch { /* ignore */ }
+        throw new Error(errorMessage);
+    }
+}
+
+export async function uploadEventMedia(
+    personId: string,
+    eventId: string,
+    file: File
+): Promise<{ filename: string; events: unknown[] }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`/api/people/${personId}/events/${eventId}/media`, {
+        method: 'PUT',
+        body: formData,
+    });
+    if (!response.ok) {
+        let errorMessage = response.statusText;
+        try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+        } catch { /* ignore */ }
+        throw new Error(errorMessage);
+    }
+    return response.json();
+}
+
+export async function linkAssetToPerson(
+    personId: string,
+    filename: string
+): Promise<{ assets: string[] }> {
+    return apiFetch<{ assets: string[] }>(`/people/${personId}/assets/link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename }),
     });
 }

@@ -1,7 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { peopleApi } from './people';
 import type { CreatePersonInput, PersonDetail, SlimPersonSummary } from './people';
-import { apiFetch, deleteAsset, searchPlaces, resolvePlace } from './client';
+import {
+    apiFetch, deleteAsset, searchPlaces, resolvePlace,
+    getAssets, updateAssetMeta, deleteGalleryAsset, uploadEventMedia, linkAssetToPerson,
+} from './client';
+import type { AssetListResponse, AssetListItem } from './client';
 import { storiesApi } from './stories';
 import type { CreateStoryInput, UpdateStoryInput, StoryFeedItem } from './stories';
 
@@ -261,5 +265,81 @@ export const useUpdatePerson = () => {
             queryClient.invalidateQueries({ queryKey: ['people'] });
             queryClient.invalidateQueries({ queryKey: ['search'] });
         }
+    });
+};
+
+// ── Asset Gallery ──────────────────────────────────────────────────────────
+
+export const useAssets = () => {
+    return useQuery({
+        queryKey: ['assets'],
+        queryFn: () => getAssets(),
+        staleTime: 30_000,
+    });
+};
+
+export const useUpdateAssetMeta = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ filename, meta }: { filename: string; meta: { caption?: string; tagged_people?: string[] } }) =>
+            updateAssetMeta(filename, meta),
+        onMutate: async ({ filename, meta }) => {
+            await queryClient.cancelQueries({ queryKey: ['assets'] });
+            const previousData = queryClient.getQueryData<AssetListResponse>(['assets']);
+            queryClient.setQueryData<AssetListResponse>(['assets'], (old) => {
+                if (!old) return old;
+                return {
+                    ...old,
+                    assets: old.assets.map((a: AssetListItem) =>
+                        a.filename === filename
+                            ? { ...a, metadata: { ...a.metadata, ...meta } }
+                            : a
+                    ),
+                };
+            });
+            return { previousData };
+        },
+        onError: (_err, _vars, context) => {
+            if (context?.previousData) {
+                queryClient.setQueryData(['assets'], context.previousData);
+            }
+        },
+        onSettled: () => {
+            queryClient.invalidateQueries({ queryKey: ['assets'] });
+        },
+    });
+};
+
+export const useDeleteGalleryAsset = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (filename: string) => deleteGalleryAsset(filename),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['assets'] });
+        },
+    });
+};
+
+export const useUploadEventMedia = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ personId, eventId, file }: { personId: string; eventId: string; file: File }) =>
+            uploadEventMedia(personId, eventId, file),
+        onSettled: (_data, _error, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['person', variables.personId] });
+            queryClient.invalidateQueries({ queryKey: ['assets'] });
+        },
+    });
+};
+
+export const useLinkAsset = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ personId, filename }: { personId: string; filename: string }) =>
+            linkAssetToPerson(personId, filename),
+        onSettled: (_data, _error, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['person', variables.personId] });
+            queryClient.invalidateQueries({ queryKey: ['assets'] });
+        },
     });
 };

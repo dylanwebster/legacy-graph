@@ -8,8 +8,11 @@ export const AssetMetadataSchema = z.object({
     description: z.string().optional(),
     caption: z.string().optional(),
     date_taken: z.string().optional(),
-    location: z.string().optional()
+    location: z.string().optional(),
+    tagged_people: z.array(z.string()).default([]),
 });
+
+export type AssetMetadata = z.infer<typeof AssetMetadataSchema>;
 
 // The file itself is a dictionary: Filename -> Metadata
 export const AssetIndexSchema = z.record(z.string(), AssetMetadataSchema);

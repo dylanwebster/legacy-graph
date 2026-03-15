@@ -15,6 +15,7 @@ import { Route as rootRouteImport } from './routes/__root'
 const SettingsLazyRouteImport = createFileRoute('/settings')()
 const SearchLazyRouteImport = createFileRoute('/search')()
 const ImportLazyRouteImport = createFileRoute('/import')()
+const AssetsLazyRouteImport = createFileRoute('/assets')()
 const IndexLazyRouteImport = createFileRoute('/')()
 const StoriesIndexLazyRouteImport = createFileRoute('/stories/')()
 const PeopleIndexLazyRouteImport = createFileRoute('/people/')()
@@ -36,6 +37,11 @@ const ImportLazyRoute = ImportLazyRouteImport.update({
   path: '/import',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/import.lazy').then((d) => d.Route))
+const AssetsLazyRoute = AssetsLazyRouteImport.update({
+  id: '/assets',
+  path: '/assets',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/assets.lazy').then((d) => d.Route))
 const IndexLazyRoute = IndexLazyRouteImport.update({
   id: '/',
   path: '/',
@@ -64,6 +70,7 @@ const PeopleIdLazyRoute = PeopleIdLazyRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexLazyRoute
+  '/assets': typeof AssetsLazyRoute
   '/import': typeof ImportLazyRoute
   '/search': typeof SearchLazyRoute
   '/settings': typeof SettingsLazyRoute
@@ -74,6 +81,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexLazyRoute
+  '/assets': typeof AssetsLazyRoute
   '/import': typeof ImportLazyRoute
   '/search': typeof SearchLazyRoute
   '/settings': typeof SettingsLazyRoute
@@ -85,6 +93,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexLazyRoute
+  '/assets': typeof AssetsLazyRoute
   '/import': typeof ImportLazyRoute
   '/search': typeof SearchLazyRoute
   '/settings': typeof SettingsLazyRoute
@@ -97,6 +106,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/assets'
     | '/import'
     | '/search'
     | '/settings'
@@ -107,6 +117,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/assets'
     | '/import'
     | '/search'
     | '/settings'
@@ -117,6 +128,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/assets'
     | '/import'
     | '/search'
     | '/settings'
@@ -128,6 +140,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexLazyRoute: typeof IndexLazyRoute
+  AssetsLazyRoute: typeof AssetsLazyRoute
   ImportLazyRoute: typeof ImportLazyRoute
   SearchLazyRoute: typeof SearchLazyRoute
   SettingsLazyRoute: typeof SettingsLazyRoute
@@ -158,6 +171,13 @@ declare module '@tanstack/react-router' {
       path: '/import'
       fullPath: '/import'
       preLoaderRoute: typeof ImportLazyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/assets': {
+      id: '/assets'
+      path: '/assets'
+      fullPath: '/assets'
+      preLoaderRoute: typeof AssetsLazyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -200,6 +220,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexLazyRoute: IndexLazyRoute,
+  AssetsLazyRoute: AssetsLazyRoute,
   ImportLazyRoute: ImportLazyRoute,
   SearchLazyRoute: SearchLazyRoute,
   SettingsLazyRoute: SettingsLazyRoute,

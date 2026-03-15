@@ -14,6 +14,7 @@ import { searchRoutes } from './api/routes/search';
 import { peopleRoutes } from './api/routes/people';
 import { gedcomRoutes } from './api/routes/gedcom';
 import { storiesRoutes } from './api/routes/stories';
+import { assetsRoutes } from './api/routes/assets';
 import type { AppServices } from './api/types';
 
 export interface ServerConfig {
@@ -96,6 +97,7 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
     await server.register(peopleRoutes);
     await server.register(gedcomRoutes);
     await server.register(storiesRoutes);
+    await server.register(assetsRoutes);
 
     // Phase 3.9.3 Static Asset Delivery Performance
     await server.register(fastifyStatic, {
