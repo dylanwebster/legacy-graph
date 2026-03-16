@@ -38,11 +38,19 @@ describe('AssetMetadataSchema — description field', () => {
         }
     });
 
-    it('date_taken is optional', () => {
+    it('date is optional', () => {
+        const result = AssetMetadataSchema.safeParse({ date: '1945-06' });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.date).toBe('1945-06');
+        }
+    });
+
+    it('date_taken is a legacy alias that maps to date', () => {
         const result = AssetMetadataSchema.safeParse({ date_taken: '1945-06' });
         expect(result.success).toBe(true);
         if (result.success) {
-            expect(result.data.date_taken).toBe('1945-06');
+            expect(result.data.date).toBe('1945-06');
         }
     });
 });

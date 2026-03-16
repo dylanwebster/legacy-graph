@@ -282,7 +282,7 @@ export const useAssets = (params?: AssetsQueryParams) => {
 export const useUpdateAssetMeta = () => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: ({ filename, meta }: { filename: string; meta: { description?: string; date_taken?: string; location?: string } }) =>
+        mutationFn: ({ filename, meta }: { filename: string; meta: { name?: string; description?: string; date?: string; location?: string } }) =>
             updateAssetMeta(filename, meta),
         onMutate: async ({ filename, meta }) => {
             await queryClient.cancelQueries({ queryKey: ['assets'] });

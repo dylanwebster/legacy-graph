@@ -112,8 +112,8 @@ export async function assetsRoutes(server: FastifyInstance) {
             }
         });
 
-        // Build story reference map (filename → [storyId + title])
-        const storyRefs = new Map<string, string[]>();
+        // Build story reference map (filename → [{ id, title }])
+        const storyRefs = new Map<string, Array<{ id: string; title: string }>>();
         const storyTitles = new Map<string, string>(); // storyId → title
         try {
             const storyFiles = (await fs.readdir(storiesDir)).filter(f => f.endsWith('.md'));
@@ -122,12 +122,13 @@ export async function assetsRoutes(server: FastifyInstance) {
                     const raw = await fs.readFile(path.join(storiesDir, file), 'utf8');
                     const { data } = matter(raw);
                     const storyId = file.slice(0, -3);
-                    if (data.title) storyTitles.set(storyId, String(data.title));
+                    const title = data.title ? String(data.title) : storyId;
+                    storyTitles.set(storyId, title);
                     if (!Array.isArray(data.assets)) continue;
                     for (const a of data.assets) {
                         if (typeof a !== 'string') continue;
                         if (!storyRefs.has(a)) storyRefs.set(a, []);
-                        storyRefs.get(a)!.push(storyId);
+                        storyRefs.get(a)!.push({ id: storyId, title });
                     }
                 } catch { /* skip malformed */ }
             }
@@ -148,8 +149,9 @@ export async function assetsRoutes(server: FastifyInstance) {
 
             const rawMeta = metaIndex[filename];
             const metadata = {
+                name: rawMeta?.name as string | undefined,
                 description: rawMeta?.description as string | undefined,
-                date_taken: rawMeta?.date_taken as string | undefined,
+                date: rawMeta?.date as string | undefined,
                 location: rawMeta?.location as string | undefined,
             };
 
@@ -174,17 +176,17 @@ export async function assetsRoutes(server: FastifyInstance) {
         if (searchQ) {
             assets = assets.filter(a => {
                 if (a.filename.toLowerCase().includes(searchQ)) return true;
+                if (a.metadata.name?.toLowerCase().includes(searchQ)) return true;
                 if (a.metadata.description?.toLowerCase().includes(searchQ)) return true;
-                if (a.metadata.date_taken?.toLowerCase().includes(searchQ)) return true;
+                if (a.metadata.date?.toLowerCase().includes(searchQ)) return true;
                 // Match person names
                 for (const pid of a.referencedBy.people) {
                     const name = personNames.get(pid) ?? '';
                     if (name.toLowerCase().includes(searchQ)) return true;
                 }
                 // Match story titles
-                for (const sid of a.referencedBy.stories) {
-                    const title = storyTitles.get(sid) ?? sid;
-                    if (title.toLowerCase().includes(searchQ)) return true;
+                for (const s of a.referencedBy.stories) {
+                    if (s.title.toLowerCase().includes(searchQ)) return true;
                 }
                 return false;
             });
@@ -195,12 +197,14 @@ export async function assetsRoutes(server: FastifyInstance) {
         assets.sort((a, b) => {
             if (sort === 'size') return (a.size - b.size) * sortOrder;
             if (sort === 'date') {
-                const da = a.metadata.date_taken ?? '';
-                const db = b.metadata.date_taken ?? '';
+                const da = a.metadata.date ?? '';
+                const db = b.metadata.date ?? '';
                 return da < db ? -1 * sortOrder : da > db ? 1 * sortOrder : 0;
             }
-            // default: name
-            return a.filename.localeCompare(b.filename) * sortOrder;
+            // default: name (use display name if set, else filename)
+            const na = a.metadata.name ?? a.filename;
+            const nb = b.metadata.name ?? b.filename;
+            return na.localeCompare(nb) * sortOrder;
         });
 
         return { assets, totalCount: assets.length };
@@ -210,10 +214,10 @@ export async function assetsRoutes(server: FastifyInstance) {
 
     server.put<{
         Params: { filename: string };
-        Body: { description?: string; caption?: string; date_taken?: string; location?: string };
+        Body: { name?: string; description?: string; caption?: string; date?: string; date_taken?: string; location?: string };
     }>('/api/assets/:filename/meta', async (request, reply) => {
         const { filename } = request.params;
-        const { description, caption, date_taken, location } = request.body;
+        const { name, description, caption, date, date_taken, location } = request.body;
 
         try {
             await fs.access(path.join(assetsDir, filename));
@@ -224,13 +228,15 @@ export async function assetsRoutes(server: FastifyInstance) {
         const index = await loadAssetIndex(dataDir);
         const existing = index[filename] ?? {};
 
-        // Backwards compat: if body has `caption` but not `description`, treat as description
+        // Backwards compat: caption → description, date_taken → date
         const resolvedDescription = description ?? caption;
+        const resolvedDate = date ?? date_taken;
 
         const merged = {
             ...existing,
+            ...(name !== undefined && { name }),
             ...(resolvedDescription !== undefined && { description: resolvedDescription }),
-            ...(date_taken !== undefined && { date_taken }),
+            ...(resolvedDate !== undefined && { date: resolvedDate }),
             ...(location !== undefined && { location }),
         };
 
@@ -238,8 +244,9 @@ export async function assetsRoutes(server: FastifyInstance) {
         await saveAssetIndex(dataDir, index, txManager);
 
         return {
+            name: index[filename].name,
             description: index[filename].description,
-            date_taken: index[filename].date_taken,
+            date: index[filename].date,
             location: index[filename].location,
         };
     });

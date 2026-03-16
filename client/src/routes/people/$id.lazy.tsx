@@ -1,9 +1,11 @@
 import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { usePerson, useUpdatePerson, useDeleteAsset, useAssets } from '@/api/hooks';
+import { usePerson, useUpdatePerson, useDeleteAsset, useAssets, useUpdateAssetMeta, useLinkAsset, useUnlinkAsset } from '@/api/hooks';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { loadAvatarCrop, saveAvatarCrop, clearAvatarCrop } from '@/lib/avatarCrop';
 import { assetType, primaryImageAsset } from '@/lib/assetUtils';
 import { PersonChip } from '@/components/PersonChip';
+import { PersonSearchCombobox } from '@/components/PersonSearchCombobox';
+import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
 import { EventEditorDialog } from '@/components/EventEditorDialog';
 import { RelationshipEditorDialog } from '@/components/RelationshipEditorDialog';
 import { AvatarCropDialog } from '@/components/AvatarCropDialog';
@@ -27,7 +29,7 @@ import {
 } from '@/components/ui/resizable';
 import {
     Calendar, MapPin, Heart, Sunrise, Sunset, Leaf, GraduationCap, Briefcase, Church,
-    Ship, ScrollText, FileText, Plus, ChevronRight, Image, BookOpen, Code,
+    Ship, ScrollText, FileText, Plus, ChevronRight, ChevronLeft, Image, BookOpen, Code,
     Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2, Crop, ExternalLink,
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -98,9 +100,18 @@ function PersonDetail() {
     const [deleteConfirmAsset, setDeleteConfirmAsset] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const deleteAssetMutation = useDeleteAsset();
+    const updateAssetMetaMutation = useUpdateAssetMeta();
+    const linkAssetMutation = useLinkAsset();
+    const unlinkAssetMutation = useUnlinkAsset();
     const [showCropDialog, setShowCropDialog] = useState(false);
     const [avatarCrop, setAvatarCrop] = useState<CropArea | null>(null);
     const [lightboxTextContent, setLightboxTextContent] = useState<string | null>(null);
+    // Lightbox metadata panel state
+    const [lbName, setLbName] = useState('');
+    const [lbDate, setLbDate] = useState('');
+    const [lbDesc, setLbDesc] = useState('');
+    const [lbEditingName, setLbEditingName] = useState(false);
+    const [lbEditingDesc, setLbEditingDesc] = useState(false);
 
     // Timeline virtualizer
     const timelineParentRef = useRef<HTMLDivElement>(null);
@@ -132,9 +143,24 @@ function PersonDetail() {
         setAvatarCrop(loadAvatarCrop(id));
     }, [id]);
 
-    // Fetch text content when lightbox opens a text/markdown asset
+    // Sync lightbox metadata panel state when asset changes
     useEffect(() => {
-        if (!lightboxAsset) { setLightboxTextContent(null); return; }
+        if (!lightboxAsset) {
+            setLightboxTextContent(null);
+            setLbName('');
+            setLbDate('');
+            setLbDesc('');
+            setLbEditingName(false);
+            setLbEditingDesc(false);
+            return;
+        }
+        const meta = allAssetsData?.assets.find(a => a.filename === lightboxAsset)?.metadata;
+        setLbName(meta?.name ?? '');
+        setLbDate(meta?.date ?? '');
+        setLbDesc(meta?.description ?? '');
+        setLbEditingName(false);
+        setLbEditingDesc(false);
+
         const type = assetType(lightboxAsset);
         if (type === 'text' || type === 'markdown') {
             setLightboxTextContent(null);
@@ -142,6 +168,7 @@ function PersonDetail() {
         } else {
             setLightboxTextContent(null);
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [lightboxAsset]);
 
     // Lightbox keyboard navigation: ESC to close, arrow keys to navigate
@@ -149,6 +176,8 @@ function PersonDetail() {
         if (!lightboxAsset) return;
         const assets = (person?.assets ?? []) as string[];
         const handler = (e: KeyboardEvent) => {
+            // Don't intercept when user is typing in an input/textarea
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
             if (e.key === 'Escape') { setLightboxAsset(null); return; }
             if (assets.length <= 1) return;
             const idx = assets.indexOf(lightboxAsset);
@@ -691,20 +720,24 @@ function PersonDetail() {
                                         const isImage = type === 'image';
                                         const isPrimary = asset === primaryPhoto;
                                         const isDoc = type === 'pdf' || type === 'text' || type === 'markdown';
-                                        const caption = allAssetsData?.assets.find((a) => a.filename === asset)?.metadata.description;
+                                        const assetMeta = allAssetsData?.assets.find((a) => a.filename === asset)?.metadata;
+                                        const caption = assetMeta?.description;
+                                        const assetDisplayName = assetMeta?.name
+                                            ? assetMeta.name
+                                            : (() => { const dot = asset.lastIndexOf('.'); return (dot > 0 ? asset.slice(0, dot) : asset).replace(/[_-]/g, ' '); })();
                                         return (
                                         <div key={asset} className="group relative aspect-square rounded-lg bg-muted border border-border overflow-hidden">
                                             {isImage ? (
                                                 <img
                                                     src={`/assets/${asset}`}
-                                                    alt={asset}
+                                                    alt={assetDisplayName}
                                                     className="object-contain w-full h-full"
                                                     loading="lazy"
                                                 />
                                             ) : (
                                                 <div className="flex flex-col items-center justify-center w-full h-full gap-2 px-2">
                                                     <FileText className="h-8 w-8 text-muted-foreground" />
-                                                    <span className="text-[10px] text-muted-foreground text-center break-all leading-tight">{asset}</span>
+                                                    <span className="text-[10px] text-muted-foreground text-center break-all leading-tight">{assetDisplayName}</span>
                                                     <span className="text-[9px] uppercase tracking-wide text-muted-foreground/60 font-medium">
                                                         {type === 'pdf' ? 'PDF' : type === 'markdown' ? 'Markdown' : 'Text'}
                                                     </span>
@@ -802,140 +835,306 @@ function PersonDetail() {
                 </ResizablePanel>
             </ResizablePanelGroup>
 
-            {/* Asset Lightbox */}
-            {lightboxAsset && (
-                <div
-                    className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
-                    onClick={() => setLightboxAsset(null)}
-                >
-                    <button
-                        type="button"
+            {/* Asset Lightbox — two-panel layout */}
+            {lightboxAsset && (() => {
+                const lbAssets = (person.assets as string[]);
+                const lbIdx = lbAssets.indexOf(lightboxAsset);
+                const hasPrev = lbIdx > 0;
+                const hasNext = lbIdx < lbAssets.length - 1;
+                const lbType = assetType(lightboxAsset);
+                const lbExt = lightboxAsset.split('.').pop()?.toUpperCase() ?? 'FILE';
+                const lbAssetData = allAssetsData?.assets.find(a => a.filename === lightboxAsset);
+                const lbDisplayName = lbAssetData?.metadata.name
+                    ? lbAssetData.metadata.name
+                    : (() => { const dot = lightboxAsset.lastIndexOf('.'); return (dot > 0 ? lightboxAsset.slice(0, dot) : lightboxAsset).replace(/[_-]/g, ' '); })();
+
+                const saveLbName = () => {
+                    const trimmed = lbName.trim();
+                    updateAssetMetaMutation.mutate(
+                        { filename: lightboxAsset, meta: { name: trimmed || undefined } },
+                        {
+                            onSuccess: () => { toast.success('Name saved.'); setLbEditingName(false); },
+                            onError: () => toast.error('Failed to save name.'),
+                        }
+                    );
+                };
+                const saveLbDesc = () => {
+                    updateAssetMetaMutation.mutate(
+                        { filename: lightboxAsset, meta: { description: lbDesc.trim() || undefined } },
+                        {
+                            onSuccess: () => { toast.success('Description saved.'); setLbEditingDesc(false); },
+                            onError: () => toast.error('Failed to save description.'),
+                        }
+                    );
+                };
+                const saveLbDate = (val: string) => {
+                    const iso = parseToISO(val);
+                    const toSave = iso ?? (val.trim() || undefined);
+                    setLbDate(val);
+                    updateAssetMetaMutation.mutate(
+                        { filename: lightboxAsset, meta: { date: toSave } },
+                        { onError: () => toast.error('Failed to save date.') }
+                    );
+                };
+
+                return (
+                    <div
+                        className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
                         onClick={() => setLightboxAsset(null)}
-                        className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
                     >
-                        <X className="h-5 w-5" />
-                    </button>
-                    {/* Navigate previous */}
-                    {(person.assets as string[]).length > 1 && (
-                        <button
-                            type="button"
-                            className="absolute left-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                const assets = person.assets as string[];
-                                const idx = assets.indexOf(lightboxAsset);
-                                setLightboxAsset(assets[(idx - 1 + assets.length) % assets.length]);
-                            }}
-                        >
-                            <ChevronRight className="h-6 w-6 rotate-180" />
-                        </button>
-                    )}
-                    {/* Lightbox content — varies by asset type */}
-                    {(() => {
-                        const type = assetType(lightboxAsset);
-                        if (type === 'pdf') return (
-                            <iframe
-                                src={`/assets/${lightboxAsset}`}
-                                title={lightboxAsset}
-                                className="w-[90vw] h-[90vh] rounded-lg shadow-2xl bg-white"
-                                onClick={(e) => e.stopPropagation()}
-                            />
-                        );
-                        if (type === 'text') return (
-                            <div
-                                className="w-[90vw] max-w-2xl h-[80vh] bg-background rounded-lg shadow-2xl overflow-auto p-6"
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                <div className="flex items-center justify-between mb-4">
-                                    <span className="text-sm font-medium text-foreground">{lightboxAsset}</span>
-                                    <a
-                                        href={`/assets/${lightboxAsset}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        <ExternalLink className="h-3 w-3" /> Open
-                                    </a>
-                                </div>
-                                <pre className="text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed">
-                                    {lightboxTextContent ?? 'Loading…'}
-                                </pre>
-                            </div>
-                        );
-                        if (type === 'markdown') return (
-                            <div
-                                className="w-[90vw] max-w-2xl h-[80vh] bg-background rounded-lg shadow-2xl overflow-auto p-6"
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                <div className="flex items-center justify-between mb-4">
-                                    <span className="text-sm font-medium text-foreground">{lightboxAsset}</span>
-                                    <a
-                                        href={`/assets/${lightboxAsset}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        <ExternalLink className="h-3 w-3" /> Open
-                                    </a>
-                                </div>
-                                {lightboxTextContent == null
-                                    ? <p className="text-sm text-muted-foreground">Loading…</p>
-                                    : <div className="prose prose-sm dark:prose-invert max-w-none">
-                                        <ReactMarkdown>{lightboxTextContent}</ReactMarkdown>
-                                    </div>
-                                }
-                            </div>
-                        );
-                        // Default: image
-                        return (
-                            <img
-                                src={`/assets/${lightboxAsset}`}
-                                alt={lightboxAsset}
-                                className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
-                                onClick={(e) => e.stopPropagation()}
-                            />
-                        );
-                    })()}
-                    {/* Bottom bar — only for the primary image */}
-                    {lightboxAsset === primaryPhoto && (
                         <div
-                            className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-black/60 backdrop-blur-sm rounded-full px-4 py-2"
+                            className="bg-background rounded-xl shadow-2xl flex overflow-hidden w-full max-w-5xl max-h-[90vh]"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <div className="flex items-center gap-1.5 text-white text-xs">
-                                <Star className="h-3.5 w-3.5 text-yellow-400 fill-yellow-400" />
-                                <span>Primary photo</span>
+                            {/* Left: asset display */}
+                            <div className="relative flex-1 bg-black/90 flex items-center justify-center min-w-0 min-h-[400px]">
+                                {lbType === 'pdf' ? (
+                                    <iframe
+                                        src={`/assets/${lightboxAsset}`}
+                                        title={lbDisplayName}
+                                        className="w-full h-full"
+                                        style={{ minHeight: 400 }}
+                                    />
+                                ) : lbType === 'text' ? (
+                                    <div className="w-full h-full overflow-auto p-6 text-white/90">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <span className="text-sm font-medium">{lbDisplayName}</span>
+                                            <a href={`/assets/${lightboxAsset}`} target="_blank" rel="noopener noreferrer"
+                                                className="flex items-center gap-1 text-xs text-white/60 hover:text-white">
+                                                <ExternalLink className="h-3 w-3" /> Open
+                                            </a>
+                                        </div>
+                                        <pre className="text-sm whitespace-pre-wrap font-mono leading-relaxed text-white/80">
+                                            {lightboxTextContent ?? 'Loading…'}
+                                        </pre>
+                                    </div>
+                                ) : lbType === 'markdown' ? (
+                                    <div className="w-full h-full overflow-auto p-6 bg-background">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <span className="text-sm font-medium">{lbDisplayName}</span>
+                                            <a href={`/assets/${lightboxAsset}`} target="_blank" rel="noopener noreferrer"
+                                                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                                                <ExternalLink className="h-3 w-3" /> Open
+                                            </a>
+                                        </div>
+                                        {lightboxTextContent == null
+                                            ? <p className="text-sm text-muted-foreground">Loading…</p>
+                                            : <div className="prose prose-sm dark:prose-invert max-w-none">
+                                                <ReactMarkdown>{lightboxTextContent}</ReactMarkdown>
+                                            </div>
+                                        }
+                                    </div>
+                                ) : lbType === 'image' ? (
+                                    <img
+                                        src={`/assets/${lightboxAsset}`}
+                                        alt={lbDisplayName}
+                                        className="max-w-full max-h-[80vh] object-contain"
+                                    />
+                                ) : (
+                                    <div className="flex flex-col items-center gap-4 text-white p-8">
+                                        <FileText className="h-24 w-24 opacity-40" />
+                                        <p className="text-sm opacity-70">{lbDisplayName}</p>
+                                        <a href={`/assets/${lightboxAsset}`} target="_blank" rel="noopener noreferrer"
+                                            className="flex items-center gap-1.5 text-xs text-white/70 hover:text-white underline">
+                                            <ExternalLink className="h-3.5 w-3.5" /> Open file
+                                        </a>
+                                    </div>
+                                )}
+
+                                {/* Primary photo bar */}
+                                {lightboxAsset === primaryPhoto && (
+                                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-black/60 backdrop-blur-sm rounded-full px-4 py-2">
+                                        <div className="flex items-center gap-1.5 text-white text-xs">
+                                            <Star className="h-3.5 w-3.5 text-yellow-400 fill-yellow-400" />
+                                            <span>Primary photo</span>
+                                        </div>
+                                        <div className="w-px h-4 bg-white/30" />
+                                        <button type="button"
+                                            onClick={() => { setLightboxAsset(null); setShowCropDialog(true); }}
+                                            className="flex items-center gap-1.5 text-white/80 text-xs hover:text-white transition-colors">
+                                            <Crop className="h-3.5 w-3.5" />
+                                            <span>Crop avatar</span>
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* Prev / Next */}
+                                {hasPrev && (
+                                    <button type="button"
+                                        className="absolute left-3 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors"
+                                        onClick={(e) => { e.stopPropagation(); setLightboxAsset(lbAssets[lbIdx - 1]); }}
+                                        aria-label="Previous asset">
+                                        <ChevronLeft className="h-5 w-5" />
+                                    </button>
+                                )}
+                                {hasNext && (
+                                    <button type="button"
+                                        className="absolute right-3 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors"
+                                        onClick={(e) => { e.stopPropagation(); setLightboxAsset(lbAssets[lbIdx + 1]); }}
+                                        aria-label="Next asset">
+                                        <ChevronRight className="h-5 w-5" />
+                                    </button>
+                                )}
+
+                                {/* Counter */}
+                                {lbAssets.length > 1 && (
+                                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-white/60 bg-black/40 rounded-full px-2 py-0.5">
+                                        {lbIdx + 1} / {lbAssets.length}
+                                    </div>
+                                )}
                             </div>
-                            <div className="w-px h-4 bg-white/30" />
-                            <button
-                                type="button"
-                                onClick={() => { setLightboxAsset(null); setShowCropDialog(true); }}
-                                className="flex items-center gap-1.5 text-white/80 text-xs hover:text-white transition-colors"
-                            >
-                                <Crop className="h-3.5 w-3.5" />
-                                <span>Crop avatar</span>
-                            </button>
+
+                            {/* Right: metadata panel */}
+                            <div className="w-72 shrink-0 flex flex-col border-l border-border overflow-y-auto">
+                                {/* Header */}
+                                <div className="flex items-center justify-between p-3 border-b border-border">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <Badge variant="outline" className="text-[10px] shrink-0">{lbExt}</Badge>
+                                    </div>
+                                    <button type="button" onClick={() => setLightboxAsset(null)}
+                                        className="p-1 rounded hover:bg-muted text-muted-foreground shrink-0">
+                                        <X className="h-4 w-4" />
+                                    </button>
+                                </div>
+
+                                <div className="flex-1 p-3 space-y-4 overflow-y-auto">
+                                    {/* Name */}
+                                    <div>
+                                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Name</p>
+                                        {lbEditingName ? (
+                                            <div className="flex gap-1">
+                                                <Input
+                                                    value={lbName}
+                                                    onChange={(e) => setLbName(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') saveLbName();
+                                                        if (e.key === 'Escape') setLbEditingName(false);
+                                                    }}
+                                                    placeholder={lbDisplayName}
+                                                    className="h-7 text-xs flex-1"
+                                                    autoFocus
+                                                />
+                                                <button type="button" onClick={saveLbName}
+                                                    className="p-1 rounded hover:bg-muted text-muted-foreground">
+                                                    <Check className="h-3.5 w-3.5" />
+                                                </button>
+                                                <button type="button" onClick={() => setLbEditingName(false)}
+                                                    className="p-1 rounded hover:bg-muted text-muted-foreground">
+                                                    <X className="h-3.5 w-3.5" />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <button type="button" onClick={() => setLbEditingName(true)}
+                                                className="group w-full flex items-center gap-1 text-left">
+                                                <span className="text-sm font-medium flex-1 truncate">{lbDisplayName}</span>
+                                                <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                                            </button>
+                                        )}
+                                        <p className="text-[9px] text-muted-foreground font-mono mt-0.5 break-all">{lightboxAsset}</p>
+                                    </div>
+
+                                    {/* Date */}
+                                    <div>
+                                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Date</p>
+                                        <SmartDateInput
+                                            value={lbDate}
+                                            onChange={(val) => setLbDate(val)}
+                                            placeholder="e.g. Jun 1950"
+                                            className="h-7 text-xs"
+                                        />
+                                        <button type="button"
+                                            className="mt-1 text-[9px] text-primary hover:underline"
+                                            onClick={() => saveLbDate(lbDate)}>
+                                            Save date
+                                        </button>
+                                    </div>
+
+                                    {/* Description */}
+                                    <div>
+                                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Description</p>
+                                        {lbEditingDesc ? (
+                                            <div className="space-y-1">
+                                                <textarea
+                                                    value={lbDesc}
+                                                    onChange={(e) => setLbDesc(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveLbDesc(); }
+                                                        if (e.key === 'Escape') setLbEditingDesc(false);
+                                                    }}
+                                                    className="w-full text-xs rounded-md border border-input bg-background px-2 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                                                    rows={3}
+                                                    autoFocus
+                                                />
+                                                <div className="flex gap-1">
+                                                    <Button size="sm" className="h-6 text-xs px-2" onClick={saveLbDesc}>Save</Button>
+                                                    <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={() => setLbEditingDesc(false)}>Cancel</Button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <button type="button" onClick={() => setLbEditingDesc(true)}
+                                                className="w-full text-left text-xs text-muted-foreground hover:text-foreground transition-colors">
+                                                {lbDesc || <span className="italic opacity-50">Add description…</span>}
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* People */}
+                                    {lbAssetData && (
+                                        <div>
+                                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">People</p>
+                                            <div className="space-y-1 mb-2">
+                                                {lbAssetData.referencedBy.people.length === 0 ? (
+                                                    <p className="text-xs text-muted-foreground italic">No people linked</p>
+                                                ) : (
+                                                    lbAssetData.referencedBy.people.map((pid) => (
+                                                        <div key={pid} className="flex items-center gap-1.5">
+                                                            <PersonChip id={pid} className="flex-1 text-xs" />
+                                                            <button type="button" title="Remove link"
+                                                                onClick={() => unlinkAssetMutation.mutate(
+                                                                    { personId: pid, filename: lightboxAsset },
+                                                                    { onSuccess: () => toast.success('Person unlinked.'), onError: () => toast.error('Failed to unlink.') }
+                                                                )}
+                                                                className="p-0.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0">
+                                                                <X className="h-3 w-3" />
+                                                            </button>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                            <PersonSearchCombobox
+                                                onSelect={(pid) => linkAssetMutation.mutate(
+                                                    { personId: pid, filename: lightboxAsset },
+                                                    { onSuccess: () => toast.success('Person linked.'), onError: () => toast.error('Failed to link.') }
+                                                )}
+                                                excludeIds={lbAssetData.referencedBy.people}
+                                                placeholder="Link a person…"
+                                                className="w-full"
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Stories */}
+                                    {lbAssetData && lbAssetData.referencedBy.stories.length > 0 && (
+                                        <div>
+                                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Stories</p>
+                                            <div className="space-y-1">
+                                                {lbAssetData.referencedBy.stories.map((s) => (
+                                                    <Link key={s.id} to="/stories/$id" params={{ id: s.id }}
+                                                        className="flex items-center gap-1 text-xs text-primary hover:underline"
+                                                        onClick={() => setLightboxAsset(null)}>
+                                                        <ExternalLink className="h-3 w-3 shrink-0" />
+                                                        {s.title}
+                                                    </Link>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
-                    )}
-                    {/* Navigate next */}
-                    {(person.assets as string[]).length > 1 && (
-                        <button
-                            type="button"
-                            className="absolute right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                const assets = person.assets as string[];
-                                const idx = assets.indexOf(lightboxAsset);
-                                setLightboxAsset(assets[(idx + 1) % assets.length]);
-                            }}
-                        >
-                            <ChevronRight className="h-6 w-6" />
-                        </button>
-                    )}
-                </div>
-            )}
+                    </div>
+                );
+            })()}
 
             {/* Dialogs */}
             <EventEditorDialog

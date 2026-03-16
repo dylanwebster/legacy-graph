@@ -275,7 +275,18 @@ describe('Assets API', () => {
         expect(res.body.description).toBe('Legacy caption value');
     });
 
-    it('PUT /api/assets/:filename/meta updates date_taken', async () => {
+    it('PUT /api/assets/:filename/meta updates date', async () => {
+        writeTestAsset();
+
+        const res = await request
+            .put(`/api/assets/${TEST_ASSET}/meta`)
+            .send({ date: '1945-06' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.date).toBe('1945-06');
+    });
+
+    it('PUT /api/assets/:filename/meta accepts legacy date_taken as date', async () => {
         writeTestAsset();
 
         const res = await request
@@ -283,7 +294,7 @@ describe('Assets API', () => {
             .send({ date_taken: '1945-06' });
 
         expect(res.status).toBe(200);
-        expect(res.body.date_taken).toBe('1945-06');
+        expect(res.body.date).toBe('1945-06');
     });
 
     it('PUT /api/assets/:filename/meta creates assets.yaml if absent', async () => {

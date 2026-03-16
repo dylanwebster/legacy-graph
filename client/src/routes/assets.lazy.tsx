@@ -7,6 +7,7 @@ import type { AssetsQueryParams } from '@/api/client';
 import { assetType } from '@/lib/assetUtils';
 import { PersonChip } from '@/components/PersonChip';
 import { PersonSearchCombobox } from '@/components/PersonSearchCombobox';
+import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
@@ -20,26 +21,33 @@ import {
 import { Button } from '@/components/ui/button';
 import {
     Search, FileText, Trash2, ZoomIn, ExternalLink,
-    ChevronLeft, ChevronRight, X, ArrowUpDown, ArrowUp, ArrowDown,
+    ChevronLeft, ChevronRight, X, ArrowUpDown, ArrowUp, ArrowDown, Pencil, Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import ReactMarkdown from 'react-markdown';
 
 export const Route = createLazyFileRoute('/assets')({
     component: AssetGallery,
 });
 
 const COLS = 3;
-const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif', '.svg']);
 
 function isImage(filename: string): boolean {
-    const dot = filename.lastIndexOf('.');
-    return dot >= 0 && IMAGE_EXTS.has(filename.slice(dot).toLowerCase());
+    return assetType(filename) === 'image';
 }
 
 function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Display name: custom name → filename without extension */
+function fileDisplayName(filename: string, name?: string): string {
+    if (name) return name;
+    const dot = filename.lastIndexOf('.');
+    const base = dot > 0 ? filename.slice(0, dot) : filename;
+    return base.replace(/[_-]/g, ' ');
 }
 
 // ── AssetCard ─────────────────────────────────────────────────────────────
@@ -54,6 +62,7 @@ function AssetCard({ asset, onOpen, onDelete }: AssetCardProps) {
     const type = assetType(asset.filename);
     const isImg = type === 'image';
     const ext = asset.filename.split('.').pop()?.toUpperCase() ?? 'FILE';
+    const displayName = fileDisplayName(asset.filename, asset.metadata.name);
 
     return (
         <div className="rounded-lg border border-border bg-card overflow-hidden flex flex-col">
@@ -62,7 +71,7 @@ function AssetCard({ asset, onOpen, onDelete }: AssetCardProps) {
                 {isImg ? (
                     <img
                         src={`/assets/${asset.filename}`}
-                        alt={asset.filename}
+                        alt={displayName}
                         className="object-contain w-full h-full"
                         loading="lazy"
                     />
@@ -103,14 +112,21 @@ function AssetCard({ asset, onOpen, onDelete }: AssetCardProps) {
 
             {/* Info panel */}
             <div className="px-2 py-2 flex flex-col gap-1">
-                <p className="text-[10px] text-foreground font-medium truncate" title={asset.filename}>
-                    {asset.filename}
+                {/* Primary title */}
+                <p className="text-[10px] text-foreground font-medium truncate" title={displayName}>
+                    {displayName}
                 </p>
+                {/* Filename (secondary, only if different from display name) */}
+                {asset.metadata.name && (
+                    <p className="text-[9px] text-muted-foreground truncate font-mono" title={asset.filename}>
+                        {asset.filename}
+                    </p>
+                )}
                 <div className="flex items-center gap-1.5 flex-wrap">
                     <Badge variant="outline" className="text-[9px] px-1 py-0">{ext}</Badge>
                     <span className="text-[9px] text-muted-foreground">{formatSize(asset.size)}</span>
-                    {asset.metadata.date_taken && (
-                        <span className="text-[9px] text-muted-foreground">{asset.metadata.date_taken}</span>
+                    {asset.metadata.date && (
+                        <span className="text-[9px] text-muted-foreground">{asset.metadata.date}</span>
                     )}
                 </div>
                 {asset.referencedBy.people.length > 0 && (
@@ -124,16 +140,22 @@ function AssetCard({ asset, onOpen, onDelete }: AssetCardProps) {
                     </div>
                 )}
                 {asset.referencedBy.stories.length > 0 && (
-                    <Link
-                        to="/stories/$id"
-                        params={{ id: asset.referencedBy.stories[0] }}
-                        className="text-[9px] text-primary flex items-center gap-0.5 hover:underline"
-                    >
-                        <ExternalLink className="h-2.5 w-2.5" />
-                        {asset.referencedBy.stories.length === 1
-                            ? '1 story'
-                            : `${asset.referencedBy.stories.length} stories`}
-                    </Link>
+                    <div className="flex flex-col gap-0.5">
+                        {asset.referencedBy.stories.slice(0, 2).map((s) => (
+                            <Link
+                                key={s.id}
+                                to="/stories/$id"
+                                params={{ id: s.id }}
+                                className="text-[9px] text-primary flex items-center gap-0.5 hover:underline truncate"
+                            >
+                                <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+                                <span className="truncate">{s.title}</span>
+                            </Link>
+                        ))}
+                        {asset.referencedBy.stories.length > 2 && (
+                            <span className="text-[9px] text-muted-foreground">+{asset.referencedBy.stories.length - 2} more</span>
+                        )}
+                    </div>
                 )}
             </div>
         </div>
@@ -155,34 +177,62 @@ function AssetDetailModal({ asset, allAssets, onClose, onNavigate, onDeleteReque
     const linkAsset = useLinkAsset();
     const unlinkAsset = useUnlinkAsset();
 
+    const [assetName, setAssetName] = useState(asset.metadata.name ?? '');
+    const [editingName, setEditingName] = useState(false);
     const [description, setDescription] = useState(asset.metadata.description ?? '');
-    const [dateTaken, setDateTaken] = useState(asset.metadata.date_taken ?? '');
+    const [dateVal, setDateVal] = useState(asset.metadata.date ?? '');
     const [editingDesc, setEditingDesc] = useState(false);
+    const [textContent, setTextContent] = useState<string | null>(null);
 
     // Keep local state in sync when asset changes (navigation)
     useEffect(() => {
+        setAssetName(asset.metadata.name ?? '');
         setDescription(asset.metadata.description ?? '');
-        setDateTaken(asset.metadata.date_taken ?? '');
+        setDateVal(asset.metadata.date ?? '');
         setEditingDesc(false);
-    }, [asset.filename, asset.metadata.description, asset.metadata.date_taken]);
+        setEditingName(false);
+        setTextContent(null);
+    }, [asset.filename, asset.metadata.name, asset.metadata.description, asset.metadata.date]);
+
+    // Fetch text/markdown content for document viewer
+    const type = assetType(asset.filename);
+    useEffect(() => {
+        if (type !== 'text' && type !== 'markdown') { setTextContent(null); return; }
+        fetch(`/assets/${asset.filename}`)
+            .then(r => r.text())
+            .then(setTextContent)
+            .catch(() => setTextContent('(Failed to load file)'));
+    }, [asset.filename, type]);
 
     const imageAssets = allAssets.filter(a => isImage(a.filename));
     const currentImageIdx = imageAssets.findIndex(a => a.filename === asset.filename);
-    const hasPrev = currentImageIdx > 0;
-    const hasNext = currentImageIdx < imageAssets.length - 1;
+    const allNavAssets = allAssets; // all assets navigate (not just images)
+    const currentNavIdx = allNavAssets.findIndex(a => a.filename === asset.filename);
+    const hasPrev = currentNavIdx > 0;
+    const hasNext = currentNavIdx < allNavAssets.length - 1;
     const isImg = isImage(asset.filename);
 
     // Keyboard nav
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
             if (e.key === 'Escape') { onClose(); return; }
-            if (!isImg) return;
-            if (e.key === 'ArrowLeft' && hasPrev) onNavigate(imageAssets[currentImageIdx - 1].filename);
-            if (e.key === 'ArrowRight' && hasNext) onNavigate(imageAssets[currentImageIdx + 1].filename);
+            if (e.key === 'ArrowLeft' && hasPrev) onNavigate(allNavAssets[currentNavIdx - 1].filename);
+            if (e.key === 'ArrowRight' && hasNext) onNavigate(allNavAssets[currentNavIdx + 1].filename);
         };
         document.addEventListener('keydown', handler);
         return () => document.removeEventListener('keydown', handler);
-    }, [isImg, hasPrev, hasNext, currentImageIdx, imageAssets, onClose, onNavigate]);
+    }, [hasPrev, hasNext, currentNavIdx, allNavAssets, onClose, onNavigate]);
+
+    const saveName = () => {
+        const trimmed = assetName.trim();
+        updateMeta.mutate(
+            { filename: asset.filename, meta: { name: trimmed || undefined } },
+            {
+                onSuccess: () => { toast.success('Name saved.'); setEditingName(false); },
+                onError: () => toast.error('Failed to save name.'),
+            }
+        );
+    };
 
     const saveDescription = () => {
         updateMeta.mutate(
@@ -194,10 +244,12 @@ function AssetDetailModal({ asset, allAssets, onClose, onNavigate, onDeleteReque
         );
     };
 
-    const saveDateTaken = (val: string) => {
-        setDateTaken(val);
+    const saveDate = (val: string) => {
+        const iso = parseToISO(val);
+        const toSave = iso ?? (val.trim() || undefined);
+        setDateVal(val);
         updateMeta.mutate(
-            { filename: asset.filename, meta: { date_taken: val.trim() || undefined } },
+            { filename: asset.filename, meta: { date: toSave } },
             { onError: () => toast.error('Failed to save date.') }
         );
     };
@@ -223,6 +275,7 @@ function AssetDetailModal({ asset, allAssets, onClose, onNavigate, onDeleteReque
     };
 
     const ext = asset.filename.split('.').pop()?.toUpperCase() ?? 'FILE';
+    const displayName = fileDisplayName(asset.filename, asset.metadata.name);
 
     return (
         <div
@@ -233,18 +286,64 @@ function AssetDetailModal({ asset, allAssets, onClose, onNavigate, onDeleteReque
                 className="bg-background rounded-xl shadow-2xl flex overflow-hidden w-full max-w-5xl max-h-[90vh]"
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* Left: image / file display */}
+                {/* Left: asset display */}
                 <div className="relative flex-1 bg-black/90 flex items-center justify-center min-w-0 min-h-[400px]">
-                    {isImg ? (
+                    {type === 'pdf' ? (
+                        <iframe
+                            src={`/assets/${asset.filename}`}
+                            title={displayName}
+                            className="w-full h-full"
+                            style={{ minHeight: 400 }}
+                        />
+                    ) : type === 'text' ? (
+                        <div className="w-full h-full overflow-auto p-6 text-white/90" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-between mb-4">
+                                <span className="text-sm font-medium">{displayName}</span>
+                                <a
+                                    href={`/assets/${asset.filename}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-1 text-xs text-white/60 hover:text-white"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <ExternalLink className="h-3 w-3" /> Open
+                                </a>
+                            </div>
+                            <pre className="text-sm whitespace-pre-wrap font-mono leading-relaxed text-white/80">
+                                {textContent ?? 'Loading…'}
+                            </pre>
+                        </div>
+                    ) : type === 'markdown' ? (
+                        <div className="w-full h-full overflow-auto p-6 bg-background" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-between mb-4">
+                                <span className="text-sm font-medium">{displayName}</span>
+                                <a
+                                    href={`/assets/${asset.filename}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <ExternalLink className="h-3 w-3" /> Open
+                                </a>
+                            </div>
+                            {textContent == null
+                                ? <p className="text-sm text-muted-foreground">Loading…</p>
+                                : <div className="prose prose-sm dark:prose-invert max-w-none">
+                                    <ReactMarkdown>{textContent}</ReactMarkdown>
+                                </div>
+                            }
+                        </div>
+                    ) : isImg ? (
                         <img
                             src={`/assets/${asset.filename}`}
-                            alt={asset.filename}
+                            alt={displayName}
                             className="max-w-full max-h-[80vh] object-contain"
                         />
                     ) : (
                         <div className="flex flex-col items-center gap-4 text-white p-8">
                             <FileText className="h-24 w-24 opacity-40" />
-                            <p className="text-sm opacity-70">{asset.filename}</p>
+                            <p className="text-sm opacity-70">{displayName}</p>
                             <a
                                 href={`/assets/${asset.filename}`}
                                 target="_blank"
@@ -256,32 +355,35 @@ function AssetDetailModal({ asset, allAssets, onClose, onNavigate, onDeleteReque
                         </div>
                     )}
 
-                    {/* Prev / Next arrows (image only) */}
-                    {isImg && hasPrev && (
+                    {/* Prev / Next arrows */}
+                    {hasPrev && (
                         <button
                             type="button"
                             className="absolute left-3 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors"
-                            onClick={(e) => { e.stopPropagation(); onNavigate(imageAssets[currentImageIdx - 1].filename); }}
-                            aria-label="Previous image"
+                            onClick={(e) => { e.stopPropagation(); onNavigate(allNavAssets[currentNavIdx - 1].filename); }}
+                            aria-label="Previous asset"
                         >
                             <ChevronLeft className="h-5 w-5" />
                         </button>
                     )}
-                    {isImg && hasNext && (
+                    {hasNext && (
                         <button
                             type="button"
                             className="absolute right-3 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors"
-                            onClick={(e) => { e.stopPropagation(); onNavigate(imageAssets[currentImageIdx + 1].filename); }}
-                            aria-label="Next image"
+                            onClick={(e) => { e.stopPropagation(); onNavigate(allNavAssets[currentNavIdx + 1].filename); }}
+                            aria-label="Next asset"
                         >
                             <ChevronRight className="h-5 w-5" />
                         </button>
                     )}
 
                     {/* Counter */}
-                    {isImg && imageAssets.length > 1 && (
+                    {allNavAssets.length > 1 && (
                         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-white/60 bg-black/40 rounded-full px-2 py-0.5">
-                            {currentImageIdx + 1} / {imageAssets.length}
+                            {currentNavIdx + 1} / {allNavAssets.length}
+                            {isImg && imageAssets.length !== allNavAssets.length && (
+                                <span className="ml-1 opacity-70">({currentImageIdx + 1}/{imageAssets.length} images)</span>
+                            )}
                         </div>
                     )}
                 </div>
@@ -304,23 +406,63 @@ function AssetDetailModal({ asset, allAssets, onClose, onNavigate, onDeleteReque
                     </div>
 
                     <div className="flex-1 p-3 space-y-4 overflow-y-auto">
-                        {/* Filename */}
+                        {/* Name (primary title) */}
                         <div>
-                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Filename</p>
-                            <p className="text-sm font-mono break-all">{asset.filename}</p>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Name</p>
+                            {editingName ? (
+                                <div className="flex gap-1">
+                                    <Input
+                                        value={assetName}
+                                        onChange={(e) => setAssetName(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') saveName();
+                                            if (e.key === 'Escape') setEditingName(false);
+                                        }}
+                                        placeholder={fileDisplayName(asset.filename)}
+                                        className="h-7 text-xs flex-1"
+                                        autoFocus
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={saveName}
+                                        className="p-1 rounded hover:bg-muted text-muted-foreground"
+                                    ><Check className="h-3.5 w-3.5" /></button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditingName(false)}
+                                        className="p-1 rounded hover:bg-muted text-muted-foreground"
+                                    ><X className="h-3.5 w-3.5" /></button>
+                                </div>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingName(true)}
+                                    className="group w-full flex items-center gap-1 text-left"
+                                >
+                                    <span className="text-sm font-medium flex-1 truncate">{displayName}</span>
+                                    <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                                </button>
+                            )}
+                            {/* Filename (secondary) */}
+                            <p className="text-[9px] text-muted-foreground font-mono mt-0.5 break-all">{asset.filename}</p>
                         </div>
 
-                        {/* Date taken */}
+                        {/* Date */}
                         <div>
-                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Date taken</p>
-                            <Input
-                                value={dateTaken}
-                                onChange={(e) => setDateTaken(e.target.value)}
-                                onBlur={(e) => saveDateTaken(e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter') saveDateTaken(dateTaken); }}
-                                placeholder="e.g. 1945-06"
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Date</p>
+                            <SmartDateInput
+                                value={dateVal}
+                                onChange={(val) => setDateVal(val)}
+                                placeholder="e.g. Jun 1950"
                                 className="h-7 text-xs"
                             />
+                            <button
+                                type="button"
+                                className="mt-1 text-[9px] text-primary hover:underline"
+                                onClick={() => saveDate(dateVal)}
+                            >
+                                Save date
+                            </button>
                         </div>
 
                         {/* Description */}
@@ -354,7 +496,7 @@ function AssetDetailModal({ asset, allAssets, onClose, onNavigate, onDeleteReque
 
                         {/* Associated people */}
                         <div>
-                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">People in this photo</p>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">People</p>
                             <div className="space-y-1 mb-2">
                                 {asset.referencedBy.people.length === 0 ? (
                                     <p className="text-xs text-muted-foreground italic">No people linked</p>
@@ -387,16 +529,16 @@ function AssetDetailModal({ asset, allAssets, onClose, onNavigate, onDeleteReque
                             <div>
                                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Stories</p>
                                 <div className="space-y-1">
-                                    {asset.referencedBy.stories.map((sid) => (
+                                    {asset.referencedBy.stories.map((s) => (
                                         <Link
-                                            key={sid}
+                                            key={s.id}
                                             to="/stories/$id"
-                                            params={{ id: sid }}
+                                            params={{ id: s.id }}
                                             className="flex items-center gap-1 text-xs text-primary hover:underline"
                                             onClick={onClose}
                                         >
                                             <ExternalLink className="h-3 w-3 shrink-0" />
-                                            {sid}
+                                            {s.title}
                                         </Link>
                                     ))}
                                 </div>
@@ -471,10 +613,7 @@ function AssetGallery() {
     const rowVirtualizer = useVirtualizer({
         count: rows.length,
         getScrollElement: () => parentRef.current,
-        estimateSize: useCallback(() => {
-            // Card height = container_width/3 * 3/4 (aspect) + info ~72px + gap
-            return 260;
-        }, []),
+        estimateSize: useCallback(() => 260, []),
         overscan: 3,
     });
 

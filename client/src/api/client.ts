@@ -3,9 +3,15 @@ import type { Place } from './people';
 // ── Asset types ────────────────────────────────────────────────────────────
 
 export interface AssetMetadata {
+    name?: string;
     description?: string;
-    date_taken?: string;
+    date?: string;
     location?: string;
+}
+
+export interface AssetStoryRef {
+    id: string;
+    title: string;
 }
 
 export interface AssetListItem {
@@ -14,7 +20,7 @@ export interface AssetListItem {
     mimeType: string;
     referencedBy: {
         people: string[];
-        stories: string[];
+        stories: AssetStoryRef[];
         events: Array<{ personId: string; eventId: string; eventType: string }>;
     };
     metadata: AssetMetadata;
