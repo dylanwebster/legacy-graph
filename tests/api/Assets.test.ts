@@ -93,7 +93,6 @@ describe('Assets API', () => {
     // ── GET /api/assets ──────────────────────────────────────────────────────
 
     it('GET /api/assets returns empty list when no files', async () => {
-        // Remove any test files
         if (fs.existsSync(ASSETS_DIR)) {
             const files = fs.readdirSync(ASSETS_DIR).filter(f => f.startsWith('test-'));
             for (const f of files) fs.unlinkSync(path.join(ASSETS_DIR, f));
@@ -122,8 +121,21 @@ describe('Assets API', () => {
         expect(item.referencedBy.events).toEqual([]);
     });
 
+    it('GET /api/assets metadata has description (not caption) and no tagged_people', async () => {
+        writeTestAsset();
+
+        const res = await request.get('/api/assets');
+        expect(res.status).toBe(200);
+
+        const item = res.body.assets.find((a: any) => a.filename === TEST_ASSET);
+        expect(item).toBeDefined();
+        expect(item.metadata).toBeDefined();
+        expect('tagged_people' in item.metadata).toBe(false);
+        expect('caption' in item.metadata).toBe(false);
+        // description and date_taken may be undefined but not caption/tagged_people
+    });
+
     it('GET /api/assets sets referencedBy.people correctly for person-owned asset', async () => {
-        // Create a person with the test asset
         const createRes = await request.post('/api/people').send({
             names: [{ first: 'Asset', last: 'Tester' }],
             sex: 'U',
@@ -146,33 +158,132 @@ describe('Assets API', () => {
         fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
 
+    it('GET /api/assets?type=image returns only image files', async () => {
+        writeTestAsset('test-asset-gallery.png');
+        // Also write a doc-type file
+        fs.mkdirSync(ASSETS_DIR, { recursive: true });
+        fs.writeFileSync(path.join(ASSETS_DIR, 'test-asset-gallery.pdf'), 'fake pdf');
+
+        const res = await request.get('/api/assets?type=image');
+        expect(res.status).toBe(200);
+
+        const filenames = res.body.assets.map((a: any) => a.filename);
+        expect(filenames).toContain('test-asset-gallery.png');
+        expect(filenames).not.toContain('test-asset-gallery.pdf');
+
+        // Cleanup
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-gallery.pdf')); } catch { /* ignore */ }
+    });
+
+    it('GET /api/assets?type=document returns only non-image files', async () => {
+        writeTestAsset('test-asset-gallery.png');
+        fs.mkdirSync(ASSETS_DIR, { recursive: true });
+        fs.writeFileSync(path.join(ASSETS_DIR, 'test-asset-gallery.pdf'), 'fake pdf');
+
+        const res = await request.get('/api/assets?type=document');
+        expect(res.status).toBe(200);
+
+        const filenames = res.body.assets.map((a: any) => a.filename);
+        expect(filenames).not.toContain('test-asset-gallery.png');
+        expect(filenames).toContain('test-asset-gallery.pdf');
+
+        // Cleanup
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-gallery.pdf')); } catch { /* ignore */ }
+    });
+
+    it('GET /api/assets?sort=size&order=desc returns assets sorted by size descending', async () => {
+        writeTestAsset('test-asset-gallery.png');
+        // Write a larger file
+        fs.writeFileSync(path.join(ASSETS_DIR, 'test-asset-gallery-big.png'), Buffer.alloc(1000, 0));
+
+        const res = await request.get('/api/assets?sort=size&order=desc');
+        expect(res.status).toBe(200);
+
+        const sizes = (res.body.assets as any[])
+            .filter((a: any) => a.filename.startsWith('test-asset-gallery'))
+            .map((a: any) => a.size);
+        // Should be descending
+        for (let i = 1; i < sizes.length; i++) {
+            expect(sizes[i]).toBeLessThanOrEqual(sizes[i - 1]);
+        }
+
+        // Cleanup
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-gallery-big.png')); } catch { /* ignore */ }
+    });
+
+    it('GET /api/assets?q= filters by filename', async () => {
+        writeTestAsset('test-asset-gallery.png');
+        fs.writeFileSync(path.join(ASSETS_DIR, 'test-asset-unrelated.png'), Buffer.alloc(10, 0));
+
+        const res = await request.get('/api/assets?q=gallery');
+        expect(res.status).toBe(200);
+
+        const filenames = res.body.assets.map((a: any) => a.filename);
+        expect(filenames).toContain('test-asset-gallery.png');
+        expect(filenames).not.toContain('test-asset-unrelated.png');
+
+        // Cleanup
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-unrelated.png')); } catch { /* ignore */ }
+    });
+
+    it('GET /api/assets?q= filters by person display name', async () => {
+        writeTestAsset();
+
+        const createRes = await request.post('/api/people').send({
+            names: [{ first: 'SearchableFirstName', last: 'SearchableLastName' }],
+            sex: 'U',
+            assets: [TEST_ASSET],
+        });
+        expect(createRes.status).toBe(201);
+        const personId = createRes.body.id;
+
+        const res = await request.get('/api/assets?q=SearchableFirstName');
+        expect(res.status).toBe(200);
+        const item = res.body.assets.find((a: any) => a.filename === TEST_ASSET);
+        expect(item).toBeDefined();
+
+        // Cleanup
+        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+    });
+
     // ── PUT /api/assets/:filename/meta ───────────────────────────────────────
 
-    it('PUT /api/assets/:filename/meta updates caption', async () => {
+    it('PUT /api/assets/:filename/meta updates description', async () => {
         writeTestAsset();
 
         const res = await request
             .put(`/api/assets/${TEST_ASSET}/meta`)
-            .send({ caption: 'A test caption' });
+            .send({ description: 'A test description' });
 
         expect(res.status).toBe(200);
-        expect(res.body.caption).toBe('A test caption');
-        expect(Array.isArray(res.body.tagged_people)).toBe(true);
+        expect(res.body.description).toBe('A test description');
+        expect('tagged_people' in res.body).toBe(false);
 
-        // Verify persistence: assets.yaml written
+        // Verify persistence
         const metaYaml = path.join(META_DIR, 'assets.yaml');
         expect(fs.existsSync(metaYaml)).toBe(true);
     });
 
-    it('PUT /api/assets/:filename/meta updates tagged_people', async () => {
+    it('PUT /api/assets/:filename/meta accepts legacy caption as description', async () => {
         writeTestAsset();
 
         const res = await request
             .put(`/api/assets/${TEST_ASSET}/meta`)
-            .send({ tagged_people: ['N_john-doe-1900-abc12345'] });
+            .send({ caption: 'Legacy caption value' });
 
         expect(res.status).toBe(200);
-        expect(res.body.tagged_people).toEqual(['N_john-doe-1900-abc12345']);
+        expect(res.body.description).toBe('Legacy caption value');
+    });
+
+    it('PUT /api/assets/:filename/meta updates date_taken', async () => {
+        writeTestAsset();
+
+        const res = await request
+            .put(`/api/assets/${TEST_ASSET}/meta`)
+            .send({ date_taken: '1945-06' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.date_taken).toBe('1945-06');
     });
 
     it('PUT /api/assets/:filename/meta creates assets.yaml if absent', async () => {
@@ -182,7 +293,7 @@ describe('Assets API', () => {
 
         const res = await request
             .put(`/api/assets/${TEST_ASSET}/meta`)
-            .send({ caption: 'Created fresh' });
+            .send({ description: 'Created fresh' });
 
         expect(res.status).toBe(200);
         expect(fs.existsSync(metaYaml)).toBe(true);
@@ -191,7 +302,7 @@ describe('Assets API', () => {
     it('PUT /api/assets/:filename/meta returns 404 for missing file', async () => {
         const res = await request
             .put('/api/assets/nonexistent-file.png/meta')
-            .send({ caption: 'wont work' });
+            .send({ description: 'wont work' });
 
         expect(res.status).toBe(404);
         expect(res.body.code).toBe('ASSET_NOT_FOUND');
@@ -222,7 +333,6 @@ describe('Assets API', () => {
         expect(res.status).toBe(409);
         expect(res.body.code).toBe('ASSET_REFERENCED');
         expect(res.body.referencedBy.people).toContain(personId);
-        // File should still exist
         expect(fs.existsSync(TEST_ASSET_PATH)).toBe(true);
 
         // Cleanup
@@ -274,7 +384,6 @@ describe('Assets API', () => {
             .send({ filename: TEST_ASSET });
 
         expect(res.status).toBe(200);
-        // Should not duplicate
         const occurrences = (res.body.assets as string[]).filter(a => a === TEST_ASSET).length;
         expect(occurrences).toBe(1);
 
@@ -304,6 +413,83 @@ describe('Assets API', () => {
             .send({ filename: 'does-not-exist.png' });
 
         expect(res.status).toBe(400);
+
+        // Cleanup
+        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+    });
+
+    // ── DELETE /api/people/:id/media/:filename (unlink-only) ─────────────────
+
+    it('DELETE /api/people/:id/media/:filename unlinks asset but does NOT delete file from disk', async () => {
+        writeTestAsset();
+
+        const createRes = await request.post('/api/people').send({
+            names: [{ first: 'Unlink', last: 'Test' }],
+            sex: 'U',
+            assets: [TEST_ASSET],
+        });
+        expect(createRes.status).toBe(201);
+        const personId = createRes.body.id;
+
+        const res = await request.delete(`/api/people/${personId}/media/${TEST_ASSET}`);
+        expect(res.status).toBe(204);
+
+        // File should still exist on disk
+        expect(fs.existsSync(TEST_ASSET_PATH)).toBe(true);
+
+        // Person should no longer reference it
+        const personRes = await request.get(`/api/people/${personId}`);
+        expect(personRes.status).toBe(200);
+        expect(personRes.body.assets).not.toContain(TEST_ASSET);
+
+        // Cleanup
+        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+    });
+
+    // ── DELETE /api/people/:id/assets/link/:filename ─────────────────────────
+
+    it('DELETE /api/people/:id/assets/link/:filename unlinks asset from person.assets[]', async () => {
+        writeTestAsset();
+
+        const createRes = await request.post('/api/people').send({
+            names: [{ first: 'ExplicitUnlink', last: 'Test' }],
+            sex: 'U',
+            assets: [TEST_ASSET],
+        });
+        expect(createRes.status).toBe(201);
+        const personId = createRes.body.id;
+
+        const res = await request.delete(`/api/people/${personId}/assets/link/${TEST_ASSET}`);
+        expect(res.status).toBe(204);
+
+        // File should still exist on disk
+        expect(fs.existsSync(TEST_ASSET_PATH)).toBe(true);
+
+        // Person should no longer reference it
+        const personRes = await request.get(`/api/people/${personId}`);
+        expect(personRes.body.assets).not.toContain(TEST_ASSET);
+
+        // Cleanup
+        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+    });
+
+    it('DELETE /api/people/:id/assets/link/:filename returns 404 for missing person', async () => {
+        const res = await request.delete('/api/people/N_no-one-1900-xxxxxxxx/assets/link/some.png');
+        expect(res.status).toBe(404);
+        expect(res.body.code).toBe('PERSON_NOT_FOUND');
+    });
+
+    it('DELETE /api/people/:id/assets/link/:filename returns 404 if not linked', async () => {
+        const createRes = await request.post('/api/people').send({
+            names: [{ first: 'NotLinked', last: 'Test' }],
+            sex: 'U',
+        });
+        expect(createRes.status).toBe(201);
+        const personId = createRes.body.id;
+
+        const res = await request.delete(`/api/people/${personId}/assets/link/nonexistent.png`);
+        expect(res.status).toBe(404);
+        expect(res.body.code).toBe('ASSET_NOT_FOUND');
 
         // Cleanup
         fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));

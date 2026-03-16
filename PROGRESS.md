@@ -41,6 +41,8 @@
 | 4.21 | Sibling Dual-Parent Selection: multi-select checkboxes for all current person's parents |
 | 4.22 | Strict Date Input Validation: explicit fuzzy-prefix regex replaces catch-all `\b(\d{4})\b` |
 | 5.1 | Stories System: `StorySchema` extended (`date`, `place`, `private`, `people`); `StoryFeedItem` + `FullStory` types; full CRUD API (`GET/POST/PUT/DELETE /api/stories`, `PUT /api/stories/:id/media`); 18 backend tests; `/stories` feed page (virtualised, sort, search with full enriched StoryFeedItem results, delete, whole-card clickable, filter/sort persisted in Zustand); `/stories/:id` reader (Merriweather, filmstrip, `@N_xxx`→`InlinePersonMention` with HoverCard, clickable "Stories" breadcrumb); `/stories/new` + edit mode (Milkdown Crepe WYSIWYG — ListItem, LinkTooltip, ImageBlock, BlockEdit, Table, Toolbar, Cursor, Placeholder; `@N_xxx` chips via ProseMirror decorations; `SmartDateInput` for date, `PlaceSearchCombobox` for geocoded place; @mentions auto-populate `people` array on save, 3s auto-save, drag-drop upload); `MentionList.tsx` dropdown shows name + birth year; Person Notebook uses Milkdown Crepe; unified 720px width for view+edit; static TopBar breadcrumb removed; backend excerpts strip markdown formatting; Stories added to sidebar |
+| 5.4 | Asset Gallery: `GET /api/assets` (list+refs+orphan), `PUT /api/assets/:fn/meta`, `DELETE /api/assets/:fn` (orphan guard), `PUT /api/people/:id/events/:eventId/media`, `POST /api/people/:id/assets/link`; virtualised 3-col gallery; orphan filter; sort; inline description edit; lightbox; delete confirm; Assets nav item; AssetPickerDialog; event attachment section in EventEditorDialog; "Search existing" in person page Assets tab |
+| 5.4b | Asset System Overhaul: single source of truth (`person.assets[]`); removed `tagged_people` from `AssetMetadataSchema`; `caption`→`description` with backwards-compat transform; `date_taken` surfaced in UI; `DELETE /api/people/:id/media/:filename` changed to unlink-only; new `DELETE /api/people/:id/assets/link/:filename` explicit unlink endpoint; `GET /api/assets` gains `?q=` (search filename/description/person names/story titles), `?type=` (all/image/document), `?sort=` + `?order=` server-side params; `PUT /api/assets/:fn/meta` accepts `description`+`date_taken`; `AssetDetailModal` replaces simple lightbox (left image + right metadata panel, ←/→ keyboard nav, person tag/untag via `PersonSearchCombobox`, orphan delete); card redesign (4:3 aspect ratio, `object-contain`, no fixed height); `PersonSearchCombobox` extracted as shared component; person page removes "Tagged In" section (unified `person.assets[]` is single source); 321 backend tests |
 
 ---
 
@@ -59,16 +61,7 @@
 8. Add Map (Globe) icon + link to sidebar nav.
 9. Note: requires Phase 3.15 ✅ (geo-tagging complete).
 
-#### 5.3 Asset Gallery (`/assets`)
-1. New `GET /api/assets` endpoint: list all files in `/assets/` with `{ filename, size, mimeType, referencedBy: string[] }`. Orphaned = `referencedBy.length === 0`.
-2. `/assets` route (`client/src/routes/assets.lazy.tsx`) — masonry/grid of thumbnails.
-3. "Orphaned" badge + "Show only orphans" filter.
-4. Inline caption editing (calls new `PUT /api/assets/:filename/meta`).
-5. Orphan bulk-delete with confirmation dialog.
-6. Click image → lightbox (`object-contain`).
-7. Add Assets (Image) icon + link to sidebar nav.
-
-#### 5.4 Dashboard Visualization Modes (Fan Chart + Pedigree Chart)
+#### 5.5 Dashboard Visualization Modes (Fan Chart + Pedigree Chart)
 1. Toggle UI (segmented control) between Force Graph / Fan Chart / Pedigree Chart.
 2. **Fan Chart**: implement ancestor semi-circle using D3 or `@nivo/sunburst`. Root person selector (search input). Color-coded by paternal/maternal lineage.
 3. **Pedigree Chart**: standard horizontal tree using D3 tree layout. Click node → navigate. Scroll/pan for large trees.

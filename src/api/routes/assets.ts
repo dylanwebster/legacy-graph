@@ -33,6 +33,10 @@ function getMimeType(filename: string): string {
     return MIME_MAP[path.extname(filename).toLowerCase()] ?? 'application/octet-stream';
 }
 
+function isImage(filename: string): boolean {
+    return IMAGE_EXTS.has(path.extname(filename).toLowerCase());
+}
+
 const META_REL = path.join('_meta', 'assets.yaml');
 
 async function loadAssetIndex(dataDir: string): Promise<Record<string, any>> {
@@ -56,7 +60,12 @@ export async function assetsRoutes(server: FastifyInstance) {
 
     // ── GET /api/assets ──────────────────────────────────────────────────────
 
-    server.get('/api/assets', async () => {
+    server.get<{
+        Querystring: { q?: string; type?: string; sort?: string; order?: string }
+    }>('/api/assets', async (request) => {
+        const { q, type = 'all', sort = 'name', order = 'asc' } = request.query;
+        const searchQ = q?.trim().toLowerCase();
+
         await fs.mkdir(assetsDir, { recursive: true });
 
         let filenames: string[];
@@ -69,11 +78,21 @@ export async function assetsRoutes(server: FastifyInstance) {
         // Build person + event reference maps
         const personRefs = new Map<string, string[]>();
         const eventRefs = new Map<string, Array<{ personId: string; eventId: string; eventType: string }>>();
+        const personNames = new Map<string, string>(); // personId → displayName
+
         const graph = graphEngine.getGraph();
         graph.forEachNode((_nodeId, attrs) => {
             if (attrs.type !== 'person') return;
             const person = attrs.data as any;
             const personId = person.id as string;
+
+            // Build display name
+            const n = person.names?.[0];
+            const displayName = n
+                ? `${n.first || n.given || ''} ${n.last || n.surname || ''}`.trim()
+                : personId;
+            personNames.set(personId, displayName);
+
             if (Array.isArray(person.assets)) {
                 for (const fn of person.assets) {
                     if (typeof fn !== 'string') continue;
@@ -93,16 +112,18 @@ export async function assetsRoutes(server: FastifyInstance) {
             }
         });
 
-        // Build story reference map
+        // Build story reference map (filename → [storyId + title])
         const storyRefs = new Map<string, string[]>();
+        const storyTitles = new Map<string, string>(); // storyId → title
         try {
             const storyFiles = (await fs.readdir(storiesDir)).filter(f => f.endsWith('.md'));
             for (const file of storyFiles) {
                 try {
                     const raw = await fs.readFile(path.join(storiesDir, file), 'utf8');
                     const { data } = matter(raw);
-                    if (!Array.isArray(data.assets)) continue;
                     const storyId = file.slice(0, -3);
+                    if (data.title) storyTitles.set(storyId, String(data.title));
+                    if (!Array.isArray(data.assets)) continue;
                     for (const a of data.assets) {
                         if (typeof a !== 'string') continue;
                         if (!storyRefs.has(a)) storyRefs.set(a, []);
@@ -114,7 +135,7 @@ export async function assetsRoutes(server: FastifyInstance) {
 
         const metaIndex = await loadAssetIndex(dataDir);
 
-        const assets = await Promise.all(filenames.map(async (filename) => {
+        let assets = await Promise.all(filenames.map(async (filename) => {
             let size = 0;
             try {
                 const stat = await fs.stat(path.join(assetsDir, filename));
@@ -127,8 +148,9 @@ export async function assetsRoutes(server: FastifyInstance) {
 
             const rawMeta = metaIndex[filename];
             const metadata = {
-                caption: rawMeta?.caption as string | undefined,
-                tagged_people: (rawMeta?.tagged_people ?? []) as string[],
+                description: rawMeta?.description as string | undefined,
+                date_taken: rawMeta?.date_taken as string | undefined,
+                location: rawMeta?.location as string | undefined,
             };
 
             return {
@@ -141,6 +163,46 @@ export async function assetsRoutes(server: FastifyInstance) {
             };
         }));
 
+        // Apply type filter
+        if (type === 'image') {
+            assets = assets.filter(a => isImage(a.filename));
+        } else if (type === 'document') {
+            assets = assets.filter(a => !isImage(a.filename));
+        }
+
+        // Apply search filter (q)
+        if (searchQ) {
+            assets = assets.filter(a => {
+                if (a.filename.toLowerCase().includes(searchQ)) return true;
+                if (a.metadata.description?.toLowerCase().includes(searchQ)) return true;
+                if (a.metadata.date_taken?.toLowerCase().includes(searchQ)) return true;
+                // Match person names
+                for (const pid of a.referencedBy.people) {
+                    const name = personNames.get(pid) ?? '';
+                    if (name.toLowerCase().includes(searchQ)) return true;
+                }
+                // Match story titles
+                for (const sid of a.referencedBy.stories) {
+                    const title = storyTitles.get(sid) ?? sid;
+                    if (title.toLowerCase().includes(searchQ)) return true;
+                }
+                return false;
+            });
+        }
+
+        // Apply sort
+        const sortOrder = order === 'desc' ? -1 : 1;
+        assets.sort((a, b) => {
+            if (sort === 'size') return (a.size - b.size) * sortOrder;
+            if (sort === 'date') {
+                const da = a.metadata.date_taken ?? '';
+                const db = b.metadata.date_taken ?? '';
+                return da < db ? -1 * sortOrder : da > db ? 1 * sortOrder : 0;
+            }
+            // default: name
+            return a.filename.localeCompare(b.filename) * sortOrder;
+        });
+
         return { assets, totalCount: assets.length };
     });
 
@@ -148,10 +210,10 @@ export async function assetsRoutes(server: FastifyInstance) {
 
     server.put<{
         Params: { filename: string };
-        Body: { caption?: string; tagged_people?: string[] };
+        Body: { description?: string; caption?: string; date_taken?: string; location?: string };
     }>('/api/assets/:filename/meta', async (request, reply) => {
         const { filename } = request.params;
-        const { caption, tagged_people } = request.body;
+        const { description, caption, date_taken, location } = request.body;
 
         try {
             await fs.access(path.join(assetsDir, filename));
@@ -161,18 +223,24 @@ export async function assetsRoutes(server: FastifyInstance) {
 
         const index = await loadAssetIndex(dataDir);
         const existing = index[filename] ?? {};
+
+        // Backwards compat: if body has `caption` but not `description`, treat as description
+        const resolvedDescription = description ?? caption;
+
         const merged = {
             ...existing,
-            ...(caption !== undefined && { caption }),
-            ...(tagged_people !== undefined && { tagged_people }),
+            ...(resolvedDescription !== undefined && { description: resolvedDescription }),
+            ...(date_taken !== undefined && { date_taken }),
+            ...(location !== undefined && { location }),
         };
 
         index[filename] = AssetMetadataSchema.parse(merged);
         await saveAssetIndex(dataDir, index, txManager);
 
         return {
-            caption: index[filename].caption,
-            tagged_people: index[filename].tagged_people,
+            description: index[filename].description,
+            date_taken: index[filename].date_taken,
+            location: index[filename].location,
         };
     });
 

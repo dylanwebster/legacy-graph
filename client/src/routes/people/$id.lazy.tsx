@@ -197,11 +197,6 @@ function PersonDetail() {
     const allAssets = (person.assets ?? []) as string[];
     const primaryPhoto = primaryImageAsset(allAssets);
 
-    // Tagged-in assets (from global asset index)
-    const taggedInAssets = (allAssetsData?.assets ?? []).filter(
-        (a) => a.metadata.tagged_people.includes(id)
-    );
-
     const parentIds = person.relationships?.parents ?? [];
     const spouseIds = computed.allSpouses?.map((s) => s.id) ?? [];
     const childIds = computed.children ?? [];
@@ -696,7 +691,7 @@ function PersonDetail() {
                                         const isImage = type === 'image';
                                         const isPrimary = asset === primaryPhoto;
                                         const isDoc = type === 'pdf' || type === 'text' || type === 'markdown';
-                                        const caption = allAssetsData?.assets.find((a) => a.filename === asset)?.metadata.caption;
+                                        const caption = allAssetsData?.assets.find((a) => a.filename === asset)?.metadata.description;
                                         return (
                                         <div key={asset} className="group relative aspect-square rounded-lg bg-muted border border-border overflow-hidden">
                                             {isImage ? (
@@ -750,7 +745,7 @@ function PersonDetail() {
                                                 )}
                                                 <button
                                                     type="button"
-                                                    title="Delete asset"
+                                                    title="Remove from profile"
                                                     onClick={(e) => { e.stopPropagation(); handleDeleteAsset(asset); }}
                                                     className="p-1.5 rounded-full bg-white/20 hover:bg-red-500/70 text-white"
                                                 >
@@ -765,43 +760,6 @@ function PersonDetail() {
                                 <div className="text-center text-muted-foreground text-sm py-4">No assets yet</div>
                             )}
 
-                            {/* Tagged In section */}
-                            {taggedInAssets.length > 0 && (
-                                <div className="mt-4">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                            Tagged In
-                                        </span>
-                                        <Link to="/assets" className="text-xs text-primary hover:underline">
-                                            Open in Gallery
-                                        </Link>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {taggedInAssets.map((asset) => {
-                                            const isImg = assetType(asset.filename) === 'image';
-                                            return (
-                                                <div key={asset.filename} className="relative aspect-square rounded-lg bg-muted border border-border overflow-hidden">
-                                                    {isImg ? (
-                                                        <img
-                                                            src={`/assets/${asset.filename}`}
-                                                            alt={asset.filename}
-                                                            className="object-contain w-full h-full"
-                                                            loading="lazy"
-                                                        />
-                                                    ) : (
-                                                        <div className="flex flex-col items-center justify-center w-full h-full gap-1">
-                                                            <FileText className="h-6 w-6 text-muted-foreground" />
-                                                            <span className="text-[9px] text-muted-foreground text-center break-all px-1 leading-tight">
-                                                                {asset.filename}
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
                         </TabsContent>
 
                         {/* Notebook tab with edit toggle */}
@@ -1013,19 +971,19 @@ function PersonDetail() {
                 />
             )}
 
-            {/* Asset delete confirmation */}
+            {/* Asset remove confirmation */}
             <ConfirmDialog open={!!deleteConfirmAsset} onOpenChange={(o) => !o && setDeleteConfirmAsset(null)}>
                 <ConfirmDialogContent className="max-w-sm">
                     <ConfirmDialogHeader>
-                        <ConfirmDialogTitle>Delete Asset</ConfirmDialogTitle>
+                        <ConfirmDialogTitle>Remove Asset</ConfirmDialogTitle>
                         <ConfirmDialogDescription>
-                            Delete <span className="font-mono text-xs">{deleteConfirmAsset}</span> permanently? This cannot be undone.
+                            Remove <span className="font-mono text-xs">{deleteConfirmAsset}</span> from this profile? The file will remain in the asset gallery.
                         </ConfirmDialogDescription>
                     </ConfirmDialogHeader>
                     <ConfirmDialogFooter>
                         <Button variant="outline" size="sm" onClick={() => setDeleteConfirmAsset(null)}>Cancel</Button>
                         <Button variant="destructive" size="sm" onClick={handleConfirmDeleteAsset} disabled={deleteAssetMutation.isPending}>
-                            {deleteAssetMutation.isPending ? 'Deleting…' : 'Delete'}
+                            {deleteAssetMutation.isPending ? 'Removing…' : 'Remove'}
                         </Button>
                     </ConfirmDialogFooter>
                 </ConfirmDialogContent>

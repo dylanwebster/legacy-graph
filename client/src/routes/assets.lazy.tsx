@@ -1,10 +1,12 @@
 import { createLazyFileRoute, Link } from '@tanstack/react-router';
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useAssets, useUpdateAssetMeta, useDeleteGalleryAsset, useSearch } from '@/api/hooks';
+import { useAssets, useUpdateAssetMeta, useDeleteGalleryAsset, useLinkAsset, useUnlinkAsset } from '@/api/hooks';
 import type { AssetListItem } from '@/api/client';
+import type { AssetsQueryParams } from '@/api/client';
 import { assetType } from '@/lib/assetUtils';
 import { PersonChip } from '@/components/PersonChip';
+import { PersonSearchCombobox } from '@/components/PersonSearchCombobox';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
@@ -16,7 +18,10 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Search, FileText, Trash2, ZoomIn, ExternalLink, Tag, X, UserPlus } from 'lucide-react';
+import {
+    Search, FileText, Trash2, ZoomIn, ExternalLink,
+    ChevronLeft, ChevronRight, X, ArrowUpDown, ArrowUp, ArrowDown,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 export const Route = createLazyFileRoute('/assets')({
@@ -24,9 +29,6 @@ export const Route = createLazyFileRoute('/assets')({
 });
 
 const COLS = 3;
-// Card = 160px thumbnail + 110px info panel + 8px gap
-const CARD_HEIGHT = 270;
-const CARD_INFO_HEIGHT = 110;
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif', '.svg']);
 
 function isImage(filename: string): boolean {
@@ -40,141 +42,39 @@ function formatSize(bytes: number): string {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// ── Inline person search popover ──────────────────────────────────────────
-
-function TagPersonPopover({
-    onAdd,
-    excludeIds,
-}: {
-    onAdd: (id: string) => void;
-    excludeIds: string[];
-}) {
-    const [open, setOpen] = useState(false);
-    const [query, setQuery] = useState('');
-    const [debouncedQuery, setDebouncedQuery] = useState('');
-
-    useEffect(() => {
-        const t = setTimeout(() => setDebouncedQuery(query), 300);
-        return () => clearTimeout(t);
-    }, [query]);
-
-    type PersonResult = { id: string; names?: Array<{ first?: string; given?: string; last?: string; surname?: string }> };
-    const { data: searchResults } = useSearch(debouncedQuery, { limit: 6 });
-    const people = (searchResults?.people ?? []).filter(
-        (p) => !excludeIds.includes((p as PersonResult).id)
-    ) as PersonResult[];
-
-    if (!open) {
-        return (
-            <button
-                type="button"
-                onClick={() => setOpen(true)}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                title="Tag a person"
-            >
-                <UserPlus className="h-2.5 w-2.5" /> Tag
-            </button>
-        );
-    }
-
-    return (
-        <div className="relative">
-            <Input
-                placeholder="Search people…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onBlur={() => setTimeout(() => { setOpen(false); setQuery(''); }, 150)}
-                className="h-6 text-[10px] px-1.5"
-                autoFocus
-            />
-            {debouncedQuery && people.length > 0 && (
-                <div className="absolute z-50 left-0 right-0 mt-0.5 bg-popover border border-border rounded shadow-md max-h-36 overflow-auto">
-                    {people.map((p) => {
-                        const n = p.names?.[0];
-                        const name = `${n?.first || n?.given || ''} ${n?.last || n?.surname || ''}`.trim() || p.id;
-                        return (
-                            <button
-                                key={p.id}
-                                type="button"
-                                className="w-full text-left px-2 py-1 text-[10px] hover:bg-muted"
-                                onMouseDown={() => { onAdd(p.id); setOpen(false); setQuery(''); }}
-                            >
-                                {name}
-                            </button>
-                        );
-                    })}
-                </div>
-            )}
-        </div>
-    );
-}
-
 // ── AssetCard ─────────────────────────────────────────────────────────────
 
 interface AssetCardProps {
     asset: AssetListItem;
-    onLightbox: (filename: string) => void;
+    onOpen: (filename: string) => void;
     onDelete: (filename: string) => void;
 }
 
-function AssetCard({ asset, onLightbox, onDelete }: AssetCardProps) {
-    const [editingCaption, setEditingCaption] = useState(false);
-    const [captionValue, setCaptionValue] = useState(asset.metadata.caption ?? '');
-    const updateMeta = useUpdateAssetMeta();
+function AssetCard({ asset, onOpen, onDelete }: AssetCardProps) {
     const type = assetType(asset.filename);
     const isImg = type === 'image';
-
-    const saveCaption = () => {
-        updateMeta.mutate(
-            { filename: asset.filename, meta: { caption: captionValue.trim() || undefined } },
-            {
-                onSuccess: () => { toast.success('Caption saved.'); setEditingCaption(false); },
-                onError: () => toast.error('Failed to save caption.'),
-            }
-        );
-    };
-
-    const handleTagAdd = (personId: string) => {
-        const updated = [...asset.metadata.tagged_people, personId];
-        updateMeta.mutate(
-            { filename: asset.filename, meta: { tagged_people: updated } },
-            {
-                onSuccess: () => toast.success('Person tagged.'),
-                onError: () => toast.error('Failed to tag person.'),
-            }
-        );
-    };
-
-    const handleTagRemove = (personId: string) => {
-        const updated = asset.metadata.tagged_people.filter((id) => id !== personId);
-        updateMeta.mutate(
-            { filename: asset.filename, meta: { tagged_people: updated } },
-            { onError: () => toast.error('Failed to remove tag.') }
-        );
-    };
+    const ext = asset.filename.split('.').pop()?.toUpperCase() ?? 'FILE';
 
     return (
-        <div className="rounded-lg border border-border bg-card overflow-hidden flex flex-col" style={{ height: CARD_HEIGHT }}>
-            {/* Thumbnail */}
-            <div className="group relative bg-muted overflow-hidden flex-shrink-0" style={{ height: CARD_HEIGHT - CARD_INFO_HEIGHT }}>
+        <div className="rounded-lg border border-border bg-card overflow-hidden flex flex-col">
+            {/* Thumbnail — 4:3 aspect ratio, object-contain on neutral bg */}
+            <div className="group relative bg-muted/50 overflow-hidden" style={{ aspectRatio: '4/3' }}>
                 {isImg ? (
                     <img
                         src={`/assets/${asset.filename}`}
                         alt={asset.filename}
-                        className="object-cover w-full h-full"
+                        className="object-contain w-full h-full"
                         loading="lazy"
                     />
                 ) : (
                     <div className="flex flex-col items-center justify-center w-full h-full gap-2">
                         <FileText className="h-10 w-10 text-muted-foreground" />
-                        <span className="text-[10px] text-muted-foreground text-center break-all px-2 leading-tight">
-                            {asset.filename}
-                        </span>
+                        <Badge variant="secondary" className="text-[10px]">{ext}</Badge>
                     </div>
                 )}
 
                 {asset.isOrphan && (
-                    <div className="absolute top-1.5 right-1.5">
+                    <div className="absolute top-1.5 left-1.5">
                         <Badge variant="destructive" className="text-[9px] px-1.5 py-0">Orphan</Badge>
                     </div>
                 )}
@@ -182,8 +82,8 @@ function AssetCard({ asset, onLightbox, onDelete }: AssetCardProps) {
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <button
                         type="button"
-                        title="View"
-                        onClick={() => onLightbox(asset.filename)}
+                        title="View details"
+                        onClick={() => onOpen(asset.filename)}
                         className="p-1.5 rounded-full bg-white/20 hover:bg-white/30 text-white"
                     >
                         <ZoomIn className="h-4 w-4" />
@@ -201,155 +101,367 @@ function AssetCard({ asset, onLightbox, onDelete }: AssetCardProps) {
                 </div>
             </div>
 
-            {/* Info panel — fixed height, clipped */}
-            <div
-                className="px-2 py-1.5 flex flex-col gap-0.5 overflow-hidden"
-                style={{ height: CARD_INFO_HEIGHT }}
-            >
-                {/* Filename + size */}
-                <p className="text-[9px] text-muted-foreground/70 truncate" title={asset.filename}>
-                    {asset.filename} · {formatSize(asset.size)}
+            {/* Info panel */}
+            <div className="px-2 py-2 flex flex-col gap-1">
+                <p className="text-[10px] text-foreground font-medium truncate" title={asset.filename}>
+                    {asset.filename}
                 </p>
-
-                {/* Caption — editable */}
-                {editingCaption ? (
-                    <Input
-                        value={captionValue}
-                        onChange={(e) => setCaptionValue(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') saveCaption();
-                            if (e.key === 'Escape') setEditingCaption(false);
-                        }}
-                        onBlur={saveCaption}
-                        className="h-5 text-[9px] px-1"
-                        autoFocus
-                    />
-                ) : (
-                    <button
-                        type="button"
-                        onClick={() => { setCaptionValue(asset.metadata.caption ?? ''); setEditingCaption(true); }}
-                        className="text-[9px] text-left text-muted-foreground hover:text-foreground transition-colors truncate w-full"
-                        title="Click to edit caption"
-                    >
-                        {asset.metadata.caption || <span className="italic opacity-40">Add caption…</span>}
-                    </button>
-                )}
-
-                {/* Referenced by people */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                    <Badge variant="outline" className="text-[9px] px-1 py-0">{ext}</Badge>
+                    <span className="text-[9px] text-muted-foreground">{formatSize(asset.size)}</span>
+                    {asset.metadata.date_taken && (
+                        <span className="text-[9px] text-muted-foreground">{asset.metadata.date_taken}</span>
+                    )}
+                </div>
                 {asset.referencedBy.people.length > 0 && (
-                    <div className="flex flex-wrap gap-0.5 items-center">
-                        {asset.referencedBy.people.slice(0, 2).map((pid) => (
+                    <div className="flex flex-wrap gap-0.5 mt-0.5">
+                        {asset.referencedBy.people.slice(0, 3).map((pid) => (
                             <PersonChip key={pid} id={pid} className="text-[8px]" />
                         ))}
-                        {asset.referencedBy.people.length > 2 && (
-                            <span className="text-[8px] text-muted-foreground">+{asset.referencedBy.people.length - 2}</span>
-                        )}
-                        {asset.referencedBy.stories.length > 0 && (
-                            <Link
-                                to="/stories/$id"
-                                params={{ id: asset.referencedBy.stories[0] }}
-                                className="text-[8px] text-primary flex items-center gap-0.5 hover:underline"
-                            >
-                                <ExternalLink className="h-2 w-2" />story
-                            </Link>
+                        {asset.referencedBy.people.length > 3 && (
+                            <span className="text-[8px] text-muted-foreground">+{asset.referencedBy.people.length - 3}</span>
                         )}
                     </div>
                 )}
+                {asset.referencedBy.stories.length > 0 && (
+                    <Link
+                        to="/stories/$id"
+                        params={{ id: asset.referencedBy.stories[0] }}
+                        className="text-[9px] text-primary flex items-center gap-0.5 hover:underline"
+                    >
+                        <ExternalLink className="h-2.5 w-2.5" />
+                        {asset.referencedBy.stories.length === 1
+                            ? '1 story'
+                            : `${asset.referencedBy.stories.length} stories`}
+                    </Link>
+                )}
+            </div>
+        </div>
+    );
+}
 
-                {/* Tagged people with remove + add */}
-                <div className="flex flex-wrap gap-0.5 items-center">
-                    <Tag className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
-                    {asset.metadata.tagged_people.map((pid) => (
-                        <span key={pid} className="flex items-center gap-0.5">
-                            <PersonChip id={pid} className="text-[8px]" />
-                            <button
-                                type="button"
-                                onClick={() => handleTagRemove(pid)}
-                                className="text-muted-foreground hover:text-destructive transition-colors"
+// ── AssetDetailModal ───────────────────────────────────────────────────────
+
+interface AssetDetailModalProps {
+    asset: AssetListItem;
+    allAssets: AssetListItem[];
+    onClose: () => void;
+    onNavigate: (filename: string) => void;
+    onDeleteRequest: (filename: string) => void;
+}
+
+function AssetDetailModal({ asset, allAssets, onClose, onNavigate, onDeleteRequest }: AssetDetailModalProps) {
+    const updateMeta = useUpdateAssetMeta();
+    const linkAsset = useLinkAsset();
+    const unlinkAsset = useUnlinkAsset();
+
+    const [description, setDescription] = useState(asset.metadata.description ?? '');
+    const [dateTaken, setDateTaken] = useState(asset.metadata.date_taken ?? '');
+    const [editingDesc, setEditingDesc] = useState(false);
+
+    // Keep local state in sync when asset changes (navigation)
+    useEffect(() => {
+        setDescription(asset.metadata.description ?? '');
+        setDateTaken(asset.metadata.date_taken ?? '');
+        setEditingDesc(false);
+    }, [asset.filename, asset.metadata.description, asset.metadata.date_taken]);
+
+    const imageAssets = allAssets.filter(a => isImage(a.filename));
+    const currentImageIdx = imageAssets.findIndex(a => a.filename === asset.filename);
+    const hasPrev = currentImageIdx > 0;
+    const hasNext = currentImageIdx < imageAssets.length - 1;
+    const isImg = isImage(asset.filename);
+
+    // Keyboard nav
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') { onClose(); return; }
+            if (!isImg) return;
+            if (e.key === 'ArrowLeft' && hasPrev) onNavigate(imageAssets[currentImageIdx - 1].filename);
+            if (e.key === 'ArrowRight' && hasNext) onNavigate(imageAssets[currentImageIdx + 1].filename);
+        };
+        document.addEventListener('keydown', handler);
+        return () => document.removeEventListener('keydown', handler);
+    }, [isImg, hasPrev, hasNext, currentImageIdx, imageAssets, onClose, onNavigate]);
+
+    const saveDescription = () => {
+        updateMeta.mutate(
+            { filename: asset.filename, meta: { description: description.trim() || undefined } },
+            {
+                onSuccess: () => { toast.success('Description saved.'); setEditingDesc(false); },
+                onError: () => toast.error('Failed to save description.'),
+            }
+        );
+    };
+
+    const saveDateTaken = (val: string) => {
+        setDateTaken(val);
+        updateMeta.mutate(
+            { filename: asset.filename, meta: { date_taken: val.trim() || undefined } },
+            { onError: () => toast.error('Failed to save date.') }
+        );
+    };
+
+    const handleLinkPerson = (personId: string) => {
+        linkAsset.mutate(
+            { personId, filename: asset.filename },
+            {
+                onSuccess: () => toast.success('Person linked.'),
+                onError: () => toast.error('Failed to link person.'),
+            }
+        );
+    };
+
+    const handleUnlinkPerson = (personId: string) => {
+        unlinkAsset.mutate(
+            { personId, filename: asset.filename },
+            {
+                onSuccess: () => toast.success('Person unlinked.'),
+                onError: () => toast.error('Failed to unlink person.'),
+            }
+        );
+    };
+
+    const ext = asset.filename.split('.').pop()?.toUpperCase() ?? 'FILE';
+
+    return (
+        <div
+            className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+            onClick={onClose}
+        >
+            <div
+                className="bg-background rounded-xl shadow-2xl flex overflow-hidden w-full max-w-5xl max-h-[90vh]"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Left: image / file display */}
+                <div className="relative flex-1 bg-black/90 flex items-center justify-center min-w-0 min-h-[400px]">
+                    {isImg ? (
+                        <img
+                            src={`/assets/${asset.filename}`}
+                            alt={asset.filename}
+                            className="max-w-full max-h-[80vh] object-contain"
+                        />
+                    ) : (
+                        <div className="flex flex-col items-center gap-4 text-white p-8">
+                            <FileText className="h-24 w-24 opacity-40" />
+                            <p className="text-sm opacity-70">{asset.filename}</p>
+                            <a
+                                href={`/assets/${asset.filename}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1.5 text-xs text-white/70 hover:text-white underline"
                             >
-                                <X className="h-2.5 w-2.5" />
-                            </button>
-                        </span>
-                    ))}
-                    <TagPersonPopover
-                        onAdd={handleTagAdd}
-                        excludeIds={asset.metadata.tagged_people}
-                    />
+                                <ExternalLink className="h-3.5 w-3.5" /> Open file
+                            </a>
+                        </div>
+                    )}
+
+                    {/* Prev / Next arrows (image only) */}
+                    {isImg && hasPrev && (
+                        <button
+                            type="button"
+                            className="absolute left-3 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors"
+                            onClick={(e) => { e.stopPropagation(); onNavigate(imageAssets[currentImageIdx - 1].filename); }}
+                            aria-label="Previous image"
+                        >
+                            <ChevronLeft className="h-5 w-5" />
+                        </button>
+                    )}
+                    {isImg && hasNext && (
+                        <button
+                            type="button"
+                            className="absolute right-3 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors"
+                            onClick={(e) => { e.stopPropagation(); onNavigate(imageAssets[currentImageIdx + 1].filename); }}
+                            aria-label="Next image"
+                        >
+                            <ChevronRight className="h-5 w-5" />
+                        </button>
+                    )}
+
+                    {/* Counter */}
+                    {isImg && imageAssets.length > 1 && (
+                        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-white/60 bg-black/40 rounded-full px-2 py-0.5">
+                            {currentImageIdx + 1} / {imageAssets.length}
+                        </div>
+                    )}
+                </div>
+
+                {/* Right: metadata panel */}
+                <div className="w-72 shrink-0 flex flex-col border-l border-border overflow-y-auto">
+                    {/* Header */}
+                    <div className="flex items-center justify-between p-3 border-b border-border">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <Badge variant="outline" className="text-[10px] shrink-0">{ext}</Badge>
+                            <span className="text-xs text-muted-foreground truncate">{formatSize(asset.size)}</span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="p-1 rounded hover:bg-muted text-muted-foreground shrink-0"
+                        >
+                            <X className="h-4 w-4" />
+                        </button>
+                    </div>
+
+                    <div className="flex-1 p-3 space-y-4 overflow-y-auto">
+                        {/* Filename */}
+                        <div>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Filename</p>
+                            <p className="text-sm font-mono break-all">{asset.filename}</p>
+                        </div>
+
+                        {/* Date taken */}
+                        <div>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Date taken</p>
+                            <Input
+                                value={dateTaken}
+                                onChange={(e) => setDateTaken(e.target.value)}
+                                onBlur={(e) => saveDateTaken(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') saveDateTaken(dateTaken); }}
+                                placeholder="e.g. 1945-06"
+                                className="h-7 text-xs"
+                            />
+                        </div>
+
+                        {/* Description */}
+                        <div>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Description</p>
+                            {editingDesc ? (
+                                <div className="space-y-1">
+                                    <textarea
+                                        value={description}
+                                        onChange={(e) => setDescription(e.target.value)}
+                                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveDescription(); } if (e.key === 'Escape') setEditingDesc(false); }}
+                                        className="w-full text-xs rounded-md border border-input bg-background px-2 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                                        rows={3}
+                                        autoFocus
+                                    />
+                                    <div className="flex gap-1">
+                                        <Button size="sm" className="h-6 text-xs px-2" onClick={saveDescription}>Save</Button>
+                                        <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={() => setEditingDesc(false)}>Cancel</Button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingDesc(true)}
+                                    className="w-full text-left text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                    {description || <span className="italic opacity-50">Add description…</span>}
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Associated people */}
+                        <div>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">People in this photo</p>
+                            <div className="space-y-1 mb-2">
+                                {asset.referencedBy.people.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground italic">No people linked</p>
+                                ) : (
+                                    asset.referencedBy.people.map((pid) => (
+                                        <div key={pid} className="flex items-center gap-1.5">
+                                            <PersonChip id={pid} className="flex-1 text-xs" />
+                                            <button
+                                                type="button"
+                                                title="Remove link"
+                                                onClick={() => handleUnlinkPerson(pid)}
+                                                className="p-0.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
+                                            >
+                                                <X className="h-3 w-3" />
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                            <PersonSearchCombobox
+                                onSelect={handleLinkPerson}
+                                excludeIds={asset.referencedBy.people}
+                                placeholder="Link a person…"
+                                className="w-full"
+                            />
+                        </div>
+
+                        {/* Associated stories */}
+                        {asset.referencedBy.stories.length > 0 && (
+                            <div>
+                                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Stories</p>
+                                <div className="space-y-1">
+                                    {asset.referencedBy.stories.map((sid) => (
+                                        <Link
+                                            key={sid}
+                                            to="/stories/$id"
+                                            params={{ id: sid }}
+                                            className="flex items-center gap-1 text-xs text-primary hover:underline"
+                                            onClick={onClose}
+                                        >
+                                            <ExternalLink className="h-3 w-3 shrink-0" />
+                                            {sid}
+                                        </Link>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="p-3 border-t border-border">
+                        {asset.isOrphan && (
+                            <div className="space-y-2">
+                                <Badge variant="destructive" className="text-xs w-full justify-center">Orphan — not linked to anyone</Badge>
+                                <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    className="w-full h-7 text-xs"
+                                    onClick={() => { onDeleteRequest(asset.filename); onClose(); }}
+                                >
+                                    <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete file
+                                </Button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
     );
 }
 
-// ── Lightbox ──────────────────────────────────────────────────────────────
-
-function Lightbox({ filename, onClose }: { filename: string; onClose: () => void }) {
-    const img = isImage(filename);
-    return (
-        <div
-            className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center"
-            onClick={onClose}
-        >
-            <div className="max-w-4xl max-h-[90vh] p-4" onClick={(e) => e.stopPropagation()}>
-                {img ? (
-                    <img
-                        src={`/assets/${filename}`}
-                        alt={filename}
-                        className="max-h-[85vh] max-w-full object-contain rounded"
-                    />
-                ) : (
-                    <div className="flex flex-col items-center gap-4 text-white">
-                        <FileText className="h-20 w-20 opacity-60" />
-                        <p className="text-sm">{filename}</p>
-                        <a
-                            href={`/assets/${filename}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs underline"
-                        >
-                            Open file
-                        </a>
-                    </div>
-                )}
-            </div>
-            <button
-                type="button"
-                onClick={onClose}
-                className="absolute top-4 right-4 text-white/70 hover:text-white text-2xl"
-                aria-label="Close lightbox"
-            >
-                ✕
-            </button>
-        </div>
-    );
-}
-
 // ── AssetGallery page ──────────────────────────────────────────────────────
 
-function AssetGallery() {
-    const { data, isLoading } = useAssets();
-    const deleteAsset = useDeleteGalleryAsset();
+type SortKey = 'name' | 'size' | 'date';
+type TypeFilter = 'all' | 'image' | 'document';
 
+function AssetGallery() {
     const [query, setQuery] = useState('');
+    const [debouncedQ, setDebouncedQ] = useState('');
     const [orphansOnly, setOrphansOnly] = useState(false);
-    const [sort, setSort] = useState<'name' | 'size'>('name');
-    const [lightboxFile, setLightboxFile] = useState<string | null>(null);
+    const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+    const [sort, setSort] = useState<SortKey>('name');
+    const [order, setOrder] = useState<'asc' | 'desc'>('asc');
+    const [detailFile, setDetailFile] = useState<string | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
     const parentRef = useRef<HTMLDivElement>(null);
 
-    const allAssets = data?.assets ?? [];
+    // Debounce search query
+    useEffect(() => {
+        const t = setTimeout(() => setDebouncedQ(query), 350);
+        return () => clearTimeout(t);
+    }, [query]);
 
-    const filtered = allAssets
-        .filter((a) => {
-            if (orphansOnly && !a.isOrphan) return false;
-            if (query && !a.filename.toLowerCase().includes(query.toLowerCase())) return false;
-            return true;
-        })
-        .sort((a, b) => {
-            if (sort === 'size') return b.size - a.size;
-            return a.filename.localeCompare(b.filename);
-        });
+    const queryParams: AssetsQueryParams = {
+        q: debouncedQ || undefined,
+        type: typeFilter,
+        sort,
+        order,
+    };
+
+    const { data, isLoading } = useAssets(queryParams);
+    const deleteAsset = useDeleteGalleryAsset();
+
+    // For orphans-only we filter client-side (simple boolean)
+    const allAssets = data?.assets ?? [];
+    const filtered = orphansOnly ? allAssets.filter(a => a.isOrphan) : allAssets;
 
     const rows: AssetListItem[][] = [];
     for (let i = 0; i < filtered.length; i += COLS) {
@@ -359,7 +471,10 @@ function AssetGallery() {
     const rowVirtualizer = useVirtualizer({
         count: rows.length,
         getScrollElement: () => parentRef.current,
-        estimateSize: () => CARD_HEIGHT + 12,
+        estimateSize: useCallback(() => {
+            // Card height = container_width/3 * 3/4 (aspect) + info ~72px + gap
+            return 260;
+        }, []),
         overscan: 3,
     });
 
@@ -371,20 +486,48 @@ function AssetGallery() {
         setDeleteTarget(null);
     };
 
+    const handleNavigate = (filename: string) => setDetailFile(filename);
+
+    const SortIcon = order === 'asc' ? ArrowUp : ArrowDown;
+
+    const detailAsset = detailFile ? allAssets.find(a => a.filename === detailFile) ?? null : null;
+
     return (
         <div className="flex flex-col h-full">
             {/* Toolbar */}
             <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0 flex-wrap">
                 <h1 className="text-base font-semibold shrink-0">Assets</h1>
+
+                {/* Search */}
                 <div className="relative flex-1 max-w-xs">
                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                     <Input
-                        placeholder="Search…"
+                        placeholder="Search by name, description, person…"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         className="pl-7 h-8 text-sm"
                     />
                 </div>
+
+                {/* Type filter */}
+                <div className="flex gap-1">
+                    {(['all', 'image', 'document'] as const).map((t) => (
+                        <button
+                            key={t}
+                            type="button"
+                            onClick={() => setTypeFilter(t)}
+                            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                                typeFilter === t
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                            }`}
+                        >
+                            {t === 'all' ? 'All' : t === 'image' ? 'Images' : 'Documents'}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Orphans toggle */}
                 <button
                     type="button"
                     onClick={() => setOrphansOnly((v) => !v)}
@@ -394,26 +537,36 @@ function AssetGallery() {
                             : 'bg-muted text-muted-foreground hover:bg-muted/80'
                     }`}
                 >
-                    Orphans only
+                    Orphans
                 </button>
-                <div className="flex gap-1">
-                    {(['name', 'size'] as const).map((s) => (
+
+                {/* Sort */}
+                <div className="flex items-center gap-1">
+                    {(['name', 'size', 'date'] as const).map((s) => (
                         <button
                             key={s}
                             type="button"
-                            onClick={() => setSort(s)}
-                            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                            onClick={() => {
+                                if (sort === s) setOrder(o => o === 'asc' ? 'desc' : 'asc');
+                                else { setSort(s); setOrder('asc'); }
+                            }}
+                            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors flex items-center gap-1 ${
                                 sort === s
                                     ? 'bg-primary text-primary-foreground'
                                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                             }`}
                         >
-                            {s === 'name' ? 'Name' : 'Size'}
+                            {s === 'name' ? 'Name' : s === 'size' ? 'Size' : 'Date'}
+                            {sort === s
+                                ? <SortIcon className="h-3 w-3" />
+                                : <ArrowUpDown className="h-3 w-3 opacity-40" />
+                            }
                         </button>
                     ))}
                 </div>
+
                 <span className="ml-auto text-xs text-muted-foreground shrink-0">
-                    {filtered.length} / {allAssets.length}
+                    {filtered.length} {filtered.length !== (data?.totalCount ?? 0) ? `/ ${data?.totalCount ?? 0}` : ''}
                 </span>
             </div>
 
@@ -425,7 +578,7 @@ function AssetGallery() {
                     </div>
                 ) : filtered.length === 0 ? (
                     <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
-                        {allAssets.length === 0 ? 'No assets found.' : 'No assets match the current filter.'}
+                        {(data?.totalCount ?? 0) === 0 ? 'No assets found.' : 'No assets match the current filter.'}
                     </div>
                 ) : (
                     <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>
@@ -447,7 +600,7 @@ function AssetGallery() {
                                         <AssetCard
                                             key={asset.filename}
                                             asset={asset}
-                                            onLightbox={setLightboxFile}
+                                            onOpen={setDetailFile}
                                             onDelete={setDeleteTarget}
                                         />
                                     ))}
@@ -458,8 +611,16 @@ function AssetGallery() {
                 )}
             </div>
 
-            {/* Lightbox */}
-            {lightboxFile && <Lightbox filename={lightboxFile} onClose={() => setLightboxFile(null)} />}
+            {/* Asset Detail Modal */}
+            {detailAsset && (
+                <AssetDetailModal
+                    asset={detailAsset}
+                    allAssets={allAssets}
+                    onClose={() => setDetailFile(null)}
+                    onNavigate={handleNavigate}
+                    onDeleteRequest={setDeleteTarget}
+                />
+            )}
 
             {/* Delete confirm dialog */}
             <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>

@@ -451,7 +451,7 @@ describe('Fastify API Server', () => {
             expect(deleteResponse.status).toBe(204);
         });
 
-        it('should remove file from disk after deletion', async () => {
+        it('should NOT remove file from disk (unlink-only) — file remains after DELETE /media/:filename', async () => {
             const createResponse = await request.post('/api/people').send({
                 names: [{ first: 'Delete', last: 'Disk', primary: true }],
                 sex: 'M'
@@ -465,8 +465,12 @@ describe('Fastify API Server', () => {
 
             await request.delete(`/api/people/${personId}/media/${filename}`);
 
+            // File should still be on disk (unlink-only — DELETE /api/assets/:filename handles actual deletion)
             const assetPath = path.join('./tests/fixtures/data', 'assets', filename);
-            expect(fs.existsSync(assetPath)).toBe(false);
+            expect(fs.existsSync(assetPath)).toBe(true);
+
+            // Cleanup the orphaned file
+            try { fs.unlinkSync(assetPath); } catch { /* ignore */ }
         });
 
         it('should remove filename from person assets array', async () => {

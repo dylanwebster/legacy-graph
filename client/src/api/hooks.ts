@@ -4,8 +4,9 @@ import type { CreatePersonInput, PersonDetail, SlimPersonSummary } from './peopl
 import {
     apiFetch, deleteAsset, searchPlaces, resolvePlace,
     getAssets, updateAssetMeta, deleteGalleryAsset, uploadEventMedia, linkAssetToPerson,
+    unlinkAssetFromPerson,
 } from './client';
-import type { AssetListResponse, AssetListItem } from './client';
+import type { AssetListResponse, AssetListItem, AssetsQueryParams } from './client';
 import { storiesApi } from './stories';
 import type { CreateStoryInput, UpdateStoryInput, StoryFeedItem } from './stories';
 
@@ -270,10 +271,10 @@ export const useUpdatePerson = () => {
 
 // ── Asset Gallery ──────────────────────────────────────────────────────────
 
-export const useAssets = () => {
+export const useAssets = (params?: AssetsQueryParams) => {
     return useQuery({
-        queryKey: ['assets'],
-        queryFn: () => getAssets(),
+        queryKey: ['assets', params],
+        queryFn: () => getAssets(params),
         staleTime: 30_000,
     });
 };
@@ -281,12 +282,12 @@ export const useAssets = () => {
 export const useUpdateAssetMeta = () => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: ({ filename, meta }: { filename: string; meta: { caption?: string; tagged_people?: string[] } }) =>
+        mutationFn: ({ filename, meta }: { filename: string; meta: { description?: string; date_taken?: string; location?: string } }) =>
             updateAssetMeta(filename, meta),
         onMutate: async ({ filename, meta }) => {
             await queryClient.cancelQueries({ queryKey: ['assets'] });
-            const previousData = queryClient.getQueryData<AssetListResponse>(['assets']);
-            queryClient.setQueryData<AssetListResponse>(['assets'], (old) => {
+            const previousData = queryClient.getQueriesData<AssetListResponse>({ queryKey: ['assets'] });
+            queryClient.setQueriesData<AssetListResponse>({ queryKey: ['assets'] }, (old) => {
                 if (!old) return old;
                 return {
                     ...old,
@@ -301,7 +302,9 @@ export const useUpdateAssetMeta = () => {
         },
         onError: (_err, _vars, context) => {
             if (context?.previousData) {
-                queryClient.setQueryData(['assets'], context.previousData);
+                for (const [queryKey, data] of context.previousData) {
+                    queryClient.setQueryData(queryKey, data);
+                }
             }
         },
         onSettled: () => {
@@ -337,6 +340,18 @@ export const useLinkAsset = () => {
     return useMutation({
         mutationFn: ({ personId, filename }: { personId: string; filename: string }) =>
             linkAssetToPerson(personId, filename),
+        onSettled: (_data, _error, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['person', variables.personId] });
+            queryClient.invalidateQueries({ queryKey: ['assets'] });
+        },
+    });
+};
+
+export const useUnlinkAsset = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ personId, filename }: { personId: string; filename: string }) =>
+            unlinkAssetFromPerson(personId, filename),
         onSettled: (_data, _error, variables) => {
             queryClient.invalidateQueries({ queryKey: ['person', variables.personId] });
             queryClient.invalidateQueries({ queryKey: ['assets'] });

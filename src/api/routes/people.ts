@@ -395,17 +395,64 @@ export async function peopleRoutes(server: FastifyInstance) {
             });
         }
 
-        // Delete the file from disk (silent if already gone)
-        const assetPath = path.join(dataDir, 'assets', filename);
-        try {
-            await fs.unlink(assetPath);
-        } catch {
-            // File already gone — proceed
-        }
+        // Unlink-only: remove from person.assets[], do NOT delete the file from disk.
+        // File deletion is handled exclusively by DELETE /api/assets/:filename.
 
         // Remove from assets array and persist
         const oldSlim = graph.getNodeAttributes(id).data as SlimPerson;
         fullPerson.assets = fullPerson.assets.filter(a => a !== filename);
+        fullPerson.last_modified = new Date().toISOString();
+
+        const relativePath = path.join('people', `${id}.yaml`);
+        const primaryName = fullPerson.names?.[0];
+        const label = primaryName ? `${primaryName.first} ${primaryName.last}` : id;
+        await txManager.writeFile(relativePath, yaml.dump(fullPerson), label);
+
+        const newSlim = toSlimPerson(fullPerson);
+        graph.setNodeAttribute(id, 'data', newSlim);
+        graphEngine.applyWriteSideEffects(id, oldSlim, newSlim, fullPerson.scrapbook_md || '');
+
+        return reply.status(204).send();
+    });
+
+    // ── DELETE /api/people/:id/assets/link/:filename ─────────────────────────
+    // Explicit unlink: removes from person.assets[] AND person.events[].assets[].
+    // Does NOT delete the file from disk. Returns 204.
+
+    server.delete<{
+        Params: { id: string; filename: string }
+    }>('/api/people/:id/assets/link/:filename', async (request, reply) => {
+        const { id, filename } = request.params;
+        const graph = graphEngine.getGraph();
+
+        if (!graph.hasNode(id)) {
+            return reply.status(404).send({ error: 'Person not found', code: 'PERSON_NOT_FOUND' });
+        }
+
+        const heavyFields = await graphEngine.loadHeavyFields(id);
+        const slimData = graph.getNodeAttributes(id).data as SlimPerson;
+        const fullPerson: Person = {
+            ...slimData,
+            scrapbook_md: heavyFields?.scrapbook_md ?? '',
+            _gedcom: heavyFields?._gedcom,
+        } as Person;
+
+        const inPersonAssets = fullPerson.assets.includes(filename);
+        const inEventAssets = (fullPerson.events as any[]).some(
+            (e: any) => Array.isArray(e.assets) && e.assets.includes(filename)
+        );
+
+        if (!inPersonAssets && !inEventAssets) {
+            return reply.status(404).send({ error: 'Asset not linked to this person', code: 'ASSET_NOT_FOUND' });
+        }
+
+        const oldSlim = graph.getNodeAttributes(id).data as SlimPerson;
+        fullPerson.assets = fullPerson.assets.filter((a) => a !== filename);
+        fullPerson.events = (fullPerson.events as any[]).map((e: any) =>
+            Array.isArray(e.assets)
+                ? { ...e, assets: e.assets.filter((a: string) => a !== filename) }
+                : e
+        );
         fullPerson.last_modified = new Date().toISOString();
 
         const relativePath = path.join('people', `${id}.yaml`);

@@ -6,11 +6,13 @@ export const AssetMetadataSchema = z.object({
     id: z.string().default(() => nanoid()),
     name: z.string().optional(),
     description: z.string().optional(),
-    caption: z.string().optional(),
+    caption: z.string().optional(),   // legacy — migrated by transform below
     date_taken: z.string().optional(),
     location: z.string().optional(),
-    tagged_people: z.array(z.string()).default([]),
-});
+}).transform(({ caption, ...rest }) => ({
+    ...rest,
+    description: rest.description ?? caption,
+}));
 
 export type AssetMetadata = z.infer<typeof AssetMetadataSchema>;
 

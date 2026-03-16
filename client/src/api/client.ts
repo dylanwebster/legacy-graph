@@ -3,8 +3,9 @@ import type { Place } from './people';
 // ── Asset types ────────────────────────────────────────────────────────────
 
 export interface AssetMetadata {
-    caption?: string;
-    tagged_people: string[];
+    description?: string;
+    date_taken?: string;
+    location?: string;
 }
 
 export interface AssetListItem {
@@ -44,6 +45,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     return response.json();
 }
 
+// Unlinks the asset from a person's profile (does NOT delete the file from disk).
 export async function deleteAsset(personId: string, filename: string): Promise<void> {
     const response = await fetch(`/api/people/${personId}/media/${filename}`, { method: 'DELETE' });
     if (!response.ok) {
@@ -69,8 +71,21 @@ export async function resolvePlace(name: string): Promise<Place> {
     });
 }
 
-export async function getAssets(): Promise<AssetListResponse> {
-    return apiFetch<AssetListResponse>('/assets');
+export interface AssetsQueryParams {
+    q?: string;
+    type?: 'all' | 'image' | 'document';
+    sort?: 'name' | 'size' | 'date';
+    order?: 'asc' | 'desc';
+}
+
+export async function getAssets(params?: AssetsQueryParams): Promise<AssetListResponse> {
+    const qs = new URLSearchParams();
+    if (params?.q) qs.set('q', params.q);
+    if (params?.type && params.type !== 'all') qs.set('type', params.type);
+    if (params?.sort) qs.set('sort', params.sort);
+    if (params?.order) qs.set('order', params.order);
+    const queryString = qs.toString();
+    return apiFetch<AssetListResponse>(`/assets${queryString ? `?${queryString}` : ''}`);
 }
 
 export async function updateAssetMeta(
@@ -82,6 +97,24 @@ export async function updateAssetMeta(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(meta),
     });
+}
+
+export async function unlinkAssetFromPerson(
+    personId: string,
+    filename: string
+): Promise<void> {
+    const response = await fetch(
+        `/api/people/${personId}/assets/link/${encodeURIComponent(filename)}`,
+        { method: 'DELETE' }
+    );
+    if (!response.ok && response.status !== 204) {
+        let errorMessage = response.statusText;
+        try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+        } catch { /* ignore */ }
+        throw new Error(errorMessage);
+    }
 }
 
 export async function deleteGalleryAsset(filename: string): Promise<void> {
