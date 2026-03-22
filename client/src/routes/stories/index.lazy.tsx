@@ -3,7 +3,8 @@ import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import { useStories, useDeleteStory, useSearch } from '@/api/hooks';
 import type { StoryFeedItem } from '@/api/stories';
 import { PersonChip } from '@/components/PersonChip';
-import { Input } from '@/components/ui/input';
+import { AssetSearchBar } from '@/components/AssetSearchBar';
+import type { PersonChipData } from '@/components/AssetSearchBar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -17,7 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Search, Plus, Trash2, MapPin, Users, CalendarDays } from 'lucide-react';
+import { Plus, Trash2, MapPin, Users, CalendarDays } from 'lucide-react';
 import { toast } from 'sonner';
 import { useUIStore } from '@/store/uiStore';
 import type { StoriesSortMode } from '@/store/uiStore';
@@ -41,6 +42,7 @@ function StoriesFeed() {
     const [sort, setSort] = useState<StoriesSortMode>(storiesFeedSort);
     const [debouncedFilter, setDebouncedFilter] = useState(storiesFeedFilter);
     const [deleteTarget, setDeleteTarget] = useState<StoryFeedItem | null>(null);
+    const [chips, setChips] = useState<PersonChipData[]>([]);
 
     // Debounce filter
     useEffect(() => {
@@ -57,24 +59,35 @@ function StoriesFeed() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sort]);
 
-    const isSearchMode = !!debouncedFilter;
+    const isChipsMode = chips.length > 0;
+    // Text-only search uses FlexSearch; chips mode uses backend personIds filter
+    const isSearchMode = !!debouncedFilter && !isChipsMode;
 
     const { data: storiesData, isLoading: storiesLoading } = useStories(
-        isSearchMode ? undefined : { sort }
+        isSearchMode ? undefined : { sort, personIds: chips.length > 0 ? chips.map(c => c.id) : undefined }
     );
     const { data: searchData, isLoading: searchLoading } = useSearch(
-        debouncedFilter,
+        isSearchMode ? debouncedFilter : '',
         { limit: 50 }
     );
     const deleteStory = useDeleteStory();
 
+    // When chips + text: use backend stories (already filtered by personIds) then client-side text filter
+    const backendStories: StoryFeedItem[] = storiesData?.stories ?? [];
+    const chipsAndTextStories = isChipsMode && debouncedFilter
+        ? backendStories.filter(s => {
+            const q = debouncedFilter.toLowerCase();
+            return s.title.toLowerCase().includes(q) || s.excerpt.toLowerCase().includes(q);
+        })
+        : backendStories;
+
     const stories: StoryFeedItem[] = isSearchMode
         ? (searchData?.stories ?? [])
-        : (storiesData?.stories ?? []);
+        : chipsAndTextStories;
 
     const totalCount = isSearchMode
         ? (searchData?.totalCounts?.stories ?? stories.length)
-        : (storiesData?.totalCount ?? 0);
+        : (storiesData?.totalCount ?? stories.length);
 
     const isLoading = isSearchMode ? searchLoading : storiesLoading;
 
@@ -102,15 +115,13 @@ function StoriesFeed() {
         <div className="flex flex-col h-full">
             {/* Toolbar */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0">
-                <div className="relative flex-1 max-w-xs">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                    <Input
-                        className="pl-8 h-8 text-sm"
-                        placeholder="Search stories…"
-                        value={filter}
-                        onChange={(e) => setFilter(e.target.value)}
-                    />
-                </div>
+                <AssetSearchBar
+                    textValue={filter}
+                    onTextChange={setFilter}
+                    selectedPeople={chips}
+                    onAddPerson={(id, name) => setChips((prev) => prev.some((c) => c.id === id) ? prev : [...prev, { id, name }])}
+                    onRemovePerson={(id) => setChips((prev) => prev.filter((c) => c.id !== id))}
+                />
 
                 {/* Sort toggle */}
                 {!isSearchMode && (
@@ -157,9 +168,13 @@ function StoriesFeed() {
                     <div className="flex flex-col items-center justify-center h-64 gap-3 text-muted-foreground">
                         <span className="text-4xl">📖</span>
                         <p className="text-sm">
-                            {isSearchMode ? 'No stories match your search.' : 'No stories yet.'}
+                            {isChipsMode
+                                ? 'No stories mention all selected people.'
+                                : isSearchMode
+                                    ? 'No stories match your search.'
+                                    : 'No stories yet.'}
                         </p>
-                        {!isSearchMode && (
+                        {!isSearchMode && !isChipsMode && (
                             <Button
                                 variant="outline"
                                 size="sm"

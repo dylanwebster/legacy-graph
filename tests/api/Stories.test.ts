@@ -291,4 +291,89 @@ describe('Stories API', () => {
         expect(res.status).toBe(200);
         expect(Array.isArray(res.body.stories)).toBe(true);
     });
+
+    // ── personIds filter ─────────────────────────────────────────────────────
+
+    describe('GET /api/stories with personIds filter', () => {
+        it('returns only stories mentioning a specific person', async () => {
+            const personA = 'N_test-filter-aaa';
+            const personB = 'N_test-filter-bbb';
+
+            const [r1, r2] = await Promise.all([
+                request.post('/api/stories').send({
+                    title: 'Test Filter Story A',
+                    people: [personA],
+                    content: 'Mentions person A.',
+                }),
+                request.post('/api/stories').send({
+                    title: 'Test Filter Story B',
+                    people: [personB],
+                    content: 'Mentions person B.',
+                }),
+            ]);
+            expect(r1.status).toBe(201);
+            expect(r2.status).toBe(201);
+
+            const res = await request.get(`/api/stories?personIds=${personA}`);
+            expect(res.status).toBe(200);
+            const ids = res.body.stories.map((s: any) => s.id);
+            expect(ids).toContain(r1.body.id);
+            expect(ids).not.toContain(r2.body.id);
+        });
+
+        it('returns only stories mentioning ALL specified people (AND filter)', async () => {
+            const personA = 'N_test-and-aaa';
+            const personB = 'N_test-and-bbb';
+
+            const [rBoth, rAOnly] = await Promise.all([
+                request.post('/api/stories').send({
+                    title: 'Test And Both Story',
+                    people: [personA, personB],
+                    content: 'Mentions both.',
+                }),
+                request.post('/api/stories').send({
+                    title: 'Test And A Only Story',
+                    people: [personA],
+                    content: 'Mentions only A.',
+                }),
+            ]);
+            expect(rBoth.status).toBe(201);
+            expect(rAOnly.status).toBe(201);
+
+            const res = await request.get(`/api/stories?personIds=${personA},${personB}`);
+            expect(res.status).toBe(200);
+            const ids = res.body.stories.map((s: any) => s.id);
+            expect(ids).toContain(rBoth.body.id);
+            expect(ids).not.toContain(rAOnly.body.id);
+        });
+
+        it('personIds filter preserves sort order', async () => {
+            const personC = 'N_test-sort-ccc';
+
+            const [rOld, rNew] = await Promise.all([
+                request.post('/api/stories').send({
+                    title: 'Test Sort Old Story',
+                    date: '1900-01-01',
+                    people: [personC],
+                    content: 'Older story.',
+                }),
+                request.post('/api/stories').send({
+                    title: 'Test Sort New Story',
+                    date: '2000-01-01',
+                    people: [personC],
+                    content: 'Newer story.',
+                }),
+            ]);
+            expect(rOld.status).toBe(201);
+            expect(rNew.status).toBe(201);
+
+            const res = await request.get(`/api/stories?sort=oldest&personIds=${personC}`);
+            expect(res.status).toBe(200);
+            const ids = res.body.stories.map((s: any) => s.id);
+            expect(ids).toContain(rOld.body.id);
+            expect(ids).toContain(rNew.body.id);
+            // Oldest-first: old story should appear before new story
+            expect(ids.indexOf(rOld.body.id)).toBeLessThan(ids.indexOf(rNew.body.id));
+        });
+    });
 });

@@ -128,9 +128,9 @@ export async function storiesRoutes(server: FastifyInstance) {
     // ── GET /api/stories ──────────────────────────────────────────────────
 
     server.get<{
-        Querystring: { limit?: string; offset?: string; sort?: string }
+        Querystring: { limit?: string; offset?: string; sort?: string; personIds?: string }
     }>('/api/stories', async (request, reply) => {
-        const { limit: limitStr, offset: offsetStr, sort } = request.query;
+        const { limit: limitStr, offset: offsetStr, sort, personIds } = request.query;
 
         const limit = limitStr !== undefined ? parseInt(limitStr, 10) : 50;
         const offset = offsetStr !== undefined ? parseInt(offsetStr, 10) : 0;
@@ -151,7 +151,7 @@ export async function storiesRoutes(server: FastifyInstance) {
         }
 
         const resolvePersonName = makePersonNameResolver(graphEngine);
-        const feedItems: StoryFeedItem[] = [];
+        let feedItems: StoryFeedItem[] = [];
         for (const file of files) {
             try {
                 const raw = await fs.readFile(path.join(storiesDir, file), 'utf8');
@@ -177,6 +177,13 @@ export async function storiesRoutes(server: FastifyInstance) {
         } else {
             // newest (default) — reverse chronological; undated go last
             feedItems.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
+        }
+
+        const filterPersonIds = personIds ? personIds.split(',').filter(Boolean) : [];
+        if (filterPersonIds.length > 0) {
+            feedItems = feedItems.filter(s =>
+                filterPersonIds.every(pid => s.people.includes(pid))
+            );
         }
 
         const totalCount = feedItems.length;

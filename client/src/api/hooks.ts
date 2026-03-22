@@ -207,7 +207,7 @@ export const useResolvePlace = () => {
 
 // ── Stories ────────────────────────────────────────────────────────────────
 
-export const useStories = (params?: { limit?: number; offset?: number; sort?: string }) => {
+export const useStories = (params?: { limit?: number; offset?: number; sort?: string; personIds?: string[] }) => {
     return useQuery({
         queryKey: ['stories', params],
         queryFn: () => storiesApi.getStories(params),
