@@ -11,7 +11,7 @@ import * as fs from 'fs/promises';
 import fg from 'fast-glob';
 import pLimit from 'p-limit';
 import yaml from 'js-yaml';
-import { PersonSchema, Person, SlimPerson, PersonEntry, toSlimPerson } from '../schemas/PersonSchema';
+import { PersonSchema, SlimPerson, PersonEntry, toSlimPerson } from '../schemas/PersonSchema';
 import { StoryLoader, Story } from './StoryLoader';
 import { GraphCache, GraphCacheFile } from './GraphCache';
 import { BootLoader } from './BootLoader';

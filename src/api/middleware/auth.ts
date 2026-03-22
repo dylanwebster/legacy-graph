@@ -34,7 +34,7 @@ export async function loadAuthConfig(dataDir: string): Promise<AuthConfig | null
         if (err.code === 'ENOENT') {
             return null; // No auth file — auth disabled
         }
-        throw new Error(`Invalid auth config at ${authPath}: ${err.message}`);
+        throw new Error(`Invalid auth config at ${authPath}: ${err.message}`, { cause: err });
     }
 }
 

@@ -7,7 +7,7 @@ test.describe('CUJ 3: Responsive Layout', () => {
         await page.goto('/');
 
         // 2. Hamburger menu button should be visible (md:hidden means visible at <768px)
-        const hamburger = page.locator('button:has(.lucide-menu), button[aria-label*="sidebar"], button:has(svg)').first();
+        const _hamburger = page.locator('button:has(.lucide-menu), button[aria-label*="sidebar"], button:has(svg)').first();
         // More specifically: the TopBar button with Menu icon
         const menuButton = page.locator('button').filter({ has: page.locator('.lucide-menu') }).first();
         await expect(menuButton).toBeVisible({ timeout: 5_000 });

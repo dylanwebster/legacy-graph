@@ -193,7 +193,7 @@ export class SearchService {
         this.extractPlaces(p as Person);
         this.trackPerson(p.id);
 
-        if (!arguments[2]) this.debouncePersist();
+        if (!skipPersist) this.debouncePersist();
     }
 
     /**

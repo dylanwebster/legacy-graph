@@ -194,7 +194,6 @@ export class GedcomExporter {
             person.events.forEach(event => {
                 if (event.type === 'marriage' && 'partner_id' in event && event.partner_id) {
                     const partnerId = event.partner_id;
-                    const partner = people.find(p => p.id === partnerId);
                     
                     // Create a unique key for this marriage (sorted to avoid duplicates)
                     const marriageKey = [person.id, partnerId].sort().join('_');

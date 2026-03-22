@@ -59,7 +59,7 @@ export class Thumbnailer {
             
             // Cache is fresh if it's newer than source
             return cacheStat.mtime >= sourceStat.mtime;
-        } catch (err) {
+        } catch {
             // If either file doesn't exist or error occurs, cache is not fresh
             return false;
         }
@@ -76,7 +76,7 @@ export class Thumbnailer {
                 .toFile(cachePath);
         } catch (error) {
             // Re-throw with more context
-            throw new Error(`Failed to generate thumbnail for ${sourcePath}: ${error}`);
+            throw new Error(`Failed to generate thumbnail for ${sourcePath}: ${error}`, { cause: error });
         }
     }
 }

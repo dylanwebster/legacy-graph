@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { GedcomReader } from '../../../src/core/gedcom/Import';
-import { Person } from '../../../src/schemas/PersonSchema';
 
 describe('GedcomReader', () => {
     // Sample GEDCOM 5.5.1 Data

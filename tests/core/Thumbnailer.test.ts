@@ -34,7 +34,7 @@ describe('Thumbnailer', () => {
         try {
             await fs.rm(TEST_DATA_DIR, { recursive: true, force: true });
             await fs.rm(TEST_CACHE_DIR, { recursive: true, force: true });
-        } catch (err) {
+        } catch {
             // Ignore cleanup errors
         }
     });

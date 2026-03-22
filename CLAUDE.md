@@ -17,6 +17,7 @@ npm run test:e2e  # Full Stack: Playwright in browser (starts server/client)
 ### Backend
 ```bash
 npm run build     # tsc --noEmit (type-check only)
+npm run lint      # ESLint (src/, tests/, scripts/)
 npm start         # tsx --env-file=.env src/index.ts
 ```
 
@@ -62,7 +63,7 @@ You must always abide by these rules:
 2. **Spec-first** — `SPECIFICATION.md` is authoritative. Discrepancies between spec and code are critical bugs.
 3. **Keep track of implementation state and remaining work** — `PROGRESS.md` must be updated with implementation state and remaining steps.
 4. **Use the playwright-cli skill for e2e test development**. When appropriate, use the playwright-cli skill to write e2e tests.
-5. **Pre-PR checks are mandatory** — before creating a PR, always run `npm test` (unit), `npm run test:e2e` (e2e), and `cd client && npm run lint`. All must pass with zero errors.
+5. **Pre-PR checks are mandatory** — before creating a PR, always run `npm test` (unit), `npm run test:e2e` (e2e), `npm run lint` (backend lint), and `cd client && npm run lint` (frontend lint). All must pass with zero errors.
 
 ---
 

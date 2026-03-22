@@ -37,7 +37,7 @@ export type Person = z.infer<typeof PersonSchema>;
 export type SlimPerson = Omit<Person, 'scrapbook_md' | '_gedcom'>;
 
 export function toSlimPerson(p: Person): SlimPerson {
-    const { scrapbook_md, _gedcom, ...slim } = p;
+    const { scrapbook_md: _scrapbook_md, _gedcom, ...slim } = p;
     return slim;
 }
 

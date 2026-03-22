@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Graph from 'graphology';
-import { sliceTimeline, TimelineItem } from '../../src/core/TimelineSlicer';
+import { sliceTimeline } from '../../src/core/TimelineSlicer';
 import { Person } from '../../src/schemas/PersonSchema';
 
 function makePerson(id: string, overrides: Partial<Person> = {}): Person {
