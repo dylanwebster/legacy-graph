@@ -274,30 +274,38 @@ function PersonDetail() {
     };
 
     // --- Asset upload (shared by drag-drop and file dialog) ---
-    const uploadFile = async (file: File) => {
-        const formData = new FormData();
-        formData.append('file', file);
-        const res = await fetch(`/api/people/${id}/media`, { method: 'PUT', body: formData });
-        if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            toast.error(body?.error ?? 'Failed to upload asset.');
-            return;
+    const uploadFiles = async (files: File[]) => {
+        if (files.length === 0) return;
+        const results = await Promise.all(files.map(async (file) => {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await fetch(`/api/people/${id}/media`, { method: 'PUT', body: formData });
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                return { ok: false, name: file.name, error: body?.error ?? 'Upload failed' };
+            }
+            return { ok: true, name: file.name };
+        }));
+        const failed = results.filter(r => !r.ok);
+        const succeeded = results.filter(r => r.ok);
+        if (succeeded.length > 0) {
+            toast.success(succeeded.length === 1 ? 'Asset uploaded.' : `${succeeded.length} assets uploaded.`);
+            queryClient.invalidateQueries({ queryKey: ['person', id] });
+            queryClient.invalidateQueries({ queryKey: ['assets'] });
         }
-        toast.success('Asset uploaded.');
-        queryClient.invalidateQueries({ queryKey: ['person', id] });
-        queryClient.invalidateQueries({ queryKey: ['assets'] });
+        for (const f of failed) toast.error(`Failed to upload "${f.name}": ${f.error}`);
     };
 
     const handleDrop = async (e: React.DragEvent) => {
         e.preventDefault();
         setIsDragOver(false);
-        const file = e.dataTransfer.files?.[0];
-        if (file) uploadFile(file);
+        const files = Array.from(e.dataTransfer.files ?? []);
+        if (files.length > 0) uploadFiles(files);
     };
 
     const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) uploadFile(file);
+        const files = Array.from(e.target.files ?? []);
+        if (files.length > 0) uploadFiles(files);
         e.target.value = '';
     };
 
@@ -663,6 +671,7 @@ function PersonDetail() {
                                 ref={fileInputRef}
                                 type="file"
                                 accept="image/*,.pdf,.txt,.md"
+                                multiple
                                 className="hidden"
                                 onChange={handleFileInputChange}
                             />
