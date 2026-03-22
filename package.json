@@ -23,7 +23,7 @@
     "@types/bcryptjs": "^3.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^25.4.0",
+    "@types/node": "^25.5.0",
     "@types/supertest": "^7.2.0",
     "@types/ws": "^8.18.1",
     "eslint": "^10.1.0",
@@ -33,7 +33,7 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.57.1",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.0"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
@@ -50,10 +50,10 @@
     "graphology": "^0.26.0",
     "graphology-types": "^0.24.8",
     "gray-matter": "^4.0.3",
-    "isomorphic-git": "^1.37.2",
+    "isomorphic-git": "^1.37.4",
     "js-yaml": "^4.1.1",
     "jsonwebtoken": "^9.0.3",
-    "nanoid": "^5.1.6",
+    "nanoid": "^5.1.7",
     "p-limit": "^7.3.0",
     "read-gedcom": "^0.3.2",
     "remark": "^15.0.1",
