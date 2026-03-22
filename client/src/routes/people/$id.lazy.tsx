@@ -1,5 +1,5 @@
 import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { usePerson, useUpdatePerson, useDeleteAsset, useAssets } from '@/api/hooks';
+import { usePerson, useUpdatePerson, useDeleteAsset, useDeleteAssetPermanently, useAssets } from '@/api/hooks';
 import { AssetLightbox } from '@/components/AssetLightbox';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { loadAvatarCrop, saveAvatarCrop, clearAvatarCrop } from '@/lib/avatarCrop';
@@ -98,6 +98,7 @@ function PersonDetail() {
     const [deleteConfirmAsset, setDeleteConfirmAsset] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const deleteAssetMutation = useDeleteAsset();
+    const deleteAssetPermanentlyMutation = useDeleteAssetPermanently();
     const [showCropDialog, setShowCropDialog] = useState(false);
     const [avatarCrop, setAvatarCrop] = useState<CropArea | null>(null);
 
@@ -278,6 +279,7 @@ function PersonDetail() {
         }
         toast.success('Asset uploaded.');
         queryClient.invalidateQueries({ queryKey: ['person', id] });
+        queryClient.invalidateQueries({ queryKey: ['assets'] });
     };
 
     const handleDrop = async (e: React.DragEvent) => {
@@ -324,7 +326,27 @@ function PersonDetail() {
             { personId: id, filename },
             {
                 onSuccess: () => {
-                    toast.success('Asset deleted.');
+                    toast.success('Removed from profile.');
+                    if (lightboxAsset === filename) setLightboxAsset(null);
+                },
+                onError: () => toast.error('Failed to remove asset.'),
+            }
+        );
+    };
+
+    const handleDeleteFileEntirely = () => {
+        if (!deleteConfirmAsset) return;
+        const filename = deleteConfirmAsset;
+        setDeleteConfirmAsset(null);
+        deleteAssetPermanentlyMutation.mutate(
+            { personId: id, filename },
+            {
+                onSuccess: (result) => {
+                    if (result.fileDeleted) {
+                        toast.success(`${filename} deleted.`);
+                    } else {
+                        toast.success('Removed from profile. File kept — still referenced elsewhere.');
+                    }
                     if (lightboxAsset === filename) setLightboxAsset(null);
                 },
                 onError: () => toast.error('Failed to delete asset.'),
@@ -849,13 +871,30 @@ function PersonDetail() {
                     <ConfirmDialogHeader>
                         <ConfirmDialogTitle>Remove Asset</ConfirmDialogTitle>
                         <ConfirmDialogDescription>
-                            Remove <span className="font-mono text-xs">{deleteConfirmAsset}</span> from this profile? The file will remain in the asset gallery.
+                            What would you like to do with <span className="font-mono text-xs">{deleteConfirmAsset}</span>?
                         </ConfirmDialogDescription>
                     </ConfirmDialogHeader>
-                    <ConfirmDialogFooter>
+                    <div className="px-6 pb-2 space-y-2 text-sm text-muted-foreground">
+                        <p><strong className="text-foreground">Remove from profile</strong> — unlinks the file from this person. It stays in the asset gallery.</p>
+                        <p><strong className="text-foreground">Delete file</strong> — permanently removes the file from disk.</p>
+                    </div>
+                    <ConfirmDialogFooter className="flex-col sm:flex-row gap-2">
                         <Button variant="outline" size="sm" onClick={() => setDeleteConfirmAsset(null)}>Cancel</Button>
-                        <Button variant="destructive" size="sm" onClick={handleConfirmDeleteAsset} disabled={deleteAssetMutation.isPending}>
-                            {deleteAssetMutation.isPending ? 'Removing…' : 'Remove'}
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleConfirmDeleteAsset}
+                            disabled={deleteAssetMutation.isPending || deleteAssetPermanentlyMutation.isPending}
+                        >
+                            {deleteAssetMutation.isPending ? 'Removing…' : 'Remove from profile'}
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={handleDeleteFileEntirely}
+                            disabled={deleteAssetMutation.isPending || deleteAssetPermanentlyMutation.isPending}
+                        >
+                            {deleteAssetPermanentlyMutation.isPending ? 'Deleting…' : 'Delete file'}
                         </Button>
                     </ConfirmDialogFooter>
                 </ConfirmDialogContent>

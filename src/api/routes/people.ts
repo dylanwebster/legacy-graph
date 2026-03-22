@@ -4,11 +4,13 @@ import * as nodeFs from 'fs';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import yaml from 'js-yaml';
+import matter from 'gray-matter';
 import { pipeline } from 'stream/promises';
 import { Person, PersonSchema, SlimPerson, toSlimPerson } from '../../schemas/PersonSchema';
 import { sliceTimeline } from '../../core/TimelineSlicer';
 import { invalidateComputed } from '../../core/GraphLogic';
 import type { AppInstance } from '../types';
+import { loadAssetIndex, saveAssetIndex, extractExifDate } from '../../core/assetMetaUtils';
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif', '.svg']);
 const ALLOWED_EXTS = new Set([...IMAGE_EXTS, '.pdf', '.txt', '.md']);
@@ -323,6 +325,16 @@ export async function peopleRoutes(server: FastifyInstance) {
 
             await txManager.trackFile(path.join('assets', uniqueFilename), `asset ${uniqueFilename}`);
 
+            // Seed assets.yaml with EXIF capture date (best-effort, never blocks upload)
+            const exifDate = await extractExifDate(filepath);
+            if (exifDate) {
+                const index = await loadAssetIndex(dataDir);
+                if (!index[uniqueFilename]) {
+                    index[uniqueFilename] = { date: exifDate };
+                    await saveAssetIndex(dataDir, index, txManager);
+                }
+            }
+
             const heavyFields = await graphEngine.loadHeavyFields(id);
             const slimData = graph.getNodeAttributes(id).data;
 
@@ -368,9 +380,11 @@ export async function peopleRoutes(server: FastifyInstance) {
     });
 
     server.delete<{
-        Params: { id: string; filename: string }
+        Params: { id: string; filename: string };
+        Querystring: { permanent?: string };
     }>('/api/people/:id/media/:filename', async (request, reply) => {
         const { id, filename } = request.params;
+        const permanent = request.query.permanent === 'true';
         const graph = graphEngine.getGraph();
 
         if (!graph.hasNode(id)) {
@@ -395,10 +409,7 @@ export async function peopleRoutes(server: FastifyInstance) {
             });
         }
 
-        // Unlink-only: remove from person.assets[], do NOT delete the file from disk.
-        // File deletion is handled exclusively by DELETE /api/assets/:filename.
-
-        // Remove from assets array and persist
+        // Unlink from person.assets[] and persist
         const oldSlim = graph.getNodeAttributes(id).data as SlimPerson;
         fullPerson.assets = fullPerson.assets.filter(a => a !== filename);
         fullPerson.last_modified = new Date().toISOString();
@@ -412,7 +423,72 @@ export async function peopleRoutes(server: FastifyInstance) {
         graph.setNodeAttribute(id, 'data', newSlim);
         graphEngine.applyWriteSideEffects(id, oldSlim, newSlim, fullPerson.scrapbook_md || '');
 
-        return reply.status(204).send();
+        if (!permanent) {
+            return reply.status(204).send();
+        }
+
+        // ?permanent=true: also delete the file from disk if no other references remain.
+        // Check other persons (excluding this one, already unlinked above)
+        const otherPersonRefs: string[] = [];
+        const otherEventRefs: string[] = [];
+        graph.forEachNode((_nodeId, attrs) => {
+            if (attrs.type !== 'person') return;
+            const person = attrs.data as any;
+            if (person.id === id) return; // already unlinked
+            if (Array.isArray(person.assets) && person.assets.includes(filename)) {
+                otherPersonRefs.push(person.id as string);
+            }
+            if (Array.isArray(person.events)) {
+                for (const event of person.events) {
+                    if (Array.isArray(event.assets) && event.assets.includes(filename)) {
+                        otherEventRefs.push(person.id as string);
+                    }
+                }
+            }
+        });
+
+        // Check stories
+        const storiesDir = path.join(dataDir, 'stories');
+        const storyRefs: string[] = [];
+        try {
+            const storyFiles = (await fs.readdir(storiesDir)).filter(f => f.endsWith('.md'));
+            for (const file of storyFiles) {
+                try {
+                    const raw = await fs.readFile(path.join(storiesDir, file), 'utf8');
+                    const { data } = matter(raw);
+                    if (Array.isArray(data.assets) && data.assets.includes(filename)) {
+                        storyRefs.push(file.slice(0, -3));
+                    }
+                } catch { /* skip */ }
+            }
+        } catch { /* stories dir missing */ }
+
+        const hasOtherRefs = otherPersonRefs.length > 0 || otherEventRefs.length > 0 || storyRefs.length > 0;
+
+        if (hasOtherRefs) {
+            // Still referenced elsewhere — unlink succeeded but file not deleted
+            return reply.status(200).send({
+                fileDeleted: false,
+                referencedBy: { people: otherPersonRefs, events: otherEventRefs, stories: storyRefs },
+            });
+        }
+
+        // No other references — delete the file and clean up assets.yaml
+        const filePath = path.join(dataDir, 'assets', filename);
+        try {
+            await fs.unlink(filePath);
+            await txManager.removeFile(path.join('assets', filename), `asset ${filename}`);
+        } catch {
+            return reply.status(200).send({ fileDeleted: false });
+        }
+
+        const index = await loadAssetIndex(dataDir);
+        if (Object.prototype.hasOwnProperty.call(index, filename)) {
+            delete index[filename];
+            await saveAssetIndex(dataDir, index, txManager);
+        }
+
+        return reply.status(200).send({ fileDeleted: true });
     });
 
     // ── DELETE /api/people/:id/assets/link/:filename ─────────────────────────

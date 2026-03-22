@@ -1,3 +1,4 @@
+import type React from 'react';
 import { Input } from '@/components/ui/input';
 
 const MONTHS: Record<string, number> = {
@@ -70,13 +71,15 @@ interface SmartDateInputProps {
     onChange: (displayDate: string, isoDate: string | null) => void;
     placeholder?: string;
     className?: string;
+    autoFocus?: boolean;
+    onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
 }
 
 /**
  * A single date input that parses the value into ISO format on-the-fly.
  * Shows the derived ISO date as a dim overlay when it differs from the input.
  */
-export function SmartDateInput({ value, onChange, placeholder, className }: SmartDateInputProps) {
+export function SmartDateInput({ value, onChange, placeholder, className, autoFocus, onKeyDown }: SmartDateInputProps) {
     const iso = parseToISO(value);
     // Show ISO hint when we successfully parse something that isn't already ISO
     const showHint = !!value && !!iso && iso !== value.trim();
@@ -90,6 +93,8 @@ export function SmartDateInput({ value, onChange, placeholder, className }: Smar
                 onChange={(e) => onChange(e.target.value, parseToISO(e.target.value))}
                 placeholder={placeholder ?? 'e.g. 15 Jun 1950'}
                 className={`${className ?? 'h-8 text-sm'} ${showHint ? 'pr-24' : ''} ${unparseable ? 'border-yellow-500/70' : ''}`}
+                autoFocus={autoFocus}
+                onKeyDown={onKeyDown}
             />
             {showHint && (
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-muted-foreground pointer-events-none select-none">

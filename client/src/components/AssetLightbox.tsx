@@ -61,6 +61,7 @@ export function AssetLightbox({
     const [editingName, setEditingName] = useState(false);
     const [description, setDescription] = useState(assetData?.metadata.description ?? '');
     const [dateVal, setDateVal] = useState(assetData?.metadata.date ?? '');
+    const [editingDate, setEditingDate] = useState(false);
     const [editingDesc, setEditingDesc] = useState(false);
     const [textContent, setTextContent] = useState<string | null>(null);
 
@@ -70,6 +71,7 @@ export function AssetLightbox({
         setDescription(assetData?.metadata.description ?? '');
         setDateVal(assetData?.metadata.date ?? '');
         setEditingName(false);
+        setEditingDate(false);
         setEditingDesc(false);
         setTextContent(null);
     }, [filename, assetData?.metadata.name, assetData?.metadata.description, assetData?.metadata.date]);
@@ -125,13 +127,17 @@ export function AssetLightbox({
         );
     };
 
-    const saveDate = (val: string) => {
-        const iso = parseToISO(val);
-        const toSave = iso ?? (val.trim() || undefined);
-        setDateVal(val);
+    const saveDate = () => {
+        const trimmed = dateVal.trim();
+        const iso = parseToISO(trimmed);
+        // Block save when user typed something we can't parse
+        if (trimmed && !iso) return;
         updateMeta.mutate(
-            { filename, meta: { date: toSave } },
-            { onError: () => toast.error('Failed to save date.') }
+            { filename, meta: { date: iso ?? undefined } },
+            {
+                onSuccess: () => { toast.success('Date saved.'); setEditingDate(false); },
+                onError: () => toast.error('Failed to save date.'),
+            }
         );
     };
 
@@ -303,17 +309,47 @@ export function AssetLightbox({
                         {/* Date */}
                         <div>
                             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Date</p>
-                            <SmartDateInput
-                                value={dateVal}
-                                onChange={(val) => setDateVal(val)}
-                                placeholder="e.g. Jun 1950"
-                                className="h-7 text-xs"
-                            />
-                            <button type="button"
-                                className="mt-1 text-[9px] text-primary hover:underline"
-                                onClick={() => saveDate(dateVal)}>
-                                Save date
-                            </button>
+                            {editingDate ? (
+                                <div className="space-y-1">
+                                    <SmartDateInput
+                                        value={dateVal}
+                                        onChange={(val) => setDateVal(val)}
+                                        placeholder="e.g. Jun 1950"
+                                        className="h-7 text-xs"
+                                        autoFocus
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') saveDate();
+                                            if (e.key === 'Escape') { setDateVal(assetData?.metadata.date ?? ''); setEditingDate(false); }
+                                        }}
+                                    />
+                                    <div className="flex gap-1">
+                                        <Button
+                                            size="sm"
+                                            className="h-6 text-xs px-2"
+                                            onClick={saveDate}
+                                            disabled={!!dateVal.trim() && !parseToISO(dateVal)}
+                                        >
+                                            Save
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-6 text-xs px-2"
+                                            onClick={() => { setDateVal(assetData?.metadata.date ?? ''); setEditingDate(false); }}
+                                        >
+                                            Cancel
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <button type="button" onClick={() => setEditingDate(true)}
+                                    className="group w-full flex items-center gap-1 text-left">
+                                    <span className="text-xs flex-1 truncate">
+                                        {dateVal || <span className="text-muted-foreground italic">Add date…</span>}
+                                    </span>
+                                    <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                                </button>
+                            )}
                         </div>
 
                         {/* Description */}

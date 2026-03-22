@@ -64,6 +64,25 @@ export async function deleteAsset(personId: string, filename: string): Promise<v
     }
 }
 
+export async function deleteAssetPermanently(
+    personId: string,
+    filename: string,
+): Promise<{ fileDeleted: boolean }> {
+    const response = await fetch(
+        `/api/people/${encodeURIComponent(personId)}/media/${encodeURIComponent(filename)}?permanent=true`,
+        { method: 'DELETE' },
+    );
+    if (!response.ok) {
+        let errorMessage = response.statusText;
+        try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+        } catch { /* ignore */ }
+        throw new Error(errorMessage);
+    }
+    return response.json();
+}
+
 export async function searchPlaces(q: string): Promise<Place[]> {
     if (q.trim().length < 2) return [];
     return apiFetch<Place[]>(`/places/search?q=${encodeURIComponent(q.trim())}`);

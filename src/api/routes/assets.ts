@@ -5,9 +5,10 @@ import * as path from 'path';
 import matter from 'gray-matter';
 import yaml from 'js-yaml';
 import { pipeline } from 'stream/promises';
-import { AssetMetadataSchema, AssetIndexSchema } from '../../schemas/AssetSchema';
+import { AssetMetadataSchema } from '../../schemas/AssetSchema';
 import { PersonSchema, toSlimPerson } from '../../schemas/PersonSchema';
 import type { AppInstance } from '../types';
+import { loadAssetIndex, saveAssetIndex, extractExifDate } from '../../core/assetMetaUtils';
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif', '.svg']);
 const ALLOWED_EXTS = new Set([...IMAGE_EXTS, '.pdf', '.txt', '.md']);
@@ -37,21 +38,6 @@ function isImage(filename: string): boolean {
     return IMAGE_EXTS.has(path.extname(filename).toLowerCase());
 }
 
-const META_REL = path.join('_meta', 'assets.yaml');
-
-async function loadAssetIndex(dataDir: string): Promise<Record<string, any>> {
-    try {
-        const raw = await fs.readFile(path.join(dataDir, META_REL), 'utf8');
-        return AssetIndexSchema.parse(yaml.load(raw) ?? {});
-    } catch {
-        return {};
-    }
-}
-
-async function saveAssetIndex(dataDir: string, index: Record<string, any>, txManager: any): Promise<void> {
-    await fs.mkdir(path.join(dataDir, '_meta'), { recursive: true });
-    await txManager.writeFile(META_REL, yaml.dump(index), 'asset index');
-}
 
 export async function assetsRoutes(server: FastifyInstance) {
     const { graphEngine, txManager, dataDir } = (server as AppInstance).appServices;
@@ -371,8 +357,19 @@ export async function assetsRoutes(server: FastifyInstance) {
                 } catch { break; }
             }
 
-            await pipeline(fileData.file, nodeFs.createWriteStream(path.join(assetsDir, uniqueFilename)));
+            const uniqueFilepath = path.join(assetsDir, uniqueFilename);
+            await pipeline(fileData.file, nodeFs.createWriteStream(uniqueFilepath));
             await txManager.trackFile(path.join('assets', uniqueFilename), `asset ${uniqueFilename}`);
+
+            // Seed assets.yaml with EXIF capture date (best-effort, never blocks upload)
+            const exifDate = await extractExifDate(uniqueFilepath);
+            if (exifDate) {
+                const index = await loadAssetIndex(dataDir);
+                if (!index[uniqueFilename]) {
+                    index[uniqueFilename] = { date: exifDate };
+                    await saveAssetIndex(dataDir, index, txManager);
+                }
+            }
 
             const heavyFields = await graphEngine.loadHeavyFields(id);
             const fullPerson = {

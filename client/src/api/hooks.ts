@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { peopleApi } from './people';
 import type { CreatePersonInput, PersonDetail, SlimPersonSummary } from './people';
 import {
-    apiFetch, deleteAsset, searchPlaces, resolvePlace,
+    apiFetch, deleteAsset, deleteAssetPermanently, searchPlaces, resolvePlace,
     getAssets, updateAssetMeta, deleteGalleryAsset, uploadEventMedia, linkAssetToPerson,
     unlinkAssetFromPerson,
 } from './client';
@@ -152,6 +152,39 @@ export const useDeleteAsset = () => {
         onSuccess: (_data, { personId }) => {
             queryClient.invalidateQueries({ queryKey: ['person', personId] });
             queryClient.invalidateQueries({ queryKey: ['people'] });
+        },
+    });
+};
+
+export const useDeleteAssetPermanently = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ personId, filename }: { personId: string; filename: string }) =>
+            deleteAssetPermanently(personId, filename),
+        onMutate: async ({ personId, filename }) => {
+            await queryClient.cancelQueries({ queryKey: ['person', personId] });
+            const previousData = queryClient.getQueriesData({ queryKey: ['person', personId] });
+            queryClient.setQueriesData(
+                { queryKey: ['person', personId] },
+                (old: PersonDetail | undefined) => {
+                    if (!old) return old;
+                    return { ...old, assets: old.assets.filter((a) => a !== filename) };
+                }
+            );
+            return { previousData };
+        },
+        onError: (_err, { personId }, context) => {
+            if (context?.previousData) {
+                for (const [queryKey, data] of context.previousData) {
+                    queryClient.setQueryData(queryKey, data);
+                }
+            }
+            queryClient.invalidateQueries({ queryKey: ['person', personId] });
+        },
+        onSuccess: (_data, { personId }) => {
+            queryClient.invalidateQueries({ queryKey: ['person', personId] });
+            queryClient.invalidateQueries({ queryKey: ['people'] });
+            queryClient.invalidateQueries({ queryKey: ['assets'] });
         },
     });
 };
