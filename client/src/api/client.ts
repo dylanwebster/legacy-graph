@@ -6,7 +6,7 @@ export interface AssetMetadata {
     name?: string;
     description?: string;
     date?: string;
-    location?: string;
+    location?: Place;
 }
 
 export interface AssetStoryRef {

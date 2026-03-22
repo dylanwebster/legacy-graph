@@ -96,3 +96,51 @@ describe('AssetMetadataSchema — backwards-compat caption → description migra
         }
     });
 });
+
+describe('AssetMetadataSchema — location field', () => {
+    it('accepts a Place object with name and coordinates', () => {
+        const result = AssetMetadataSchema.safeParse({
+            location: { name: 'Berlin', lat: 52.52, lng: 13.41 },
+        });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.location).toMatchObject({ name: 'Berlin', lat: 52.52, lng: 13.41 });
+        }
+    });
+
+    it('coerces a legacy string location to a Place object', () => {
+        const result = AssetMetadataSchema.safeParse({ location: 'Berlin' });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.location).toMatchObject({ name: 'Berlin' });
+        }
+    });
+
+    it('location is optional', () => {
+        const result = AssetMetadataSchema.safeParse({});
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.location).toBeUndefined();
+        }
+    });
+
+    it('accepts a Place with only a name (no coords)', () => {
+        const result = AssetMetadataSchema.safeParse({ location: { name: 'Paris' } });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.location?.name).toBe('Paris');
+            expect(result.data.location?.lat).toBeUndefined();
+        }
+    });
+
+    it('AssetIndexSchema preserves legacy string location via coercion', () => {
+        const index = {
+            'photo.jpg': { id: 'A_001', location: 'Berlin' },
+        };
+        const result = AssetIndexSchema.safeParse(index);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data['photo.jpg'].location).toMatchObject({ name: 'Berlin' });
+        }
+    });
+});

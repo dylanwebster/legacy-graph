@@ -8,7 +8,8 @@ import { pipeline } from 'stream/promises';
 import { AssetMetadataSchema } from '../../schemas/AssetSchema';
 import { PersonSchema, toSlimPerson } from '../../schemas/PersonSchema';
 import type { AppInstance } from '../types';
-import { loadAssetIndex, saveAssetIndex, extractExifDate } from '../../core/assetMetaUtils';
+import { loadAssetIndex, saveAssetIndex, extractExifDate, extractExifGps } from '../../core/assetMetaUtils';
+import type { Place } from '../../schemas/PlaceSchema';
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif', '.svg']);
 const ALLOWED_EXTS = new Set([...IMAGE_EXTS, '.pdf', '.txt', '.md']);
@@ -200,7 +201,7 @@ export async function assetsRoutes(server: FastifyInstance) {
 
     server.put<{
         Params: { filename: string };
-        Body: { name?: string; description?: string; caption?: string; date?: string; date_taken?: string; location?: string };
+        Body: { name?: string; description?: string; caption?: string; date?: string; date_taken?: string; location?: Place };
     }>('/api/assets/:filename/meta', async (request, reply) => {
         const { filename } = request.params;
         const { name, description, caption, date, date_taken, location } = request.body;
@@ -361,12 +362,18 @@ export async function assetsRoutes(server: FastifyInstance) {
             await pipeline(fileData.file, nodeFs.createWriteStream(uniqueFilepath));
             await txManager.trackFile(path.join('assets', uniqueFilename), `asset ${uniqueFilename}`);
 
-            // Seed assets.yaml with EXIF capture date (best-effort, never blocks upload)
-            const exifDate = await extractExifDate(uniqueFilepath);
-            if (exifDate) {
+            // Seed assets.yaml with EXIF capture date + GPS location (best-effort, never blocks upload)
+            const [exifDate, exifGps] = await Promise.all([
+                extractExifDate(uniqueFilepath),
+                extractExifGps(uniqueFilepath),
+            ]);
+            if (exifDate || exifGps) {
                 const index = await loadAssetIndex(dataDir);
                 if (!index[uniqueFilename]) {
-                    index[uniqueFilename] = { date: exifDate };
+                    index[uniqueFilename] = {
+                        ...(exifDate && { date: exifDate }),
+                        ...(exifGps && { location: exifGps }),
+                    };
                     await saveAssetIndex(dataDir, index, txManager);
                 }
             }

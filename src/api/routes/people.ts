@@ -10,7 +10,7 @@ import { Person, PersonSchema, SlimPerson, toSlimPerson } from '../../schemas/Pe
 import { sliceTimeline } from '../../core/TimelineSlicer';
 import { invalidateComputed } from '../../core/GraphLogic';
 import type { AppInstance } from '../types';
-import { loadAssetIndex, saveAssetIndex, extractExifDate } from '../../core/assetMetaUtils';
+import { loadAssetIndex, saveAssetIndex, extractExifDate, extractExifGps } from '../../core/assetMetaUtils';
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif', '.svg']);
 const ALLOWED_EXTS = new Set([...IMAGE_EXTS, '.pdf', '.txt', '.md']);
@@ -325,12 +325,18 @@ export async function peopleRoutes(server: FastifyInstance) {
 
             await txManager.trackFile(path.join('assets', uniqueFilename), `asset ${uniqueFilename}`);
 
-            // Seed assets.yaml with EXIF capture date (best-effort, never blocks upload)
-            const exifDate = await extractExifDate(filepath);
-            if (exifDate) {
+            // Seed assets.yaml with EXIF capture date + GPS location (best-effort, never blocks upload)
+            const [exifDate, exifGps] = await Promise.all([
+                extractExifDate(filepath),
+                extractExifGps(filepath),
+            ]);
+            if (exifDate || exifGps) {
                 const index = await loadAssetIndex(dataDir);
                 if (!index[uniqueFilename]) {
-                    index[uniqueFilename] = { date: exifDate };
+                    index[uniqueFilename] = {
+                        ...(exifDate && { date: exifDate }),
+                        ...(exifGps && { location: exifGps }),
+                    };
                     await saveAssetIndex(dataDir, index, txManager);
                 }
             }

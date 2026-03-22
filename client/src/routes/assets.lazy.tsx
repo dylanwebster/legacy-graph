@@ -123,6 +123,11 @@ function AssetCard({ asset, onOpen, onDelete }: AssetCardProps) {
                     {asset.metadata.date && (
                         <span className="text-[9px] text-muted-foreground">{asset.metadata.date}</span>
                     )}
+                    {asset.metadata.location?.name && (
+                        <span className="text-[9px] text-muted-foreground truncate" title={asset.metadata.location.name}>
+                            {asset.metadata.location.name}
+                        </span>
+                    )}
                 </div>
                 {asset.referencedBy.people.length > 0 && (
                     <div className="flex flex-wrap gap-0.5 mt-0.5">

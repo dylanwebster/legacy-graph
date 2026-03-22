@@ -1,5 +1,12 @@
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
+import { PlaceSchema } from './PlaceSchema';
+
+// Accepts a Place object, or a legacy plain string (coerced to { name: string })
+const LocationField = z.preprocess(
+    (val) => { if (typeof val === 'string') return { name: val }; return val; },
+    PlaceSchema,
+).optional();
 
 // Represents a single entry in _meta/assets.yaml
 export const AssetMetadataSchema = z.object({
@@ -9,7 +16,7 @@ export const AssetMetadataSchema = z.object({
     caption: z.string().optional(),    // legacy — consumed by transform (caption → description)
     date: z.string().optional(),
     date_taken: z.string().optional(), // legacy — consumed by transform (date_taken → date)
-    location: z.string().optional(),
+    location: LocationField,
 }).transform(({ caption, date_taken, ...rest }) => ({
     ...rest,
     description: rest.description ?? caption,
