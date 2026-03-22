@@ -8,8 +8,9 @@ import type { AssetListItem } from '@/api/client';
 import type { AssetsQueryParams } from '@/api/client';
 import { assetType } from '@/lib/assetUtils';
 import { AssetLightbox } from '@/components/AssetLightbox';
+import { AssetSearchBar } from '@/components/AssetSearchBar';
+import type { PersonChipData } from '@/components/AssetSearchBar';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import {
     Dialog,
     DialogContent,
@@ -20,7 +21,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import {
-    Search, FileText, Trash2, ZoomIn,
+    FileText, Trash2, ZoomIn,
     ArrowUpDown, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -168,6 +169,7 @@ type TypeFilter = 'all' | 'image' | 'document';
 function AssetGallery() {
     const [query, setQuery] = useState('');
     const [debouncedQ, setDebouncedQ] = useState('');
+    const [chips, setChips] = useState<PersonChipData[]>([]);
     const [orphansOnly, setOrphansOnly] = useState(false);
     const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
     const [sort, setSort] = useState<SortKey>('name');
@@ -185,6 +187,7 @@ function AssetGallery() {
 
     const queryParams: AssetsQueryParams = {
         q: debouncedQ || undefined,
+        personIds: chips.length > 0 ? chips.map((c) => c.id) : undefined,
         type: typeFilter,
         sort,
         order,
@@ -232,15 +235,13 @@ function AssetGallery() {
                 <h1 className="text-base font-semibold shrink-0">Assets</h1>
 
                 {/* Search */}
-                <div className="relative flex-1 max-w-xs">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                    <Input
-                        placeholder="Search by name, description, person…"
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        className="pl-7 h-8 text-sm"
-                    />
-                </div>
+                <AssetSearchBar
+                    textValue={query}
+                    onTextChange={setQuery}
+                    selectedPeople={chips}
+                    onAddPerson={(id, name) => setChips((prev) => prev.some((c) => c.id === id) ? prev : [...prev, { id, name }])}
+                    onRemovePerson={(id) => setChips((prev) => prev.filter((c) => c.id !== id))}
+                />
 
                 {/* Type filter */}
                 <div className="flex gap-1">

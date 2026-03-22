@@ -101,6 +101,7 @@ export interface AssetsQueryParams {
     type?: 'all' | 'image' | 'document';
     sort?: 'name' | 'size' | 'date';
     order?: 'asc' | 'desc';
+    personIds?: string[];
 }
 
 export async function getAssets(params?: AssetsQueryParams): Promise<AssetListResponse> {
@@ -109,6 +110,7 @@ export async function getAssets(params?: AssetsQueryParams): Promise<AssetListRe
     if (params?.type && params.type !== 'all') qs.set('type', params.type);
     if (params?.sort) qs.set('sort', params.sort);
     if (params?.order) qs.set('order', params.order);
+    if (params?.personIds && params.personIds.length > 0) qs.set('personIds', params.personIds.join(','));
     const queryString = qs.toString();
     return apiFetch<AssetListResponse>(`/assets${queryString ? `?${queryString}` : ''}`);
 }

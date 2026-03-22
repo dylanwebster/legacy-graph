@@ -487,6 +487,104 @@ describe('Assets API', () => {
         fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
 
+    // ── GET /api/assets?personIds= ───────────────────────────────────────────
+
+    describe('GET /api/assets with personIds filter', () => {
+        it('returns only assets tagged with a specific person', async () => {
+            writeTestAsset('test-asset-person-a.png');
+            writeTestAsset('test-asset-person-b.png');
+
+            const personARes = await request.post('/api/people').send({
+                names: [{ first: 'PersonA', last: 'Filter' }],
+                sex: 'U',
+                assets: ['test-asset-person-a.png'],
+            });
+            expect(personARes.status).toBe(201);
+            const personAId = personARes.body.id;
+
+            const personBRes = await request.post('/api/people').send({
+                names: [{ first: 'PersonB', last: 'Filter' }],
+                sex: 'U',
+                assets: ['test-asset-person-b.png'],
+            });
+            expect(personBRes.status).toBe(201);
+            const personBId = personBRes.body.id;
+
+            const res = await request.get(`/api/assets?personIds=${personAId}`);
+            expect(res.status).toBe(200);
+
+            const filenames = res.body.assets.map((a: any) => a.filename);
+            expect(filenames).toContain('test-asset-person-a.png');
+            expect(filenames).not.toContain('test-asset-person-b.png');
+
+            // Cleanup
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personAId}.yaml`));
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personBId}.yaml`));
+            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-person-a.png')); } catch { /* ignore */ }
+            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-person-b.png')); } catch { /* ignore */ }
+        });
+
+        it('returns only assets tagged with ALL specified people (AND filter)', async () => {
+            writeTestAsset('test-asset-shared.png');
+            writeTestAsset('test-asset-only-first.png');
+
+            const firstRes = await request.post('/api/people').send({
+                names: [{ first: 'AndFirst', last: 'Filter' }],
+                sex: 'U',
+                assets: ['test-asset-shared.png', 'test-asset-only-first.png'],
+            });
+            expect(firstRes.status).toBe(201);
+            const firstId = firstRes.body.id;
+
+            const secondRes = await request.post('/api/people').send({
+                names: [{ first: 'AndSecond', last: 'Filter' }],
+                sex: 'U',
+                assets: ['test-asset-shared.png'],
+            });
+            expect(secondRes.status).toBe(201);
+            const secondId = secondRes.body.id;
+
+            const res = await request.get(`/api/assets?personIds=${firstId},${secondId}`);
+            expect(res.status).toBe(200);
+
+            const filenames = res.body.assets.map((a: any) => a.filename);
+            expect(filenames).toContain('test-asset-shared.png');
+            expect(filenames).not.toContain('test-asset-only-first.png');
+
+            // Cleanup
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${firstId}.yaml`));
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${secondId}.yaml`));
+            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-shared.png')); } catch { /* ignore */ }
+            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-only-first.png')); } catch { /* ignore */ }
+        });
+
+        it('personIds filter combines with text search q', async () => {
+            writeTestAsset('test-asset-combo-alpha.png');
+            writeTestAsset('test-asset-combo-beta.png');
+
+            const personRes = await request.post('/api/people').send({
+                names: [{ first: 'ComboFilter', last: 'Person' }],
+                sex: 'U',
+                assets: ['test-asset-combo-alpha.png', 'test-asset-combo-beta.png'],
+            });
+            expect(personRes.status).toBe(201);
+            const personId = personRes.body.id;
+
+            // q=alpha only matches the alpha file (beta does not contain alpha as substring)
+            const res = await request.get(`/api/assets?personIds=${personId}&q=alpha`);
+            expect(res.status).toBe(200);
+
+            const filenames = res.body.assets.map((a: any) => a.filename);
+            expect(filenames).toContain('test-asset-combo-alpha.png');
+            expect(filenames).not.toContain('test-asset-combo-beta.png');
+
+            // Cleanup
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-combo-alpha.png')); } catch { /* ignore */ }
+            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-combo-beta.png')); } catch { /* ignore */ }
+        });
+    });
+
     // ── DELETE /api/people/:id/assets/link/:filename ─────────────────────────
 
     it('DELETE /api/people/:id/assets/link/:filename unlinks asset from person.assets[]', async () => {

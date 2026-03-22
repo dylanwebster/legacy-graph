@@ -48,10 +48,11 @@ export async function assetsRoutes(server: FastifyInstance) {
     // ── GET /api/assets ──────────────────────────────────────────────────────
 
     server.get<{
-        Querystring: { q?: string; type?: string; sort?: string; order?: string }
+        Querystring: { q?: string; type?: string; sort?: string; order?: string; personIds?: string }
     }>('/api/assets', async (request) => {
-        const { q, type = 'all', sort = 'name', order = 'asc' } = request.query;
+        const { q, type = 'all', sort = 'name', order = 'asc', personIds } = request.query;
         const searchQ = q?.trim().toLowerCase();
+        const filterPersonIds = personIds ? personIds.split(',').filter(Boolean) : [];
 
         await fs.mkdir(assetsDir, { recursive: true });
 
@@ -175,6 +176,13 @@ export async function assetsRoutes(server: FastifyInstance) {
                 }
                 return false;
             });
+        }
+
+        // Apply personIds AND-filter
+        if (filterPersonIds.length > 0) {
+            assets = assets.filter(a =>
+                filterPersonIds.every(pid => a.referencedBy.people.includes(pid))
+            );
         }
 
         // Apply sort
