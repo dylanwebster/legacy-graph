@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { GraphEngine } from '../../src/core/GraphEngine';
-import { toSlimPerson, SlimPerson } from '../../src/schemas/PersonSchema';
+import { toSlimPerson } from '../../src/schemas/PersonSchema';
 
 const DATA_DIR = path.join(__dirname, 'temp_slim_data');
 const PEOPLE_DIR = path.join(DATA_DIR, 'people');

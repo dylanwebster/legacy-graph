@@ -17,6 +17,7 @@ npm run test:e2e  # Full Stack: Playwright in browser (starts server/client)
 ### Backend
 ```bash
 npm run build     # tsc --noEmit (type-check only)
+npm run lint      # ESLint (src/, tests/, scripts/)
 npm start         # tsx --env-file=.env src/index.ts
 ```
 
@@ -62,7 +63,7 @@ You must always abide by these rules:
 2. **Spec-first** — `SPECIFICATION.md` is authoritative. Discrepancies between spec and code are critical bugs.
 3. **Keep track of implementation state and remaining work** — `PROGRESS.md` must be updated with implementation state and remaining steps.
 4. **Use the playwright-cli skill for e2e test development**. When appropriate, use the playwright-cli skill to write e2e tests.
-5. **Pre-PR checks are mandatory** — before creating a PR, always run `npm test` (unit), `npm run test:e2e` (e2e), and `cd client && npm run lint`. All must pass with zero errors.
+5. **Pre-PR checks are mandatory** — before creating a PR, always run `npm test` (unit), `npm run test:e2e` (e2e), `npm run lint` (backend lint), and `cd client && npm run lint` (frontend lint). All must pass with zero errors.
 
 ---
 
@@ -206,7 +207,7 @@ Base URL: `/api`. Auth: JWT in HttpOnly cookie. Auth is optional — if `/_meta/
 | PUT | `/stories/:id/media` | Attach asset to story (Phase 5.1) |
 | GET | `/assets` | List all `/assets` files with referencing people/stories (Phase 5.4) |
 | GET | `/assets/*` | Static delivery with HTTP Range + immutable cache headers |
-| GET | `/search` | `?q=&limit=50&offset=0` → `{ people, stories, places, totalCounts }` |
+| GET | `/search` | `?q=&limit=50&offset=0` → `{ people: SlimPersonSummary[], stories, places, totalCounts }` |
 | GET | `/places/search` | `?q=` → top 5 geocoded Place candidates (Phase 3.15) |
 | POST | `/places/resolve` | `{ name }` → resolved Place object (Phase 3.15) |
 | GET | `/stats` | Dashboard stats (total people, families, last modified) |
@@ -218,6 +219,12 @@ Base URL: `/api`. Auth: JWT in HttpOnly cookie. Auth is optional — if `/_meta/
 | POST | `/import/gedcom` | Bulk import (replace or additive mode) |
 | POST | `/auth/login` | BCrypt validate → JWT HttpOnly cookie |
 | POST | `/auth/logout` | Clear cookie |
+
+**`SlimPersonSummary` shape** — returned by `GET /people` and `GET /search`. Does **not** include `events[]`. Birth/death info is pre-extracted into top-level fields:
+```typescript
+{ id, names, sex, birthDate?, deathDate?, tags, assetCount, primaryAsset?, last_modified }
+```
+`PersonDetail` (from `GET /people/:id`) includes the full `events[]` array. Never assume `events` is available on a person object that came from a list or search endpoint — use `birthDate`/`deathDate` directly.
 
 ---
 

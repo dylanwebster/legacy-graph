@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { GraphEngine } from '../../src/core/GraphEngine';
-import { runHydrationWorker, HydrationWorkerResult } from '../../src/core/HydrationWorker';
+import { runHydrationWorker } from '../../src/core/HydrationWorker';
 
 const DATA_DIR = path.join(__dirname, 'temp_worker_data');
 const PEOPLE_DIR = path.join(DATA_DIR, 'people');

@@ -28,6 +28,12 @@ const RUN_ID = Date.now();
 const IMAGE_FILENAME = `family-portrait-${RUN_ID}.png`;
 const MD_FILENAME = `ancestor-notes-${RUN_ID}.md`;
 
+// Mirror the frontend's display name transform: strip extension, replace hyphens/underscores with spaces.
+function displayName(filename: string): string {
+    const dot = filename.lastIndexOf('.');
+    return (dot > 0 ? filename.slice(0, dot) : filename).replace(/[_-]/g, ' ');
+}
+
 test.describe('CUJ 4: Asset Management — Upload, View, Reject', () => {
     let personId: string;
     const uploadedAssets: string[] = [];
@@ -81,8 +87,8 @@ test.describe('CUJ 4: Asset Management — Upload, View, Reject', () => {
             buffer: PNG_BYTES,
         });
 
-        // Gallery should show the image using the original filename (not a random hash)
-        const galleryImage = page.locator(`img[alt="${IMAGE_FILENAME}"]`);
+        // Gallery should show the image — alt text uses the display name (extension stripped, hyphens→spaces)
+        const galleryImage = page.locator(`img[alt="${displayName(IMAGE_FILENAME)}"]`);
         await expect(galleryImage).toBeVisible({ timeout: 10_000 });
         uploadedAssets.push(IMAGE_FILENAME);
 
@@ -110,12 +116,12 @@ test.describe('CUJ 4: Asset Management — Upload, View, Reject', () => {
         });
         uploadedAssets.push(MD_FILENAME);
 
-        // Gallery card should appear with original filename and "Markdown" type label
-        await expect(page.getByText(MD_FILENAME)).toBeVisible({ timeout: 10_000 });
+        // Gallery card should appear with the display name (extension stripped, hyphens→spaces)
+        await expect(page.getByText(displayName(MD_FILENAME))).toBeVisible({ timeout: 10_000 });
         await expect(page.getByText('Markdown')).toBeVisible();
 
         // Hover the document card to reveal the overlay button, then open the lightbox
-        const docCard = page.locator('div.group').filter({ hasText: MD_FILENAME });
+        const docCard = page.locator('div.group').filter({ hasText: displayName(MD_FILENAME) });
         await docCard.hover();
         await page.getByTitle('View document').click();
 

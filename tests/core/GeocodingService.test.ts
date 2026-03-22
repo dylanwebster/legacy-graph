@@ -3,7 +3,6 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { GeocodingService } from '../../src/core/GeocodingService';
-import type { Place } from '../../src/schemas/PlaceSchema';
 
 // Helper to build a minimal Nominatim response
 function makeNominatimResponse(

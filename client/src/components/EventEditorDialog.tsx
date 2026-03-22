@@ -1,13 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useUpdatePerson, useSearch, usePlacesSearch } from '@/api/hooks';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useUpdatePerson, useSearch, usePlacesSearch, useUploadEventMedia } from '@/api/hooks';
 import type { Place } from '@/api/people';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
+import { AssetPickerDialog } from '@/components/AssetPickerDialog';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Paperclip, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 const EVENT_TYPES = [
@@ -188,6 +190,11 @@ export function EventEditorDialog({
 }: EventEditorDialogProps) {
     const isEdit = existingEventIndex !== undefined && existingEvent !== undefined;
 
+    const [eventAssets, setEventAssets] = useState<string[]>((existingEvent?.assets as string[]) ?? []);
+    const [assetPickerOpen, setAssetPickerOpen] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const uploadEventMedia = useUploadEventMedia();
+
     const [eventType, setEventType] = useState<EventType>(
         (existingEvent?.type as EventType) ?? initialEventType ?? 'birth'
     );
@@ -241,13 +248,14 @@ export function EventEditorDialog({
             setInstitution((existingEvent?.institution as string) ?? '');
             setDegree((existingEvent?.degree as string) ?? '');
             setHouseholdId((existingEvent?.household_id as string) ?? '');
+            setEventAssets((existingEvent?.assets as string[]) ?? []);
         }
     }, [isOpen, existingEvent, initialEventType]);
 
     const updatePerson = useUpdatePerson();
 
     const buildEvent = useCallback((): Record<string, unknown> => {
-        const base: Record<string, unknown> = { type: eventType };
+        const base: Record<string, unknown> = { type: eventType, assets: eventAssets };
         if (date) {
             base.date = date;
             const iso = parseToISO(date);
@@ -290,7 +298,7 @@ export function EventEditorDialog({
     }, [
         eventType, date, locationPlace, locationQuery, description,
         partnerId, marriageStatus, cause, title, organization,
-        institution, degree, householdId,
+        institution, degree, householdId, eventAssets,
     ]);
 
     const handleSave = () => {
@@ -489,7 +497,91 @@ export function EventEditorDialog({
                             />
                         </div>
                     )}
+
+                    {/* Attachments */}
+                    <div className="space-y-1.5">
+                        <label className="text-xs font-medium flex items-center gap-1">
+                            <Paperclip className="h-3 w-3" /> Attachments
+                        </label>
+                        {eventAssets.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                                {eventAssets.map((fn) => (
+                                    <span
+                                        key={fn}
+                                        className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-xs text-muted-foreground"
+                                    >
+                                        {fn}
+                                        <button
+                                            type="button"
+                                            onClick={() => setEventAssets((prev) => prev.filter((a) => a !== fn))}
+                                            className="hover:text-destructive transition-colors"
+                                        >
+                                            <X className="h-3 w-3" />
+                                        </button>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                        <div className="flex gap-2">
+                            {isEdit && (
+                                <>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept="image/*,.pdf,.txt,.md"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (!file) return;
+                                            const eventId = existingEvent?.id as string | undefined;
+                                            if (!eventId) return;
+                                            uploadEventMedia.mutate(
+                                                { personId, eventId, file },
+                                                {
+                                                    onSuccess: (result) => {
+                                                        setEventAssets((prev) => [...prev, result.filename]);
+                                                        toast.success('File attached.');
+                                                    },
+                                                    onError: () => toast.error('Upload failed.'),
+                                                }
+                                            );
+                                            e.target.value = '';
+                                        }}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        disabled={uploadEventMedia.isPending}
+                                        className="flex items-center gap-1 px-2 py-1 rounded border border-border text-xs hover:bg-muted transition-colors disabled:opacity-50"
+                                    >
+                                        <Upload className="h-3 w-3" />
+                                        {uploadEventMedia.isPending ? 'Uploading…' : 'Upload New'}
+                                    </button>
+                                </>
+                            )}
+                            {!isEdit && (
+                                <p className="text-[10px] text-muted-foreground italic">
+                                    Save event first to upload files.
+                                </p>
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => setAssetPickerOpen(true)}
+                                className="flex items-center gap-1 px-2 py-1 rounded border border-border text-xs hover:bg-muted transition-colors"
+                            >
+                                <Paperclip className="h-3 w-3" /> Pick Existing
+                            </button>
+                        </div>
+                    </div>
                 </div>
+
+                <AssetPickerDialog
+                    isOpen={assetPickerOpen}
+                    onClose={() => setAssetPickerOpen(false)}
+                    onSelect={(fn) => setEventAssets((prev) => prev.includes(fn) ? prev : [...prev, fn])}
+                    excludeFilenames={eventAssets}
+                    title="Attach Existing Asset"
+                />
 
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose} size="sm">Cancel</Button>

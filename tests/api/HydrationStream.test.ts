@@ -3,6 +3,7 @@ import { FastifyInstance } from 'fastify';
 import { createServer } from '../../src/server';
 import supertest from 'supertest';
 import git from 'isomorphic-git';
+import bcrypt from 'bcryptjs';
 import * as fs from 'fs';
 import * as nodeFs from 'fs';
 import * as path from 'path';
@@ -85,7 +86,6 @@ describe('SSE Hydration Stream (Phase 3.8.3)', () => {
     it('should be exempt from auth guard', async () => {
         // Set up auth config
         const authDir = path.join(testDataDir, '_meta');
-        const bcrypt = require('bcryptjs');
         const hash = bcrypt.hashSync('password123', 10);
         const authYaml = `jwt_secret: "test-secret-key-that-is-at-least-32-chars-long"
 session_expiry: "24h"

@@ -1,5 +1,7 @@
 import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { usePerson, useUpdatePerson, useDeleteAsset } from '@/api/hooks';
+import { usePerson, useUpdatePerson, useDeleteAsset, useDeleteAssetPermanently, useAssets } from '@/api/hooks';
+import type { AssetListItem } from '@/api/client';
+import { AssetLightbox } from '@/components/AssetLightbox';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { loadAvatarCrop, saveAvatarCrop, clearAvatarCrop } from '@/lib/avatarCrop';
 import { assetType, primaryImageAsset } from '@/lib/assetUtils';
@@ -28,12 +30,11 @@ import {
 import {
     Calendar, MapPin, Heart, Sunrise, Sunset, Leaf, GraduationCap, Briefcase, Church,
     Ship, ScrollText, FileText, Plus, ChevronRight, Image, BookOpen, Code,
-    Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2, Crop, ExternalLink,
+    Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2, Crop,
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MilkdownEditor } from '@/components/MilkdownEditor';
-import ReactMarkdown from 'react-markdown';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -70,6 +71,12 @@ function PersonDetail() {
     const { data: person, isLoading, isError } = usePerson(id);
     const updatePerson = useUpdatePerson();
     const queryClient = useQueryClient();
+    const { data: allAssetsData } = useAssets();
+    const assetMetaMap = useMemo(() => {
+        const map = new Map<string, AssetListItem>();
+        for (const a of allAssetsData?.assets ?? []) map.set(a.filename, a);
+        return map;
+    }, [allAssetsData]);
 
     // Inline editing state
     const [editingName, setEditingName] = useState(false);
@@ -97,9 +104,9 @@ function PersonDetail() {
     const [deleteConfirmAsset, setDeleteConfirmAsset] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const deleteAssetMutation = useDeleteAsset();
+    const deleteAssetPermanentlyMutation = useDeleteAssetPermanently();
     const [showCropDialog, setShowCropDialog] = useState(false);
     const [avatarCrop, setAvatarCrop] = useState<CropArea | null>(null);
-    const [lightboxTextContent, setLightboxTextContent] = useState<string | null>(null);
 
     // Timeline virtualizer
     const timelineParentRef = useRef<HTMLDivElement>(null);
@@ -131,32 +138,6 @@ function PersonDetail() {
         setAvatarCrop(loadAvatarCrop(id));
     }, [id]);
 
-    // Fetch text content when lightbox opens a text/markdown asset
-    useEffect(() => {
-        if (!lightboxAsset) { setLightboxTextContent(null); return; }
-        const type = assetType(lightboxAsset);
-        if (type === 'text' || type === 'markdown') {
-            setLightboxTextContent(null);
-            fetch(`/assets/${lightboxAsset}`).then(r => r.text()).then(setLightboxTextContent).catch(() => setLightboxTextContent('(Failed to load file)'));
-        } else {
-            setLightboxTextContent(null);
-        }
-    }, [lightboxAsset]);
-
-    // Lightbox keyboard navigation: ESC to close, arrow keys to navigate
-    useEffect(() => {
-        if (!lightboxAsset) return;
-        const assets = (person?.assets ?? []) as string[];
-        const handler = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') { setLightboxAsset(null); return; }
-            if (assets.length <= 1) return;
-            const idx = assets.indexOf(lightboxAsset);
-            if (e.key === 'ArrowLeft') setLightboxAsset(assets[(idx - 1 + assets.length) % assets.length]);
-            if (e.key === 'ArrowRight') setLightboxAsset(assets[(idx + 1) % assets.length]);
-        };
-        document.addEventListener('keydown', handler);
-        return () => document.removeEventListener('keydown', handler);
-    }, [lightboxAsset, person?.assets]);
 
     if (isLoading) {
         return (
@@ -304,6 +285,7 @@ function PersonDetail() {
         }
         toast.success('Asset uploaded.');
         queryClient.invalidateQueries({ queryKey: ['person', id] });
+        queryClient.invalidateQueries({ queryKey: ['assets'] });
     };
 
     const handleDrop = async (e: React.DragEvent) => {
@@ -350,7 +332,27 @@ function PersonDetail() {
             { personId: id, filename },
             {
                 onSuccess: () => {
-                    toast.success('Asset deleted.');
+                    toast.success('Removed from profile.');
+                    if (lightboxAsset === filename) setLightboxAsset(null);
+                },
+                onError: () => toast.error('Failed to remove asset.'),
+            }
+        );
+    };
+
+    const handleDeleteFileEntirely = () => {
+        if (!deleteConfirmAsset) return;
+        const filename = deleteConfirmAsset;
+        setDeleteConfirmAsset(null);
+        deleteAssetPermanentlyMutation.mutate(
+            { personId: id, filename },
+            {
+                onSuccess: (result) => {
+                    if (result.fileDeleted) {
+                        toast.success(`${filename} deleted.`);
+                    } else {
+                        toast.success('Removed from profile. File kept — still referenced elsewhere.');
+                    }
                     if (lightboxAsset === filename) setLightboxAsset(null);
                 },
                 onError: () => toast.error('Failed to delete asset.'),
@@ -690,19 +692,24 @@ function PersonDetail() {
                                         const isImage = type === 'image';
                                         const isPrimary = asset === primaryPhoto;
                                         const isDoc = type === 'pdf' || type === 'text' || type === 'markdown';
+                                        const assetMeta = assetMetaMap.get(asset)?.metadata;
+                                        const caption = assetMeta?.description;
+                                        const assetDisplayName = assetMeta?.name
+                                            ? assetMeta.name
+                                            : (() => { const dot = asset.lastIndexOf('.'); return (dot > 0 ? asset.slice(0, dot) : asset).replace(/[_-]/g, ' '); })();
                                         return (
                                         <div key={asset} className="group relative aspect-square rounded-lg bg-muted border border-border overflow-hidden">
                                             {isImage ? (
                                                 <img
                                                     src={`/assets/${asset}`}
-                                                    alt={asset}
+                                                    alt={assetDisplayName}
                                                     className="object-contain w-full h-full"
                                                     loading="lazy"
                                                 />
                                             ) : (
                                                 <div className="flex flex-col items-center justify-center w-full h-full gap-2 px-2">
                                                     <FileText className="h-8 w-8 text-muted-foreground" />
-                                                    <span className="text-[10px] text-muted-foreground text-center break-all leading-tight">{asset}</span>
+                                                    <span className="text-[10px] text-muted-foreground text-center break-all leading-tight">{assetDisplayName}</span>
                                                     <span className="text-[9px] uppercase tracking-wide text-muted-foreground/60 font-medium">
                                                         {type === 'pdf' ? 'PDF' : type === 'markdown' ? 'Markdown' : 'Text'}
                                                     </span>
@@ -712,6 +719,12 @@ function PersonDetail() {
                                             {isPrimary && (
                                                 <div className="absolute top-1 left-1 bg-primary/80 text-primary-foreground rounded px-1 py-0.5 text-[10px] font-medium flex items-center gap-0.5">
                                                     <Star className="h-2.5 w-2.5" /> Primary
+                                                </div>
+                                            )}
+                                            {/* Caption overlay */}
+                                            {!!caption && (
+                                                <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1.5 py-0.5 pointer-events-none">
+                                                    <p className="text-[9px] text-white truncate">{caption}</p>
                                                 </div>
                                             )}
                                             {/* Hover controls */}
@@ -737,7 +750,7 @@ function PersonDetail() {
                                                 )}
                                                 <button
                                                     type="button"
-                                                    title="Delete asset"
+                                                    title="Remove from profile"
                                                     onClick={(e) => { e.stopPropagation(); handleDeleteAsset(asset); }}
                                                     className="p-1.5 rounded-full bg-white/20 hover:bg-red-500/70 text-white"
                                                 >
@@ -751,6 +764,7 @@ function PersonDetail() {
                             ) : (
                                 <div className="text-center text-muted-foreground text-sm py-4">No assets yet</div>
                             )}
+
                         </TabsContent>
 
                         {/* Notebook tab with edit toggle */}
@@ -794,139 +808,34 @@ function PersonDetail() {
             </ResizablePanelGroup>
 
             {/* Asset Lightbox */}
-            {lightboxAsset && (
-                <div
-                    className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
-                    onClick={() => setLightboxAsset(null)}
-                >
-                    <button
-                        type="button"
-                        onClick={() => setLightboxAsset(null)}
-                        className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
-                    >
-                        <X className="h-5 w-5" />
-                    </button>
-                    {/* Navigate previous */}
-                    {(person.assets as string[]).length > 1 && (
-                        <button
-                            type="button"
-                            className="absolute left-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                const assets = person.assets as string[];
-                                const idx = assets.indexOf(lightboxAsset);
-                                setLightboxAsset(assets[(idx - 1 + assets.length) % assets.length]);
-                            }}
-                        >
-                            <ChevronRight className="h-6 w-6 rotate-180" />
-                        </button>
-                    )}
-                    {/* Lightbox content — varies by asset type */}
-                    {(() => {
-                        const type = assetType(lightboxAsset);
-                        if (type === 'pdf') return (
-                            <iframe
-                                src={`/assets/${lightboxAsset}`}
-                                title={lightboxAsset}
-                                className="w-[90vw] h-[90vh] rounded-lg shadow-2xl bg-white"
-                                onClick={(e) => e.stopPropagation()}
-                            />
-                        );
-                        if (type === 'text') return (
-                            <div
-                                className="w-[90vw] max-w-2xl h-[80vh] bg-background rounded-lg shadow-2xl overflow-auto p-6"
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                <div className="flex items-center justify-between mb-4">
-                                    <span className="text-sm font-medium text-foreground">{lightboxAsset}</span>
-                                    <a
-                                        href={`/assets/${lightboxAsset}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        <ExternalLink className="h-3 w-3" /> Open
-                                    </a>
+            {lightboxAsset && (() => {
+                const lbAssets = (person.assets as string[]);
+                const lbAssetData = assetMetaMap.get(lightboxAsset);
+                return (
+                    <AssetLightbox
+                        filename={lightboxAsset}
+                        allFilenames={lbAssets}
+                        assetData={lbAssetData}
+                        onClose={() => setLightboxAsset(null)}
+                        onNavigate={(fn) => setLightboxAsset(fn)}
+                        overlayContent={lightboxAsset === primaryPhoto ? (
+                            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-black/60 backdrop-blur-sm rounded-full px-4 py-2">
+                                <div className="flex items-center gap-1.5 text-white text-xs">
+                                    <Star className="h-3.5 w-3.5 text-yellow-400 fill-yellow-400" />
+                                    <span>Primary photo</span>
                                 </div>
-                                <pre className="text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed">
-                                    {lightboxTextContent ?? 'Loading…'}
-                                </pre>
+                                <div className="w-px h-4 bg-white/30" />
+                                <button type="button"
+                                    onClick={() => { setLightboxAsset(null); setShowCropDialog(true); }}
+                                    className="flex items-center gap-1.5 text-white/80 text-xs hover:text-white transition-colors">
+                                    <Crop className="h-3.5 w-3.5" />
+                                    <span>Crop avatar</span>
+                                </button>
                             </div>
-                        );
-                        if (type === 'markdown') return (
-                            <div
-                                className="w-[90vw] max-w-2xl h-[80vh] bg-background rounded-lg shadow-2xl overflow-auto p-6"
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                <div className="flex items-center justify-between mb-4">
-                                    <span className="text-sm font-medium text-foreground">{lightboxAsset}</span>
-                                    <a
-                                        href={`/assets/${lightboxAsset}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        <ExternalLink className="h-3 w-3" /> Open
-                                    </a>
-                                </div>
-                                {lightboxTextContent == null
-                                    ? <p className="text-sm text-muted-foreground">Loading…</p>
-                                    : <div className="prose prose-sm dark:prose-invert max-w-none">
-                                        <ReactMarkdown>{lightboxTextContent}</ReactMarkdown>
-                                    </div>
-                                }
-                            </div>
-                        );
-                        // Default: image
-                        return (
-                            <img
-                                src={`/assets/${lightboxAsset}`}
-                                alt={lightboxAsset}
-                                className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
-                                onClick={(e) => e.stopPropagation()}
-                            />
-                        );
-                    })()}
-                    {/* Bottom bar — only for the primary image */}
-                    {lightboxAsset === primaryPhoto && (
-                        <div
-                            className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-black/60 backdrop-blur-sm rounded-full px-4 py-2"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <div className="flex items-center gap-1.5 text-white text-xs">
-                                <Star className="h-3.5 w-3.5 text-yellow-400 fill-yellow-400" />
-                                <span>Primary photo</span>
-                            </div>
-                            <div className="w-px h-4 bg-white/30" />
-                            <button
-                                type="button"
-                                onClick={() => { setLightboxAsset(null); setShowCropDialog(true); }}
-                                className="flex items-center gap-1.5 text-white/80 text-xs hover:text-white transition-colors"
-                            >
-                                <Crop className="h-3.5 w-3.5" />
-                                <span>Crop avatar</span>
-                            </button>
-                        </div>
-                    )}
-                    {/* Navigate next */}
-                    {(person.assets as string[]).length > 1 && (
-                        <button
-                            type="button"
-                            className="absolute right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                const assets = person.assets as string[];
-                                const idx = assets.indexOf(lightboxAsset);
-                                setLightboxAsset(assets[(idx + 1) % assets.length]);
-                            }}
-                        >
-                            <ChevronRight className="h-6 w-6" />
-                        </button>
-                    )}
-                </div>
-            )}
+                        ) : undefined}
+                    />
+                );
+            })()}
 
             {/* Dialogs */}
             <EventEditorDialog
@@ -962,19 +871,36 @@ function PersonDetail() {
                 />
             )}
 
-            {/* Asset delete confirmation */}
+            {/* Asset remove confirmation */}
             <ConfirmDialog open={!!deleteConfirmAsset} onOpenChange={(o) => !o && setDeleteConfirmAsset(null)}>
                 <ConfirmDialogContent className="max-w-sm">
                     <ConfirmDialogHeader>
-                        <ConfirmDialogTitle>Delete Asset</ConfirmDialogTitle>
+                        <ConfirmDialogTitle>Remove Asset</ConfirmDialogTitle>
                         <ConfirmDialogDescription>
-                            Delete <span className="font-mono text-xs">{deleteConfirmAsset}</span> permanently? This cannot be undone.
+                            What would you like to do with <span className="font-mono text-xs">{deleteConfirmAsset}</span>?
                         </ConfirmDialogDescription>
                     </ConfirmDialogHeader>
-                    <ConfirmDialogFooter>
+                    <div className="px-6 pb-2 space-y-2 text-sm text-muted-foreground">
+                        <p><strong className="text-foreground">Remove from profile</strong> — unlinks the file from this person. It stays in the asset gallery.</p>
+                        <p><strong className="text-foreground">Delete file</strong> — permanently removes the file from disk.</p>
+                    </div>
+                    <ConfirmDialogFooter className="flex-col sm:flex-row gap-2">
                         <Button variant="outline" size="sm" onClick={() => setDeleteConfirmAsset(null)}>Cancel</Button>
-                        <Button variant="destructive" size="sm" onClick={handleConfirmDeleteAsset} disabled={deleteAssetMutation.isPending}>
-                            {deleteAssetMutation.isPending ? 'Deleting…' : 'Delete'}
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleConfirmDeleteAsset}
+                            disabled={deleteAssetMutation.isPending || deleteAssetPermanentlyMutation.isPending}
+                        >
+                            {deleteAssetMutation.isPending ? 'Removing…' : 'Remove from profile'}
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={handleDeleteFileEntirely}
+                            disabled={deleteAssetMutation.isPending || deleteAssetPermanentlyMutation.isPending}
+                        >
+                            {deleteAssetPermanentlyMutation.isPending ? 'Deleting…' : 'Delete file'}
                         </Button>
                     </ConfirmDialogFooter>
                 </ConfirmDialogContent>

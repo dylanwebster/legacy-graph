@@ -158,7 +158,7 @@ describe('GEDCOM Round-Trip (Import → Export → Import)', () => {
         expect(bob).toBeDefined();
         
         if (bob) {
-            const divorceEvent = bob.events.find(e => e.type === 'divorce');
+            const _divorceEvent = bob.events.find(e => e.type === 'divorce');
             // Note: Current Import.ts doesn't handle DIV tag yet, so this will fail
             // This test documents expected behavior for future enhancement
             // expect(divorceEvent).toBeDefined();

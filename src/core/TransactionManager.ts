@@ -200,7 +200,6 @@ export class TransactionManager {
 
         for (let i = 0; i < labels.length; i++) {
             const remaining = labels.length - i;
-            const suffix = remaining > 0 ? `, and ${remaining} more` : '';
             const candidate = prefix + [...included, labels[i]].join(', ');
 
             // Check whether adding this label (plus a potential suffix for the rest) fits

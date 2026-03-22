@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
-import { createServer, closeServer } from '../../src/server';
+import { createServer } from '../../src/server';
 import supertest from 'supertest';
 import gitLib from 'isomorphic-git';
 import * as fs from 'fs';
@@ -8,6 +8,7 @@ import * as nodeFs from 'fs';
 import * as path from 'path';
 import bcrypt from 'bcryptjs';
 import yaml from 'js-yaml';
+import jwt from 'jsonwebtoken';
 
 describe('Authentication', () => {
     let server: FastifyInstance;
@@ -210,7 +211,6 @@ describe('Authentication', () => {
 
         it('should reject requests with expired JWT', async () => {
             // Create a JWT that is already expired using jsonwebtoken directly
-            const jwt = require('jsonwebtoken');
             const expiredToken = jwt.sign(
                 { username: TEST_USER },
                 JWT_SECRET,

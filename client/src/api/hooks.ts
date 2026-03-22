@@ -1,7 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { peopleApi } from './people';
 import type { CreatePersonInput, PersonDetail, SlimPersonSummary } from './people';
-import { apiFetch, deleteAsset, searchPlaces, resolvePlace } from './client';
+import {
+    apiFetch, deleteAsset, deleteAssetPermanently, searchPlaces, resolvePlace,
+    getAssets, updateAssetMeta, deleteGalleryAsset, uploadEventMedia, linkAssetToPerson,
+    unlinkAssetFromPerson,
+} from './client';
+import type { AssetListResponse, AssetListItem, AssetsQueryParams } from './client';
+import type { Place } from './people';
 import { storiesApi } from './stories';
 import type { CreateStoryInput, UpdateStoryInput, StoryFeedItem } from './stories';
 
@@ -151,6 +157,39 @@ export const useDeleteAsset = () => {
     });
 };
 
+export const useDeleteAssetPermanently = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ personId, filename }: { personId: string; filename: string }) =>
+            deleteAssetPermanently(personId, filename),
+        onMutate: async ({ personId, filename }) => {
+            await queryClient.cancelQueries({ queryKey: ['person', personId] });
+            const previousData = queryClient.getQueriesData({ queryKey: ['person', personId] });
+            queryClient.setQueriesData(
+                { queryKey: ['person', personId] },
+                (old: PersonDetail | undefined) => {
+                    if (!old) return old;
+                    return { ...old, assets: old.assets.filter((a) => a !== filename) };
+                }
+            );
+            return { previousData };
+        },
+        onError: (_err, { personId }, context) => {
+            if (context?.previousData) {
+                for (const [queryKey, data] of context.previousData) {
+                    queryClient.setQueryData(queryKey, data);
+                }
+            }
+            queryClient.invalidateQueries({ queryKey: ['person', personId] });
+        },
+        onSuccess: (_data, { personId }) => {
+            queryClient.invalidateQueries({ queryKey: ['person', personId] });
+            queryClient.invalidateQueries({ queryKey: ['people'] });
+            queryClient.invalidateQueries({ queryKey: ['assets'] });
+        },
+    });
+};
+
 export const usePlacesSearch = (q: string) => {
     return useQuery({
         queryKey: ['placesSearch', q],
@@ -261,5 +300,95 @@ export const useUpdatePerson = () => {
             queryClient.invalidateQueries({ queryKey: ['people'] });
             queryClient.invalidateQueries({ queryKey: ['search'] });
         }
+    });
+};
+
+// ── Asset Gallery ──────────────────────────────────────────────────────────
+
+export const useAssets = (params?: AssetsQueryParams) => {
+    return useQuery({
+        queryKey: ['assets', params],
+        queryFn: () => getAssets(params),
+        staleTime: 30_000,
+    });
+};
+
+export const useUpdateAssetMeta = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ filename, meta }: { filename: string; meta: { name?: string; description?: string; date?: string; location?: Place } }) =>
+            updateAssetMeta(filename, meta),
+        onMutate: async ({ filename, meta }) => {
+            await queryClient.cancelQueries({ queryKey: ['assets'] });
+            const previousData = queryClient.getQueriesData<AssetListResponse>({ queryKey: ['assets'] });
+            queryClient.setQueriesData<AssetListResponse>({ queryKey: ['assets'] }, (old) => {
+                if (!old) return old;
+                return {
+                    ...old,
+                    assets: old.assets.map((a: AssetListItem) =>
+                        a.filename === filename
+                            ? { ...a, metadata: { ...a.metadata, ...meta } }
+                            : a
+                    ),
+                };
+            });
+            return { previousData };
+        },
+        onError: (_err, _vars, context) => {
+            if (context?.previousData) {
+                for (const [queryKey, data] of context.previousData) {
+                    queryClient.setQueryData(queryKey, data);
+                }
+            }
+        },
+        onSettled: () => {
+            queryClient.invalidateQueries({ queryKey: ['assets'] });
+        },
+    });
+};
+
+export const useDeleteGalleryAsset = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (filename: string) => deleteGalleryAsset(filename),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['assets'] });
+        },
+    });
+};
+
+export const useUploadEventMedia = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ personId, eventId, file }: { personId: string; eventId: string; file: File }) =>
+            uploadEventMedia(personId, eventId, file),
+        onSettled: (_data, _error, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['person', variables.personId] });
+            queryClient.invalidateQueries({ queryKey: ['assets'] });
+        },
+    });
+};
+
+export const useLinkAsset = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ personId, filename }: { personId: string; filename: string }) =>
+            linkAssetToPerson(personId, filename),
+        onSettled: (_data, _error, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['person', variables.personId] });
+            queryClient.invalidateQueries({ queryKey: ['assets'] });
+        },
+    });
+};
+
+export const useUnlinkAsset = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ personId, filename }: { personId: string; filename: string }) =>
+            unlinkAssetFromPerson(personId, filename),
+        onSettled: (_data, _error, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['person', variables.personId] });
+            queryClient.invalidateQueries({ queryKey: ['assets'] });
+        },
     });
 };

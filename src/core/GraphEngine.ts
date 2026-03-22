@@ -13,7 +13,7 @@ import { HydrationWorkerResult, HydrationWorkerError, HydrationWorkerProgress } 
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import yaml from 'js-yaml';
-import { PersonSchema, Person, SlimPerson, toSlimPerson, PersonEntry } from '../schemas/PersonSchema';
+import { PersonSchema, SlimPerson, toSlimPerson, PersonEntry } from '../schemas/PersonSchema';
 import { StorySchema } from '../schemas/StorySchema';
 import { computeAllRelationships, invalidateComputed } from './GraphLogic';
 import { generatePersonId } from '../utils/idGenerator';

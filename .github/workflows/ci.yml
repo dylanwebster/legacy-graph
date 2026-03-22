@@ -25,6 +25,9 @@ jobs:
       - name: Type-check backend
         run: npm run build
 
+      - name: Lint backend
+        run: npm run lint
+
       - name: Run Vitest
         run: npm test -- --reporter=verbose --run
 

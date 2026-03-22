@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { GedcomExporter } from '../../../src/core/gedcom/Export';
 import { Person } from '../../../src/schemas/PersonSchema';
-import { DirectedGraph } from 'graphology';
 
 describe('GedcomExporter', () => {
     let exporter: GedcomExporter;
