@@ -1,13 +1,13 @@
 import { createLazyFileRoute, Link } from '@tanstack/react-router';
+import { PersonChip } from '@/components/PersonChip';
+import { ExternalLink } from 'lucide-react';
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useAssets, useUpdateAssetMeta, useDeleteGalleryAsset, useLinkAsset, useUnlinkAsset } from '@/api/hooks';
+import { useAssets, useDeleteGalleryAsset } from '@/api/hooks';
 import type { AssetListItem } from '@/api/client';
 import type { AssetsQueryParams } from '@/api/client';
 import { assetType } from '@/lib/assetUtils';
-import { PersonChip } from '@/components/PersonChip';
-import { PersonSearchCombobox } from '@/components/PersonSearchCombobox';
-import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
+import { AssetLightbox } from '@/components/AssetLightbox';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
@@ -20,21 +20,16 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import {
-    Search, FileText, Trash2, ZoomIn, ExternalLink,
-    ChevronLeft, ChevronRight, X, ArrowUpDown, ArrowUp, ArrowDown, Pencil, Check,
+    Search, FileText, Trash2, ZoomIn,
+    ArrowUpDown, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import ReactMarkdown from 'react-markdown';
 
 export const Route = createLazyFileRoute('/assets')({
     component: AssetGallery,
 });
 
 const COLS = 3;
-
-function isImage(filename: string): boolean {
-    return assetType(filename) === 'image';
-}
 
 function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -157,411 +152,6 @@ function AssetCard({ asset, onOpen, onDelete }: AssetCardProps) {
                         )}
                     </div>
                 )}
-            </div>
-        </div>
-    );
-}
-
-// ── AssetDetailModal ───────────────────────────────────────────────────────
-
-interface AssetDetailModalProps {
-    asset: AssetListItem;
-    allAssets: AssetListItem[];
-    onClose: () => void;
-    onNavigate: (filename: string) => void;
-    onDeleteRequest: (filename: string) => void;
-}
-
-function AssetDetailModal({ asset, allAssets, onClose, onNavigate, onDeleteRequest }: AssetDetailModalProps) {
-    const updateMeta = useUpdateAssetMeta();
-    const linkAsset = useLinkAsset();
-    const unlinkAsset = useUnlinkAsset();
-
-    const [assetName, setAssetName] = useState(asset.metadata.name ?? '');
-    const [editingName, setEditingName] = useState(false);
-    const [description, setDescription] = useState(asset.metadata.description ?? '');
-    const [dateVal, setDateVal] = useState(asset.metadata.date ?? '');
-    const [editingDesc, setEditingDesc] = useState(false);
-    const [textContent, setTextContent] = useState<string | null>(null);
-
-    // Keep local state in sync when asset changes (navigation)
-    useEffect(() => {
-        setAssetName(asset.metadata.name ?? '');
-        setDescription(asset.metadata.description ?? '');
-        setDateVal(asset.metadata.date ?? '');
-        setEditingDesc(false);
-        setEditingName(false);
-        setTextContent(null);
-    }, [asset.filename, asset.metadata.name, asset.metadata.description, asset.metadata.date]);
-
-    // Fetch text/markdown content for document viewer
-    const type = assetType(asset.filename);
-    useEffect(() => {
-        if (type !== 'text' && type !== 'markdown') { setTextContent(null); return; }
-        fetch(`/assets/${asset.filename}`)
-            .then(r => r.text())
-            .then(setTextContent)
-            .catch(() => setTextContent('(Failed to load file)'));
-    }, [asset.filename, type]);
-
-    const imageAssets = allAssets.filter(a => isImage(a.filename));
-    const currentImageIdx = imageAssets.findIndex(a => a.filename === asset.filename);
-    const allNavAssets = allAssets; // all assets navigate (not just images)
-    const currentNavIdx = allNavAssets.findIndex(a => a.filename === asset.filename);
-    const hasPrev = currentNavIdx > 0;
-    const hasNext = currentNavIdx < allNavAssets.length - 1;
-    const isImg = isImage(asset.filename);
-
-    // Keyboard nav
-    useEffect(() => {
-        const handler = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') { onClose(); return; }
-            if (e.key === 'ArrowLeft' && hasPrev) onNavigate(allNavAssets[currentNavIdx - 1].filename);
-            if (e.key === 'ArrowRight' && hasNext) onNavigate(allNavAssets[currentNavIdx + 1].filename);
-        };
-        document.addEventListener('keydown', handler);
-        return () => document.removeEventListener('keydown', handler);
-    }, [hasPrev, hasNext, currentNavIdx, allNavAssets, onClose, onNavigate]);
-
-    const saveName = () => {
-        const trimmed = assetName.trim();
-        updateMeta.mutate(
-            { filename: asset.filename, meta: { name: trimmed || undefined } },
-            {
-                onSuccess: () => { toast.success('Name saved.'); setEditingName(false); },
-                onError: () => toast.error('Failed to save name.'),
-            }
-        );
-    };
-
-    const saveDescription = () => {
-        updateMeta.mutate(
-            { filename: asset.filename, meta: { description: description.trim() || undefined } },
-            {
-                onSuccess: () => { toast.success('Description saved.'); setEditingDesc(false); },
-                onError: () => toast.error('Failed to save description.'),
-            }
-        );
-    };
-
-    const saveDate = (val: string) => {
-        const iso = parseToISO(val);
-        const toSave = iso ?? (val.trim() || undefined);
-        setDateVal(val);
-        updateMeta.mutate(
-            { filename: asset.filename, meta: { date: toSave } },
-            { onError: () => toast.error('Failed to save date.') }
-        );
-    };
-
-    const handleLinkPerson = (personId: string) => {
-        linkAsset.mutate(
-            { personId, filename: asset.filename },
-            {
-                onSuccess: () => toast.success('Person linked.'),
-                onError: () => toast.error('Failed to link person.'),
-            }
-        );
-    };
-
-    const handleUnlinkPerson = (personId: string) => {
-        unlinkAsset.mutate(
-            { personId, filename: asset.filename },
-            {
-                onSuccess: () => toast.success('Person unlinked.'),
-                onError: () => toast.error('Failed to unlink person.'),
-            }
-        );
-    };
-
-    const ext = asset.filename.split('.').pop()?.toUpperCase() ?? 'FILE';
-    const displayName = fileDisplayName(asset.filename, asset.metadata.name);
-
-    return (
-        <div
-            className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
-            onClick={onClose}
-        >
-            <div
-                className="bg-background rounded-xl shadow-2xl flex overflow-hidden w-full max-w-5xl h-[90vh]"
-                onClick={(e) => e.stopPropagation()}
-            >
-                {/* Left: asset display */}
-                <div className="relative flex-1 bg-black/90 flex items-center justify-center min-w-0 min-h-[400px]">
-                    {type === 'pdf' ? (
-                        <iframe
-                            src={`/assets/${asset.filename}`}
-                            title={displayName}
-                            className="absolute inset-0 w-full h-full"
-                        />
-                    ) : type === 'text' ? (
-                        <div className="w-full h-full overflow-auto p-6 text-white/90" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center justify-between mb-4">
-                                <span className="text-sm font-medium">{displayName}</span>
-                                <a
-                                    href={`/assets/${asset.filename}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center gap-1 text-xs text-white/60 hover:text-white"
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    <ExternalLink className="h-3 w-3" /> Open
-                                </a>
-                            </div>
-                            <pre className="text-sm whitespace-pre-wrap font-mono leading-relaxed text-white/80">
-                                {textContent ?? 'Loading…'}
-                            </pre>
-                        </div>
-                    ) : type === 'markdown' ? (
-                        <div className="w-full h-full overflow-auto p-6 bg-background" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center justify-between mb-4">
-                                <span className="text-sm font-medium">{displayName}</span>
-                                <a
-                                    href={`/assets/${asset.filename}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    <ExternalLink className="h-3 w-3" /> Open
-                                </a>
-                            </div>
-                            {textContent == null
-                                ? <p className="text-sm text-muted-foreground">Loading…</p>
-                                : <div className="prose prose-sm dark:prose-invert max-w-none">
-                                    <ReactMarkdown>{textContent}</ReactMarkdown>
-                                </div>
-                            }
-                        </div>
-                    ) : isImg ? (
-                        <img
-                            src={`/assets/${asset.filename}`}
-                            alt={displayName}
-                            className="max-w-full max-h-[80vh] object-contain"
-                        />
-                    ) : (
-                        <div className="flex flex-col items-center gap-4 text-white p-8">
-                            <FileText className="h-24 w-24 opacity-40" />
-                            <p className="text-sm opacity-70">{displayName}</p>
-                            <a
-                                href={`/assets/${asset.filename}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1.5 text-xs text-white/70 hover:text-white underline"
-                            >
-                                <ExternalLink className="h-3.5 w-3.5" /> Open file
-                            </a>
-                        </div>
-                    )}
-
-                    {/* Prev / Next arrows */}
-                    {hasPrev && (
-                        <button
-                            type="button"
-                            className="absolute left-3 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors"
-                            onClick={(e) => { e.stopPropagation(); onNavigate(allNavAssets[currentNavIdx - 1].filename); }}
-                            aria-label="Previous asset"
-                        >
-                            <ChevronLeft className="h-5 w-5" />
-                        </button>
-                    )}
-                    {hasNext && (
-                        <button
-                            type="button"
-                            className="absolute right-3 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors"
-                            onClick={(e) => { e.stopPropagation(); onNavigate(allNavAssets[currentNavIdx + 1].filename); }}
-                            aria-label="Next asset"
-                        >
-                            <ChevronRight className="h-5 w-5" />
-                        </button>
-                    )}
-
-                    {/* Counter */}
-                    {allNavAssets.length > 1 && (
-                        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-white/60 bg-black/40 rounded-full px-2 py-0.5">
-                            {currentNavIdx + 1} / {allNavAssets.length}
-                            {isImg && imageAssets.length !== allNavAssets.length && (
-                                <span className="ml-1 opacity-70">({currentImageIdx + 1}/{imageAssets.length} images)</span>
-                            )}
-                        </div>
-                    )}
-                </div>
-
-                {/* Right: metadata panel */}
-                <div className="w-72 shrink-0 flex flex-col border-l border-border overflow-y-auto">
-                    {/* Header */}
-                    <div className="flex items-center justify-between p-3 border-b border-border">
-                        <div className="flex items-center gap-2 min-w-0">
-                            <Badge variant="outline" className="text-[10px] shrink-0">{ext}</Badge>
-                            <span className="text-xs text-muted-foreground truncate">{formatSize(asset.size)}</span>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="p-1 rounded hover:bg-muted text-muted-foreground shrink-0"
-                        >
-                            <X className="h-4 w-4" />
-                        </button>
-                    </div>
-
-                    <div className="flex-1 p-3 space-y-4 overflow-y-auto">
-                        {/* Name (primary title) */}
-                        <div>
-                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Name</p>
-                            {editingName ? (
-                                <div className="flex gap-1">
-                                    <Input
-                                        value={assetName}
-                                        onChange={(e) => setAssetName(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') saveName();
-                                            if (e.key === 'Escape') setEditingName(false);
-                                        }}
-                                        placeholder={fileDisplayName(asset.filename)}
-                                        className="h-7 text-xs flex-1"
-                                        autoFocus
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={saveName}
-                                        className="p-1 rounded hover:bg-muted text-muted-foreground"
-                                    ><Check className="h-3.5 w-3.5" /></button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setEditingName(false)}
-                                        className="p-1 rounded hover:bg-muted text-muted-foreground"
-                                    ><X className="h-3.5 w-3.5" /></button>
-                                </div>
-                            ) : (
-                                <button
-                                    type="button"
-                                    onClick={() => setEditingName(true)}
-                                    className="group w-full flex items-center gap-1 text-left"
-                                >
-                                    <span className="text-sm font-medium flex-1 truncate">{displayName}</span>
-                                    <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                                </button>
-                            )}
-                            {/* Filename (secondary) */}
-                            <p className="text-[9px] text-muted-foreground font-mono mt-0.5 break-all">{asset.filename}</p>
-                        </div>
-
-                        {/* Date */}
-                        <div>
-                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Date</p>
-                            <SmartDateInput
-                                value={dateVal}
-                                onChange={(val) => setDateVal(val)}
-                                placeholder="e.g. Jun 1950"
-                                className="h-7 text-xs"
-                            />
-                            <button
-                                type="button"
-                                className="mt-1 text-[9px] text-primary hover:underline"
-                                onClick={() => saveDate(dateVal)}
-                            >
-                                Save date
-                            </button>
-                        </div>
-
-                        {/* Description */}
-                        <div>
-                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Description</p>
-                            {editingDesc ? (
-                                <div className="space-y-1">
-                                    <textarea
-                                        value={description}
-                                        onChange={(e) => setDescription(e.target.value)}
-                                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveDescription(); } if (e.key === 'Escape') setEditingDesc(false); }}
-                                        className="w-full text-xs rounded-md border border-input bg-background px-2 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-                                        rows={3}
-                                        autoFocus
-                                    />
-                                    <div className="flex gap-1">
-                                        <Button size="sm" className="h-6 text-xs px-2" onClick={saveDescription}>Save</Button>
-                                        <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={() => setEditingDesc(false)}>Cancel</Button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <button
-                                    type="button"
-                                    onClick={() => setEditingDesc(true)}
-                                    className="w-full text-left text-xs text-muted-foreground hover:text-foreground transition-colors"
-                                >
-                                    {description || <span className="italic opacity-50">Add description…</span>}
-                                </button>
-                            )}
-                        </div>
-
-                        {/* Associated people */}
-                        <div>
-                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">People</p>
-                            <div className="space-y-1 mb-2">
-                                {asset.referencedBy.people.length === 0 ? (
-                                    <p className="text-xs text-muted-foreground italic">No people linked</p>
-                                ) : (
-                                    asset.referencedBy.people.map((pid) => (
-                                        <div key={pid} className="flex items-center gap-1.5">
-                                            <PersonChip id={pid} className="flex-1 text-xs" />
-                                            <button
-                                                type="button"
-                                                title="Remove link"
-                                                onClick={() => handleUnlinkPerson(pid)}
-                                                className="p-0.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
-                                            >
-                                                <X className="h-3 w-3" />
-                                            </button>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                            <PersonSearchCombobox
-                                onSelect={handleLinkPerson}
-                                excludeIds={asset.referencedBy.people}
-                                placeholder="Link a person…"
-                                className="w-full"
-                            />
-                        </div>
-
-                        {/* Associated stories */}
-                        {asset.referencedBy.stories.length > 0 && (
-                            <div>
-                                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Stories</p>
-                                <div className="space-y-1">
-                                    {asset.referencedBy.stories.map((s) => (
-                                        <Link
-                                            key={s.id}
-                                            to="/stories/$id"
-                                            params={{ id: s.id }}
-                                            className="flex items-center gap-1 text-xs text-primary hover:underline"
-                                            onClick={onClose}
-                                        >
-                                            <ExternalLink className="h-3 w-3 shrink-0" />
-                                            {s.title}
-                                        </Link>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Footer */}
-                    <div className="p-3 border-t border-border">
-                        {asset.isOrphan && (
-                            <div className="space-y-2">
-                                <Badge variant="destructive" className="text-xs w-full justify-center">Orphan — not linked to anyone</Badge>
-                                <Button
-                                    variant="destructive"
-                                    size="sm"
-                                    className="w-full h-7 text-xs"
-                                    onClick={() => { onDeleteRequest(asset.filename); onClose(); }}
-                                >
-                                    <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete file
-                                </Button>
-                            </div>
-                        )}
-                    </div>
-                </div>
             </div>
         </div>
     );
@@ -749,11 +339,12 @@ function AssetGallery() {
                 )}
             </div>
 
-            {/* Asset Detail Modal */}
+            {/* Asset Lightbox */}
             {detailAsset && (
-                <AssetDetailModal
-                    asset={detailAsset}
-                    allAssets={allAssets}
+                <AssetLightbox
+                    filename={detailAsset.filename}
+                    allFilenames={allAssets.map(a => a.filename)}
+                    assetData={detailAsset}
                     onClose={() => setDetailFile(null)}
                     onNavigate={handleNavigate}
                     onDeleteRequest={setDeleteTarget}
