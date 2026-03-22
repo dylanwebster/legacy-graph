@@ -238,8 +238,12 @@ export async function assetsRoutes(server: FastifyInstance) {
 
     // ── DELETE /api/assets/:filename ─────────────────────────────────────────
 
-    server.delete<{ Params: { filename: string } }>('/api/assets/:filename', async (request, reply) => {
+    server.delete<{
+        Params: { filename: string };
+        Querystring: { force?: string };
+    }>('/api/assets/:filename', async (request, reply) => {
         const { filename } = request.params;
+        const force = request.query.force === 'true';
         const filePath = path.join(assetsDir, filename);
 
         try {
@@ -283,11 +287,60 @@ export async function assetsRoutes(server: FastifyInstance) {
         } catch { /* ignore */ }
 
         if (people.length > 0 || stories.length > 0 || events.length > 0) {
-            return reply.status(409).send({
-                error: 'Asset is still referenced and cannot be deleted',
-                code: 'ASSET_REFERENCED',
-                referencedBy: { people, stories, events },
-            });
+            if (!force) {
+                return reply.status(409).send({
+                    error: 'Asset is still referenced and cannot be deleted',
+                    code: 'ASSET_REFERENCED',
+                    referencedBy: { people, stories, events },
+                });
+            }
+
+            // force=true: strip all references first, then fall through to deletion
+            const affectedPersonIds = new Set([...people, ...events.map(e => e.personId)]);
+
+            for (const personId of affectedPersonIds) {
+                if (!graph.hasNode(personId)) continue;
+
+                const slimData = graph.getNodeAttributes(personId).data as any;
+                const heavyFields = await graphEngine.loadHeavyFields(personId);
+                const fullPerson = {
+                    ...slimData,
+                    scrapbook_md: heavyFields?.scrapbook_md ?? '',
+                    _gedcom: heavyFields?._gedcom,
+                } as any;
+
+                if (Array.isArray(fullPerson.assets)) {
+                    fullPerson.assets = fullPerson.assets.filter((a: string) => a !== filename);
+                }
+                if (Array.isArray(fullPerson.events)) {
+                    fullPerson.events = fullPerson.events.map((e: any) => ({
+                        ...e,
+                        assets: Array.isArray(e.assets) ? e.assets.filter((a: string) => a !== filename) : e.assets,
+                    }));
+                }
+                fullPerson.last_modified = new Date().toISOString();
+
+                const primaryName = fullPerson.names?.[0];
+                const label = primaryName ? `${primaryName.first} ${primaryName.last}` : personId;
+                await txManager.writeFile(path.join('people', `${personId}.yaml`), yaml.dump(fullPerson), label);
+
+                const newSlim = toSlimPerson(fullPerson);
+                graph.setNodeAttribute(personId, 'data', newSlim);
+                graphEngine.applyWriteSideEffects(personId, slimData, newSlim, fullPerson.scrapbook_md || '');
+            }
+
+            for (const storyId of stories) {
+                const storyFilePath = path.join(storiesDir, `${storyId}.md`);
+                try {
+                    const raw = await fs.readFile(storyFilePath, 'utf8');
+                    const parsed = matter(raw);
+                    if (Array.isArray(parsed.data.assets)) {
+                        parsed.data.assets = (parsed.data.assets as string[]).filter(a => a !== filename);
+                        await fs.writeFile(storyFilePath, matter.stringify(parsed.content, parsed.data), 'utf8');
+                        await txManager.trackFile(path.join('stories', `${storyId}.md`), `story ${storyId}`);
+                    }
+                } catch { /* skip if story missing */ }
+            }
         }
 
         await fs.unlink(filePath);

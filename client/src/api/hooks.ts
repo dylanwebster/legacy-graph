@@ -350,7 +350,8 @@ export const useUpdateAssetMeta = () => {
 export const useDeleteGalleryAsset = () => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: (filename: string) => deleteGalleryAsset(filename),
+        mutationFn: ({ filename, force }: { filename: string; force?: boolean }) =>
+            deleteGalleryAsset(filename, force),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['assets'] });
         },

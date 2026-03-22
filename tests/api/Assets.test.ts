@@ -356,6 +356,36 @@ describe('Assets API', () => {
         expect(res.body.code).toBe('ASSET_NOT_FOUND');
     });
 
+    it('DELETE /api/assets/:filename?force=true deletes file and removes from person assets[]', async () => {
+        writeTestAsset();
+
+        const createRes = await request.post('/api/people').send({
+            names: [{ first: 'Force', last: 'Delete' }],
+            sex: 'U',
+            assets: [TEST_ASSET],
+        });
+        expect(createRes.status).toBe(201);
+        const personId = createRes.body.id;
+
+        const res = await request.delete(`/api/assets/${TEST_ASSET}?force=true`);
+        expect(res.status).toBe(204);
+        expect(fs.existsSync(TEST_ASSET_PATH)).toBe(false);
+
+        // Person should no longer reference the deleted asset
+        const personRes = await request.get(`/api/people/${personId}`);
+        expect(personRes.status).toBe(200);
+        expect(personRes.body.assets).not.toContain(TEST_ASSET);
+
+        // Cleanup
+        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+    });
+
+    it('DELETE /api/assets/:filename?force=true still returns 404 for missing file', async () => {
+        const res = await request.delete('/api/assets/does-not-exist.png?force=true');
+        expect(res.status).toBe(404);
+        expect(res.body.code).toBe('ASSET_NOT_FOUND');
+    });
+
     // ── POST /api/people/:id/assets/link ─────────────────────────────────────
 
     it('POST /api/people/:id/assets/link links an existing asset', async () => {

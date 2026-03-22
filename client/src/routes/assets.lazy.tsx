@@ -50,10 +50,10 @@ function fileDisplayName(filename: string, name?: string): string {
 interface AssetCardProps {
     asset: AssetListItem;
     onOpen: (filename: string) => void;
-    onDelete: (filename: string) => void;
+    onDeleteRequest: (filename: string) => void;
 }
 
-function AssetCard({ asset, onOpen, onDelete }: AssetCardProps) {
+function AssetCard({ asset, onOpen, onDeleteRequest }: AssetCardProps) {
     const type = assetType(asset.filename);
     const isImg = type === 'image';
     const ext = asset.filename.split('.').pop()?.toUpperCase() ?? 'FILE';
@@ -92,16 +92,14 @@ function AssetCard({ asset, onOpen, onDelete }: AssetCardProps) {
                     >
                         <ZoomIn className="h-4 w-4" />
                     </button>
-                    {asset.isOrphan && (
-                        <button
-                            type="button"
-                            title="Delete orphan"
-                            onClick={() => onDelete(asset.filename)}
-                            className="p-1.5 rounded-full bg-white/20 hover:bg-red-500/70 text-white"
-                        >
-                            <Trash2 className="h-4 w-4" />
-                        </button>
-                    )}
+                    <button
+                        type="button"
+                        title="Delete asset"
+                        onClick={() => onDeleteRequest(asset.filename)}
+                        className="p-1.5 rounded-full bg-white/20 hover:bg-red-500/70 text-white"
+                    >
+                        <Trash2 className="h-4 w-4" />
+                    </button>
                 </div>
             </div>
 
@@ -211,8 +209,8 @@ function AssetGallery() {
         overscan: 3,
     });
 
-    const handleDelete = (filename: string) => {
-        deleteAsset.mutate(filename, {
+    const handleDelete = (filename: string, force: boolean) => {
+        deleteAsset.mutate({ filename, force }, {
             onSuccess: () => toast.success(`Deleted ${filename}`),
             onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to delete'),
         });
@@ -224,6 +222,8 @@ function AssetGallery() {
     const SortIcon = order === 'asc' ? ArrowUp : ArrowDown;
 
     const detailAsset = detailFile ? allAssets.find(a => a.filename === detailFile) ?? null : null;
+    const deleteTargetAsset = deleteTarget ? allAssets.find(a => a.filename === deleteTarget) ?? null : null;
+    const isOrphanDelete = deleteTargetAsset?.isOrphan ?? true;
 
     return (
         <div className="flex flex-col h-full">
@@ -334,7 +334,7 @@ function AssetGallery() {
                                             key={asset.filename}
                                             asset={asset}
                                             onOpen={setDetailFile}
-                                            onDelete={setDeleteTarget}
+                                            onDeleteRequest={setDeleteTarget}
                                         />
                                     ))}
                                 </div>
@@ -361,17 +361,40 @@ function AssetGallery() {
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Delete asset?</DialogTitle>
-                        <DialogDescription>
-                            This will permanently delete <strong>{deleteTarget}</strong> from disk. This action cannot be undone.
-                        </DialogDescription>
+                        {isOrphanDelete ? (
+                            <DialogDescription>
+                                This will permanently delete <strong>{deleteTarget}</strong> from disk. This action cannot be undone.
+                            </DialogDescription>
+                        ) : (
+                            <DialogDescription asChild>
+                                <div className="space-y-2">
+                                    <p>
+                                        <strong>{deleteTarget}</strong> is still linked to{' '}
+                                        {deleteTargetAsset && deleteTargetAsset.referencedBy.people.length > 0 && (
+                                            <span>{deleteTargetAsset.referencedBy.people.length} {deleteTargetAsset.referencedBy.people.length === 1 ? 'person' : 'people'}</span>
+                                        )}
+                                        {deleteTargetAsset && deleteTargetAsset.referencedBy.people.length > 0 && deleteTargetAsset.referencedBy.stories.length > 0 && ' and '}
+                                        {deleteTargetAsset && deleteTargetAsset.referencedBy.stories.length > 0 && (
+                                            <span>{deleteTargetAsset.referencedBy.stories.length} {deleteTargetAsset.referencedBy.stories.length === 1 ? 'story' : 'stories'}</span>
+                                        )}.
+                                    </p>
+                                    <p>Deleting it will remove all these links and permanently delete the file from disk. This action cannot be undone.</p>
+                                </div>
+                            </DialogDescription>
+                        )}
                     </DialogHeader>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
                         <Button
                             variant="destructive"
-                            onClick={() => deleteTarget && handleDelete(deleteTarget)}
+                            disabled={deleteAsset.isPending}
+                            onClick={() => deleteTarget && handleDelete(deleteTarget, !isOrphanDelete)}
                         >
-                            Delete
+                            {deleteAsset.isPending
+                                ? 'Deleting…'
+                                : isOrphanDelete
+                                    ? 'Delete'
+                                    : 'Delete & unlink all'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

@@ -142,8 +142,11 @@ export async function unlinkAssetFromPerson(
     }
 }
 
-export async function deleteGalleryAsset(filename: string): Promise<void> {
-    const response = await fetch(`/api/assets/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+export async function deleteGalleryAsset(filename: string, force = false): Promise<void> {
+    const url = force
+        ? `/api/assets/${encodeURIComponent(filename)}?force=true`
+        : `/api/assets/${encodeURIComponent(filename)}`;
+    const response = await fetch(url, { method: 'DELETE' });
     if (!response.ok && response.status !== 204) {
         let errorMessage = response.statusText;
         try {
