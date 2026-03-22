@@ -32,7 +32,7 @@ import {
     Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2, Crop,
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MilkdownEditor } from '@/components/MilkdownEditor';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -71,6 +71,11 @@ function PersonDetail() {
     const updatePerson = useUpdatePerson();
     const queryClient = useQueryClient();
     const { data: allAssetsData } = useAssets();
+    const assetMetaMap = useMemo(() => {
+        const map = new Map<string, (typeof allAssetsData)['assets'][number]>();
+        for (const a of allAssetsData?.assets ?? []) map.set(a.filename, a);
+        return map;
+    }, [allAssetsData]);
 
     // Inline editing state
     const [editingName, setEditingName] = useState(false);
@@ -686,7 +691,7 @@ function PersonDetail() {
                                         const isImage = type === 'image';
                                         const isPrimary = asset === primaryPhoto;
                                         const isDoc = type === 'pdf' || type === 'text' || type === 'markdown';
-                                        const assetMeta = allAssetsData?.assets.find((a) => a.filename === asset)?.metadata;
+                                        const assetMeta = assetMetaMap.get(asset)?.metadata;
                                         const caption = assetMeta?.description;
                                         const assetDisplayName = assetMeta?.name
                                             ? assetMeta.name
@@ -804,7 +809,7 @@ function PersonDetail() {
             {/* Asset Lightbox */}
             {lightboxAsset && (() => {
                 const lbAssets = (person.assets as string[]);
-                const lbAssetData = allAssetsData?.assets.find(a => a.filename === lightboxAsset);
+                const lbAssetData = assetMetaMap.get(lightboxAsset);
                 return (
                     <AssetLightbox
                         filename={lightboxAsset}

@@ -15,8 +15,11 @@ export async function loadAssetIndex(dataDir: string): Promise<Record<string, an
     try {
         const raw = await fs.readFile(path.join(dataDir, META_REL), 'utf8');
         return AssetIndexSchema.parse(yaml.load(raw) ?? {});
-    } catch {
-        return {};
+    } catch (err: unknown) {
+        if (err && typeof err === 'object' && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+            return {};
+        }
+        throw err;
     }
 }
 

@@ -101,7 +101,6 @@ export async function assetsRoutes(server: FastifyInstance) {
 
         // Build story reference map (filename → [{ id, title }])
         const storyRefs = new Map<string, Array<{ id: string; title: string }>>();
-        const storyTitles = new Map<string, string>(); // storyId → title
         try {
             const storyFiles = (await fs.readdir(storiesDir)).filter(f => f.endsWith('.md'));
             for (const file of storyFiles) {
@@ -110,7 +109,6 @@ export async function assetsRoutes(server: FastifyInstance) {
                     const { data } = matter(raw);
                     const storyId = file.slice(0, -3);
                     const title = data.title ? String(data.title) : storyId;
-                    storyTitles.set(storyId, title);
                     if (!Array.isArray(data.assets)) continue;
                     for (const a of data.assets) {
                         if (typeof a !== 'string') continue;
@@ -139,7 +137,7 @@ export async function assetsRoutes(server: FastifyInstance) {
                 name: rawMeta?.name as string | undefined,
                 description: rawMeta?.description as string | undefined,
                 date: rawMeta?.date as string | undefined,
-                location: rawMeta?.location as string | undefined,
+                location: rawMeta?.location as Place | undefined,
             };
 
             return {
