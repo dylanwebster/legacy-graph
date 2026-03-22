@@ -570,7 +570,7 @@ export function AssetLightbox({
                     {onDeleteRequest && (
                         <div className="p-3 border-t border-border space-y-2">
                             {assetData?.isOrphan && (
-                                <Badge variant="destructive" className="text-xs w-full justify-center">Orphan — not linked to anyone</Badge>
+                                <Badge variant="destructive" className="text-xs w-full justify-center">Unlinked — not attached to anyone</Badge>
                             )}
                             <Button
                                 variant="destructive"

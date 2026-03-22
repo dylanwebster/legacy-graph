@@ -79,7 +79,7 @@ function AssetCard({ asset, onOpen, onDeleteRequest }: AssetCardProps) {
 
                 {asset.isOrphan && (
                     <div className="absolute top-1.5 left-1.5">
-                        <Badge variant="destructive" className="text-[9px] px-1.5 py-0">Orphan</Badge>
+                        <Badge variant="destructive" className="text-[9px] px-1.5 py-0">Unlinked</Badge>
                     </div>
                 )}
 
@@ -270,7 +270,7 @@ function AssetGallery() {
                             : 'bg-muted text-muted-foreground hover:bg-muted/80'
                     }`}
                 >
-                    Orphans
+                    Unlinked
                 </button>
 
                 {/* Sort */}
