@@ -1,5 +1,6 @@
 import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { usePerson, useUpdatePerson, useDeleteAsset, useDeleteAssetPermanently, useAssets } from '@/api/hooks';
+import type { AssetListItem } from '@/api/client';
 import { AssetLightbox } from '@/components/AssetLightbox';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { loadAvatarCrop, saveAvatarCrop, clearAvatarCrop } from '@/lib/avatarCrop';
@@ -72,7 +73,7 @@ function PersonDetail() {
     const queryClient = useQueryClient();
     const { data: allAssetsData } = useAssets();
     const assetMetaMap = useMemo(() => {
-        const map = new Map<string, (typeof allAssetsData)['assets'][number]>();
+        const map = new Map<string, AssetListItem>();
         for (const a of allAssetsData?.assets ?? []) map.set(a.filename, a);
         return map;
     }, [allAssetsData]);
