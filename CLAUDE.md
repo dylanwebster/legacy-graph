@@ -206,7 +206,7 @@ Base URL: `/api`. Auth: JWT in HttpOnly cookie. Auth is optional — if `/_meta/
 | PUT | `/stories/:id/media` | Attach asset to story (Phase 5.1) |
 | GET | `/assets` | List all `/assets` files with referencing people/stories (Phase 5.4) |
 | GET | `/assets/*` | Static delivery with HTTP Range + immutable cache headers |
-| GET | `/search` | `?q=&limit=50&offset=0` → `{ people, stories, places, totalCounts }` |
+| GET | `/search` | `?q=&limit=50&offset=0` → `{ people: SlimPersonSummary[], stories, places, totalCounts }` |
 | GET | `/places/search` | `?q=` → top 5 geocoded Place candidates (Phase 3.15) |
 | POST | `/places/resolve` | `{ name }` → resolved Place object (Phase 3.15) |
 | GET | `/stats` | Dashboard stats (total people, families, last modified) |
@@ -218,6 +218,12 @@ Base URL: `/api`. Auth: JWT in HttpOnly cookie. Auth is optional — if `/_meta/
 | POST | `/import/gedcom` | Bulk import (replace or additive mode) |
 | POST | `/auth/login` | BCrypt validate → JWT HttpOnly cookie |
 | POST | `/auth/logout` | Clear cookie |
+
+**`SlimPersonSummary` shape** — returned by `GET /people` and `GET /search`. Does **not** include `events[]`. Birth/death info is pre-extracted into top-level fields:
+```typescript
+{ id, names, sex, birthDate?, deathDate?, tags, assetCount, primaryAsset?, last_modified }
+```
+`PersonDetail` (from `GET /people/:id`) includes the full `events[]` array. Never assume `events` is available on a person object that came from a list or search endpoint — use `birthDate`/`deathDate` directly.
 
 ---
 

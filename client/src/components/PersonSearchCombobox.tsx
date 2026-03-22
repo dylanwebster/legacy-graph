@@ -14,7 +14,7 @@ interface PersonSearchComboboxProps {
 type PersonResult = {
     id: string;
     names?: Array<{ first?: string; given?: string; last?: string; surname?: string }>;
-    events?: Array<{ type: string; date?: string }>;
+    birthDate?: string;
 };
 
 function getDisplayName(p: PersonResult): string {
@@ -23,9 +23,8 @@ function getDisplayName(p: PersonResult): string {
 }
 
 function getBirthYear(p: PersonResult): string | null {
-    const birth = p.events?.find((e) => e.type === 'birth');
-    if (!birth?.date) return null;
-    const m = birth.date.match(/\d{4}/);
+    if (!p.birthDate) return null;
+    const m = p.birthDate.match(/\d{4}/);
     return m ? m[0] : null;
 }
 
