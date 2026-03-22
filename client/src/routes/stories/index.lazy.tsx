@@ -157,7 +157,7 @@ function StoriesFeed() {
             </div>
 
             {/* Feed */}
-            <div ref={parentRef} key={sort} className="flex-1 overflow-y-auto">
+            <div ref={parentRef} key={sort + (isSearchMode ? '-search' : '-list')} className="flex-1 overflow-y-auto">
                 {isLoading ? (
                     <div className="flex flex-col gap-4 p-4 max-w-3xl mx-auto">
                         {[...Array(5)].map((_, i) => (
