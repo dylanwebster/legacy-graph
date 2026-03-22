@@ -283,7 +283,7 @@ function AssetDetailModal({ asset, allAssets, onClose, onNavigate, onDeleteReque
             onClick={onClose}
         >
             <div
-                className="bg-background rounded-xl shadow-2xl flex overflow-hidden w-full max-w-5xl max-h-[90vh]"
+                className="bg-background rounded-xl shadow-2xl flex overflow-hidden w-full max-w-5xl h-[90vh]"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Left: asset display */}
@@ -292,8 +292,7 @@ function AssetDetailModal({ asset, allAssets, onClose, onNavigate, onDeleteReque
                         <iframe
                             src={`/assets/${asset.filename}`}
                             title={displayName}
-                            className="w-full h-full"
-                            style={{ minHeight: 400 }}
+                            className="absolute inset-0 w-full h-full"
                         />
                     ) : type === 'text' ? (
                         <div className="w-full h-full overflow-auto p-6 text-white/90" onClick={(e) => e.stopPropagation()}>
