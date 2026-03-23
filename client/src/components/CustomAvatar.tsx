@@ -35,7 +35,7 @@ export function CustomAvatar({ photoFilename, firstName, lastName, className, on
             : undefined;
 
     return (
-        <Avatar className={`${className ?? ''} ${onClick ? 'cursor-pointer' : ''}`} onClick={onClick}>
+        <Avatar key={imageUrl ?? '__fallback__'} className={`${className ?? ''} ${onClick ? 'cursor-pointer' : ''}`} onClick={onClick}>
             {imageUrl && <AvatarImage src={imageUrl} alt={`${firstName} ${lastName}`} style={cropStyle} />}
             <AvatarFallback>{initials}</AvatarFallback>
         </Avatar>
