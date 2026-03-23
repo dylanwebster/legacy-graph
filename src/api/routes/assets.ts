@@ -165,6 +165,7 @@ export async function assetsRoutes(server: FastifyInstance) {
                 if (a.metadata.name?.toLowerCase().includes(searchQ)) return true;
                 if (a.metadata.description?.toLowerCase().includes(searchQ)) return true;
                 if (a.metadata.date?.toLowerCase().includes(searchQ)) return true;
+                if (a.metadata.location?.name?.toLowerCase().includes(searchQ)) return true;
                 // Match person names
                 for (const pid of a.referencedBy.people) {
                     const name = personNames.get(pid) ?? '';

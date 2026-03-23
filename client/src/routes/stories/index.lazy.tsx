@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
-import { useStories, useDeleteStory, useSearch } from '@/api/hooks';
+import { useStories, useDeleteStory } from '@/api/hooks';
 import type { StoryFeedItem } from '@/api/stories';
 import { PersonChip } from '@/components/PersonChip';
 import { AssetSearchBar } from '@/components/AssetSearchBar';
@@ -60,36 +60,17 @@ function StoriesFeed() {
     }, [sort]);
 
     const isChipsMode = chips.length > 0;
-    // Text-only search uses FlexSearch; chips mode uses backend personIds filter
-    const isSearchMode = !!debouncedFilter && !isChipsMode;
+    const isSearchMode = !!debouncedFilter;
 
-    const { data: storiesData, isLoading: storiesLoading } = useStories(
-        isSearchMode ? undefined : { sort, personIds: chips.length > 0 ? chips.map(c => c.id) : undefined }
-    );
-    const { data: searchData, isLoading: searchLoading } = useSearch(
-        isSearchMode ? debouncedFilter : '',
-        { limit: 50 }
-    );
+    const { data: storiesData, isLoading } = useStories({
+        sort,
+        q: debouncedFilter || undefined,
+        personIds: chips.length > 0 ? chips.map(c => c.id) : undefined,
+    });
     const deleteStory = useDeleteStory();
 
-    // When chips + text: use backend stories (already filtered by personIds) then client-side text filter
-    const backendStories: StoryFeedItem[] = storiesData?.stories ?? [];
-    const chipsAndTextStories = isChipsMode && debouncedFilter
-        ? backendStories.filter(s => {
-            const q = debouncedFilter.toLowerCase();
-            return s.title.toLowerCase().includes(q) || s.excerpt.toLowerCase().includes(q);
-        })
-        : backendStories;
-
-    const stories: StoryFeedItem[] = isSearchMode
-        ? (searchData?.stories ?? [])
-        : chipsAndTextStories;
-
-    const totalCount = isSearchMode
-        ? (searchData?.totalCounts?.stories ?? stories.length)
-        : (storiesData?.totalCount ?? stories.length);
-
-    const isLoading = isSearchMode ? searchLoading : storiesLoading;
+    const stories: StoryFeedItem[] = storiesData?.stories ?? [];
+    const totalCount = storiesData?.totalCount ?? stories.length;
 
     const parentRef = useRef<HTMLDivElement>(null);
     const virtualizer = useVirtualizer({

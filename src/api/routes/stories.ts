@@ -128,9 +128,9 @@ export async function storiesRoutes(server: FastifyInstance) {
     // ── GET /api/stories ──────────────────────────────────────────────────
 
     server.get<{
-        Querystring: { limit?: string; offset?: string; sort?: string; personIds?: string }
+        Querystring: { limit?: string; offset?: string; sort?: string; personIds?: string; q?: string }
     }>('/api/stories', async (request, reply) => {
-        const { limit: limitStr, offset: offsetStr, sort, personIds } = request.query;
+        const { limit: limitStr, offset: offsetStr, sort, personIds, q } = request.query;
 
         const limit = limitStr !== undefined ? parseInt(limitStr, 10) : 50;
         const offset = offsetStr !== undefined ? parseInt(offsetStr, 10) : 0;
@@ -183,6 +183,15 @@ export async function storiesRoutes(server: FastifyInstance) {
         if (filterPersonIds.length > 0) {
             feedItems = feedItems.filter(s =>
                 filterPersonIds.every(pid => s.people.includes(pid))
+            );
+        }
+
+        const searchQ = q?.trim().toLowerCase();
+        if (searchQ) {
+            feedItems = feedItems.filter(s =>
+                s.title.toLowerCase().includes(searchQ) ||
+                (s.place?.toLowerCase().includes(searchQ) ?? false) ||
+                s.excerpt.toLowerCase().includes(searchQ)
             );
         }
 
