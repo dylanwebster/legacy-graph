@@ -8,7 +8,7 @@ import { pipeline } from 'stream/promises';
 import { AssetMetadataSchema } from '../../schemas/AssetSchema';
 import { PersonSchema, toSlimPerson } from '../../schemas/PersonSchema';
 import type { AppInstance } from '../types';
-import { loadAssetIndex, saveAssetIndex, extractExifDate, extractExifGps } from '../../core/assetMetaUtils';
+import { loadAssetIndex, saveAssetIndex, upsertAssetEntry, extractExifDate, extractExifGps } from '../../core/assetMetaUtils';
 import type { Place } from '../../schemas/PlaceSchema';
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif', '.svg']);
@@ -446,21 +446,17 @@ export async function assetsRoutes(server: FastifyInstance) {
             await pipeline(fileData.file, nodeFs.createWriteStream(uniqueFilepath));
             await txManager.trackFile(path.join('assets', uniqueFilename), `asset ${uniqueFilename}`);
 
-            // Seed assets.yaml with EXIF capture date + GPS location (best-effort, never blocks upload)
+            // Seed assets.yaml with created_at + EXIF capture date + GPS location (best-effort, never blocks upload)
+            const now = new Date().toISOString();
             const [exifDate, exifGps] = await Promise.all([
                 extractExifDate(uniqueFilepath),
                 extractExifGps(uniqueFilepath),
             ]);
-            if (exifDate || exifGps) {
-                const index = await loadAssetIndex(dataDir);
-                if (!index[uniqueFilename]) {
-                    index[uniqueFilename] = {
-                        ...(exifDate && { date: exifDate }),
-                        ...(exifGps && { location: exifGps }),
-                    };
-                    await saveAssetIndex(dataDir, index, txManager);
-                }
-            }
+            await upsertAssetEntry(dataDir, uniqueFilename, {
+                created_at: now,
+                ...(exifDate && { date: exifDate }),
+                ...(exifGps && { location: exifGps }),
+            }, txManager);
 
             const heavyFields = await graphEngine.loadHeavyFields(id);
             const fullPerson = {
