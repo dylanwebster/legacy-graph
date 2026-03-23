@@ -168,8 +168,8 @@ export function AssetLightbox({
         const handler = (e: KeyboardEvent) => {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
             if (e.key === 'Escape') { onClose(); return; }
-            if (e.key === 'ArrowLeft' && hasPrev) onNavigate(allFilenames[currentIdx - 1]);
-            if (e.key === 'ArrowRight' && hasNext) onNavigate(allFilenames[currentIdx + 1]);
+            if (e.key === 'ArrowLeft') { e.preventDefault(); if (hasPrev) onNavigate(allFilenames[currentIdx - 1]); }
+            if (e.key === 'ArrowRight') { e.preventDefault(); if (hasNext) onNavigate(allFilenames[currentIdx + 1]); }
         };
         document.addEventListener('keydown', handler);
         return () => document.removeEventListener('keydown', handler);
