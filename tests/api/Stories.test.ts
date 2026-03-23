@@ -376,4 +376,120 @@ describe('Stories API', () => {
             expect(ids.indexOf(rOld.body.id)).toBeLessThan(ids.indexOf(rNew.body.id));
         });
     });
+
+    // ── Timestamps ──────────────────────────────────────────────────────────
+
+    it('POST /api/stories sets created_at and modified_at in frontmatter', async () => {
+        const before = new Date().toISOString();
+        const res = await request.post('/api/stories').send({
+            title: 'Test Timestamp Story',
+            content: 'Checking timestamps.',
+        });
+        const after = new Date().toISOString();
+
+        expect(res.status).toBe(201);
+        const id = res.body.id;
+
+        const filePath = path.join(STORIES_DIR, `${id}.md`);
+        const raw = fs.readFileSync(filePath, 'utf8');
+        const matter = await import('gray-matter');
+        const { data } = matter.default(raw);
+
+        expect(typeof data.created_at).toBe('string');
+        expect(typeof data.modified_at).toBe('string');
+        expect(data.created_at >= before).toBe(true);
+        expect(data.created_at <= after).toBe(true);
+        expect(data.modified_at).toBe(data.created_at);
+    });
+
+    it('GET /api/stories includes created_at and modified_at in feed items', async () => {
+        const res = await request.post('/api/stories').send({
+            title: 'Test Feed Timestamps',
+            content: 'Feed timestamp test.',
+        });
+        expect(res.status).toBe(201);
+        const id = res.body.id;
+
+        const listRes = await request.get('/api/stories');
+        expect(listRes.status).toBe(200);
+        const story = listRes.body.stories.find((s: any) => s.id === id);
+        expect(story).toBeDefined();
+        expect(typeof story.created_at).toBe('string');
+        expect(typeof story.modified_at).toBe('string');
+    });
+
+    it('PUT /api/stories/:id updates modified_at but preserves created_at', async () => {
+        const createRes = await request.post('/api/stories').send({
+            title: 'Test Preserve created_at',
+            content: 'Original.',
+        });
+        expect(createRes.status).toBe(201);
+        const id = createRes.body.id;
+        const originalCreatedAt = createRes.body.metadata.created_at;
+        expect(typeof originalCreatedAt).toBe('string');
+
+        // Small delay to ensure modified_at will differ
+        await new Promise(r => setTimeout(r, 10));
+
+        const updateRes = await request.put(`/api/stories/${id}`).send({
+            title: 'Test Updated Title',
+            content: 'Updated.',
+        });
+        expect(updateRes.status).toBe(200);
+        expect(updateRes.body.metadata.created_at).toBe(originalCreatedAt);
+        expect(updateRes.body.metadata.modified_at).not.toBe(originalCreatedAt);
+        expect(updateRes.body.metadata.modified_at > originalCreatedAt).toBe(true);
+    });
+
+    it('GET /api/stories?sort=created_newest returns most recently created first', async () => {
+        const r1 = await request.post('/api/stories').send({ title: 'Test Created First', content: '' });
+        await new Promise(r => setTimeout(r, 15));
+        const r2 = await request.post('/api/stories').send({ title: 'Test Created Second', content: '' });
+        expect(r1.status).toBe(201);
+        expect(r2.status).toBe(201);
+
+        const res = await request.get('/api/stories?sort=created_newest');
+        expect(res.status).toBe(200);
+        const ids = res.body.stories.map((s: any) => s.id);
+        expect(ids.indexOf(r2.body.id)).toBeLessThan(ids.indexOf(r1.body.id));
+    });
+
+    it('GET /api/stories?sort=modified_newest returns most recently modified first', async () => {
+        const r1 = await request.post('/api/stories').send({ title: 'Test Mod First', content: '' });
+        const r2 = await request.post('/api/stories').send({ title: 'Test Mod Second', content: '' });
+        expect(r1.status).toBe(201);
+        expect(r2.status).toBe(201);
+
+        await new Promise(r => setTimeout(r, 15));
+        // Update r1 — it should now have the most recent modified_at
+        const updateRes = await request.put(`/api/stories/${r1.body.id}`).send({ content: 'Updated.' });
+        expect(updateRes.status).toBe(200);
+
+        const res = await request.get('/api/stories?sort=modified_newest');
+        expect(res.status).toBe(200);
+        const ids = res.body.stories.map((s: any) => s.id);
+        expect(ids.indexOf(r1.body.id)).toBeLessThan(ids.indexOf(r2.body.id));
+    });
+
+    it('GET /api/stories legacy files without created_at sort last for sort=created_newest', async () => {
+        // Write a raw .md file without timestamps (simulates old file)
+        const legacyContent = `---\ntitle: Test Legacy No Timestamps\n---\nLegacy content.\n`;
+        const legacyId = 'test-legacy-no-timestamps';
+        fs.writeFileSync(path.join(STORIES_DIR, `${legacyId}.md`), legacyContent);
+
+        const apiRes = await request.post('/api/stories').send({
+            title: 'Test API Created With Timestamps',
+            content: '',
+        });
+        expect(apiRes.status).toBe(201);
+
+        const res = await request.get('/api/stories?sort=created_newest');
+        expect(res.status).toBe(200);
+        const ids = res.body.stories.map((s: any) => s.id);
+        // API-created (has created_at) appears before legacy (no created_at)
+        expect(ids.indexOf(apiRes.body.id)).toBeLessThan(ids.indexOf(legacyId));
+
+        // Cleanup
+        try { fs.unlinkSync(path.join(STORIES_DIR, `${legacyId}.md`)); } catch { /* ignore */ }
+    });
 });

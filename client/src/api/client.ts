@@ -5,8 +5,10 @@ import type { Place } from './people';
 export interface AssetMetadata {
     name?: string;
     description?: string;
-    date?: string;
+    date?: string;        // when photo was taken
     location?: Place;
+    created_at?: string;  // upload timestamp
+    modified_at?: string; // last meta edit
 }
 
 export interface AssetStoryRef {
@@ -99,7 +101,7 @@ export async function resolvePlace(name: string): Promise<Place> {
 export interface AssetsQueryParams {
     q?: string;
     type?: 'all' | 'image' | 'document';
-    sort?: 'name' | 'size' | 'date';
+    sort?: 'name' | 'size' | 'date' | 'created' | 'modified';
     order?: 'asc' | 'desc';
     personIds?: string[];
 }

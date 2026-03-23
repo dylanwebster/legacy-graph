@@ -163,7 +163,7 @@ function AssetCard({ asset, onOpen, onDeleteRequest }: AssetCardProps) {
 
 // ── AssetGallery page ──────────────────────────────────────────────────────
 
-type SortKey = 'name' | 'size' | 'date';
+type SortKey = 'name' | 'size' | 'date' | 'created' | 'modified';
 type TypeFilter = 'all' | 'image' | 'document';
 
 function AssetGallery() {
@@ -276,7 +276,15 @@ function AssetGallery() {
 
                 {/* Sort */}
                 <div className="flex items-center gap-1">
-                    {(['name', 'size', 'date'] as const).map((s) => (
+                    {(
+                        [
+                            { key: 'name', label: 'Name' },
+                            { key: 'size', label: 'Size' },
+                            { key: 'date', label: 'Date taken' },
+                            { key: 'created', label: 'Added' },
+                            { key: 'modified', label: 'Edited' },
+                        ] as const
+                    ).map(({ key: s, label }) => (
                         <button
                             key={s}
                             type="button"
@@ -290,7 +298,7 @@ function AssetGallery() {
                                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                             }`}
                         >
-                            {s === 'name' ? 'Name' : s === 'size' ? 'Size' : 'Date'}
+                            {label}
                             {sort === s
                                 ? <SortIcon className="h-3 w-3" />
                                 : <ArrowUpDown className="h-3 w-3 opacity-40" />

@@ -8,6 +8,8 @@ export interface StoryMetadata {
     people: string[];
     tags: string[];
     assets: string[];
+    created_at?: string;
+    modified_at?: string;
 }
 
 export interface StoryFeedItem {
@@ -19,6 +21,8 @@ export interface StoryFeedItem {
     excerpt: string;
     firstAsset?: string;
     private: boolean;
+    created_at?: string;
+    modified_at?: string;
 }
 
 export interface FullStory {

@@ -139,6 +139,8 @@ export async function assetsRoutes(server: FastifyInstance) {
                 description: rawMeta?.description as string | undefined,
                 date: rawMeta?.date as string | undefined,
                 location: rawMeta?.location as Place | undefined,
+                created_at: rawMeta?.created_at as string | undefined,
+                modified_at: rawMeta?.modified_at as string | undefined,
             };
 
             return {
@@ -195,6 +197,22 @@ export async function assetsRoutes(server: FastifyInstance) {
                 const db = b.metadata.date ?? '';
                 return da < db ? -1 * sortOrder : da > db ? 1 * sortOrder : 0;
             }
+            if (sort === 'created') {
+                const ca = (a.metadata as any).created_at as string | undefined;
+                const cb = (b.metadata as any).created_at as string | undefined;
+                if (!ca && !cb) return 0;
+                if (!ca) return 1;   // nulls sort last regardless of sortOrder
+                if (!cb) return -1;
+                return ca.localeCompare(cb) * sortOrder;
+            }
+            if (sort === 'modified') {
+                const ma = (a.metadata as any).modified_at as string | undefined;
+                const mb = (b.metadata as any).modified_at as string | undefined;
+                if (!ma && !mb) return 0;
+                if (!ma) return 1;   // nulls sort last regardless of sortOrder
+                if (!mb) return -1;
+                return ma.localeCompare(mb) * sortOrder;
+            }
             // default: name (use display name if set, else filename)
             const na = a.metadata.name ?? a.filename;
             const nb = b.metadata.name ?? b.filename;
@@ -226,12 +244,16 @@ export async function assetsRoutes(server: FastifyInstance) {
         const resolvedDescription = description ?? caption;
         const resolvedDate = date ?? date_taken;
 
+        const now = new Date().toISOString();
         const merged = {
             ...existing,
             ...(name !== undefined && { name }),
             ...(resolvedDescription !== undefined && { description: resolvedDescription }),
             ...(resolvedDate !== undefined && { date: resolvedDate }),
             ...(location !== undefined && { location }),
+            // Preserve existing created_at; always bump modified_at
+            created_at: (existing as any).created_at ?? now,
+            modified_at: now,
         };
 
         index[filename] = AssetMetadataSchema.parse(merged);
@@ -242,6 +264,8 @@ export async function assetsRoutes(server: FastifyInstance) {
             description: index[filename].description,
             date: index[filename].date,
             location: index[filename].location,
+            created_at: (index[filename] as any).created_at,
+            modified_at: (index[filename] as any).modified_at,
         };
     });
 

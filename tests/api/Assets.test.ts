@@ -633,4 +633,125 @@ describe('Assets API', () => {
         // Cleanup
         fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
+
+    // ── Timestamps ──────────────────────────────────────────────────────────
+
+    it('PUT /api/assets/:filename/meta sets created_at and modified_at on first write', async () => {
+        writeTestAsset();
+        const before = new Date().toISOString();
+
+        const res = await request
+            .put(`/api/assets/${TEST_ASSET}/meta`)
+            .send({ description: 'timestamp test' });
+
+        const after = new Date().toISOString();
+        expect(res.status).toBe(200);
+        expect(typeof res.body.created_at).toBe('string');
+        expect(typeof res.body.modified_at).toBe('string');
+        expect(res.body.created_at >= before).toBe(true);
+        expect(res.body.created_at <= after).toBe(true);
+        expect(res.body.modified_at).toBe(res.body.created_at);
+    });
+
+    it('PUT /api/assets/:filename/meta updates modified_at but preserves created_at on subsequent writes', async () => {
+        writeTestAsset();
+
+        const first = await request
+            .put(`/api/assets/${TEST_ASSET}/meta`)
+            .send({ description: 'first write' });
+        expect(first.status).toBe(200);
+        const originalCreatedAt = first.body.created_at;
+        expect(typeof originalCreatedAt).toBe('string');
+
+        await new Promise(r => setTimeout(r, 15));
+
+        const second = await request
+            .put(`/api/assets/${TEST_ASSET}/meta`)
+            .send({ description: 'second write' });
+        expect(second.status).toBe(200);
+        expect(second.body.created_at).toBe(originalCreatedAt);
+        expect(second.body.modified_at > originalCreatedAt).toBe(true);
+    });
+
+    it('GET /api/assets?sort=created&order=desc returns most recently added first', async () => {
+        writeTestAsset('test-asset-ts-first.png');
+        await new Promise(r => setTimeout(r, 15));
+        writeTestAsset('test-asset-ts-second.png');
+
+        // Write timestamps via meta PUT
+        await request.put('/api/assets/test-asset-ts-first.png/meta').send({ description: 'first' });
+        await new Promise(r => setTimeout(r, 15));
+        await request.put('/api/assets/test-asset-ts-second.png/meta').send({ description: 'second' });
+
+        const res = await request.get('/api/assets?sort=created&order=desc');
+        expect(res.status).toBe(200);
+
+        const testAssets = (res.body.assets as any[]).filter(a =>
+            a.filename === 'test-asset-ts-first.png' || a.filename === 'test-asset-ts-second.png'
+        );
+        expect(testAssets.length).toBe(2);
+        // second was created last, so it should appear first in desc order
+        expect(testAssets[0].filename).toBe('test-asset-ts-second.png');
+        expect(testAssets[1].filename).toBe('test-asset-ts-first.png');
+
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-ts-first.png')); } catch { /* ignore */ }
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-ts-second.png')); } catch { /* ignore */ }
+    });
+
+    it('GET /api/assets?sort=modified returns most recently edited first by default', async () => {
+        writeTestAsset('test-asset-mod-a.png');
+        writeTestAsset('test-asset-mod-b.png');
+
+        await request.put('/api/assets/test-asset-mod-a.png/meta').send({ description: 'a' });
+        await request.put('/api/assets/test-asset-mod-b.png/meta').send({ description: 'b' });
+        await new Promise(r => setTimeout(r, 15));
+        // Update a — it should now have newest modified_at
+        await request.put('/api/assets/test-asset-mod-a.png/meta').send({ description: 'a updated' });
+
+        const res = await request.get('/api/assets?sort=modified&order=desc');
+        expect(res.status).toBe(200);
+
+        const testAssets = (res.body.assets as any[]).filter(a =>
+            a.filename === 'test-asset-mod-a.png' || a.filename === 'test-asset-mod-b.png'
+        );
+        expect(testAssets.length).toBe(2);
+        expect(testAssets[0].filename).toBe('test-asset-mod-a.png');
+
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-mod-a.png')); } catch { /* ignore */ }
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-mod-b.png')); } catch { /* ignore */ }
+    });
+
+    it('GET /api/assets assets without created_at sort last for sort=created desc', async () => {
+        // Write an asset WITHOUT going through meta PUT (no timestamps)
+        writeTestAsset('test-asset-no-ts.png');
+        // Write an asset WITH timestamps via meta PUT
+        writeTestAsset('test-asset-with-ts.png');
+        await request.put('/api/assets/test-asset-with-ts.png/meta').send({ description: 'has ts' });
+
+        const res = await request.get('/api/assets?sort=created&order=desc');
+        expect(res.status).toBe(200);
+
+        const testAssets = (res.body.assets as any[]).filter(a =>
+            a.filename === 'test-asset-no-ts.png' || a.filename === 'test-asset-with-ts.png'
+        );
+        expect(testAssets.length).toBe(2);
+        // with-ts should appear before no-ts (nulls last)
+        expect(testAssets[0].filename).toBe('test-asset-with-ts.png');
+        expect(testAssets[1].filename).toBe('test-asset-no-ts.png');
+
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-no-ts.png')); } catch { /* ignore */ }
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-with-ts.png')); } catch { /* ignore */ }
+    });
+
+    it('GET /api/assets response includes created_at and modified_at in metadata', async () => {
+        writeTestAsset();
+        await request.put(`/api/assets/${TEST_ASSET}/meta`).send({ description: 'include ts' });
+
+        const res = await request.get('/api/assets');
+        expect(res.status).toBe(200);
+        const item = res.body.assets.find((a: any) => a.filename === TEST_ASSET);
+        expect(item).toBeDefined();
+        expect(typeof item.metadata.created_at).toBe('string');
+        expect(typeof item.metadata.modified_at).toBe('string');
+    });
 });

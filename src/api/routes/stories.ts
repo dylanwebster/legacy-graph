@@ -84,6 +84,8 @@ function toFeedItem(
         excerpt,
         firstAsset: metadata.assets?.[0],
         private: metadata.private ?? false,
+        created_at: metadata.created_at,
+        modified_at: metadata.modified_at,
     };
 }
 
@@ -174,6 +176,22 @@ export async function storiesRoutes(server: FastifyInstance) {
             });
         } else if (sort === 'alpha') {
             feedItems.sort((a, b) => a.title.localeCompare(b.title));
+        } else if (sort === 'created_newest' || sort === 'created_oldest') {
+            const dir = sort === 'created_newest' ? -1 : 1;
+            feedItems.sort((a, b) => {
+                if (!a.created_at && !b.created_at) return 0;
+                if (!a.created_at) return 1;   // nulls sort last
+                if (!b.created_at) return -1;
+                return a.created_at.localeCompare(b.created_at) * dir;
+            });
+        } else if (sort === 'modified_newest' || sort === 'modified_oldest') {
+            const dir = sort === 'modified_newest' ? -1 : 1;
+            feedItems.sort((a, b) => {
+                if (!a.modified_at && !b.modified_at) return 0;
+                if (!a.modified_at) return 1;  // nulls sort last
+                if (!b.modified_at) return -1;
+                return a.modified_at.localeCompare(b.modified_at) * dir;
+            });
         } else {
             // newest (default) — reverse chronological; undated go last
             feedItems.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
@@ -244,6 +262,7 @@ export async function storiesRoutes(server: FastifyInstance) {
             .slice(0, 40);
         const id = `${slug}-${nanoid(8)}`;
 
+        const now = new Date().toISOString();
         const metadata: Record<string, unknown> = {
             title: body.title.trim(),
             ...(body.date !== undefined && { date: body.date }),
@@ -252,6 +271,8 @@ export async function storiesRoutes(server: FastifyInstance) {
             ...(body.tags !== undefined && { tags: body.tags }),
             ...(body.private !== undefined && { private: body.private }),
             assets: body.assets ?? [],
+            created_at: now,
+            modified_at: now,
         };
 
         const content = body.content ?? '';
@@ -304,7 +325,7 @@ export async function storiesRoutes(server: FastifyInstance) {
             body.title = trimmed;
         }
 
-        // Merge updates
+        // Merge updates — preserve created_at, bump modified_at
         const metadata: Record<string, unknown> = {
             ...existing.data,
             ...(body.title !== undefined && { title: body.title }),
@@ -314,6 +335,7 @@ export async function storiesRoutes(server: FastifyInstance) {
             ...(body.tags !== undefined && { tags: body.tags }),
             ...(body.assets !== undefined && { assets: body.assets }),
             ...(body.private !== undefined && { private: body.private }),
+            modified_at: new Date().toISOString(),
         };
         const content = body.content !== undefined ? body.content : existing.content;
 
@@ -412,7 +434,11 @@ export async function storiesRoutes(server: FastifyInstance) {
         // Remove reference from story frontmatter
         const { data: frontmatter, content } = matter(existingRaw);
         const currentAssets: string[] = Array.isArray(frontmatter.assets) ? frontmatter.assets : [];
-        const updatedMetadata = { ...frontmatter, assets: currentAssets.filter((a: string) => a !== filename) };
+        const updatedMetadata = {
+            ...frontmatter,
+            assets: currentAssets.filter((a: string) => a !== filename),
+            modified_at: new Date().toISOString(),
+        };
 
         const story = await writeStoryFile(id, updatedMetadata, content,
             (rel, fc) => txManager.writeFile(rel, fc, `story ${id}`));
@@ -460,7 +486,11 @@ export async function storiesRoutes(server: FastifyInstance) {
         // Update story frontmatter to include the new asset
         const { data: frontmatter, content } = matter(existingRaw);
         const currentAssets: string[] = Array.isArray(frontmatter.assets) ? frontmatter.assets : [];
-        const updatedMetadata = { ...frontmatter, assets: [...currentAssets, filename] };
+        const updatedMetadata = {
+            ...frontmatter,
+            assets: [...currentAssets, filename],
+            modified_at: new Date().toISOString(),
+        };
 
         const story = await writeStoryFile(id, updatedMetadata, content,
             (rel, fc) => txManager.writeFile(rel, fc, `story ${id}`));

@@ -18,28 +18,38 @@ import {
 } from '@/components/ui/dialog';
 import { useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Plus, Trash2, MapPin, Users, CalendarDays } from 'lucide-react';
+import { Plus, Trash2, MapPin, Users, CalendarDays, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { useUIStore } from '@/store/uiStore';
-import type { StoriesSortMode } from '@/store/uiStore';
+import type { StoriesSortKey } from '@/store/uiStore';
 
 export const Route = createLazyFileRoute('/stories/')({
     component: StoriesFeed,
 });
 
-const SORT_OPTIONS: { value: StoriesSortMode; label: string }[] = [
-    { value: 'newest', label: 'Newest' },
-    { value: 'oldest', label: 'Oldest' },
-    { value: 'alpha', label: 'A–Z' },
+const SORT_OPTIONS: { key: StoriesSortKey; label: string }[] = [
+    { key: 'date', label: 'Date' },
+    { key: 'alpha', label: 'A–Z' },
+    { key: 'created', label: 'Added' },
+    { key: 'modified', label: 'Edited' },
 ];
+
+/** Map (sortKey, order) → backend sort param. */
+function toBackendSort(key: StoriesSortKey, order: 'asc' | 'desc'): string {
+    if (key === 'date') return order === 'desc' ? 'newest' : 'oldest';
+    if (key === 'created') return order === 'desc' ? 'created_newest' : 'created_oldest';
+    if (key === 'modified') return order === 'desc' ? 'modified_newest' : 'modified_oldest';
+    return 'alpha'; // backend always returns A-Z; frontend reverses for desc (Z-A)
+}
 
 function StoriesFeed() {
     const navigate = useNavigate();
-    const { storiesFeedFilter, storiesFeedSort, setStoriesFeed } = useUIStore();
+    const { storiesFeedFilter, storiesFeedSortKey, storiesFeedSortOrder, setStoriesFeed } = useUIStore();
 
     // Local state mirrors Zustand but allows debouncing
     const [filter, setFilter] = useState(storiesFeedFilter);
-    const [sort, setSort] = useState<StoriesSortMode>(storiesFeedSort);
+    const [sortKey, setSortKey] = useState<StoriesSortKey>(storiesFeedSortKey);
+    const [order, setOrder] = useState<'asc' | 'desc'>(storiesFeedSortOrder);
     const [debouncedFilter, setDebouncedFilter] = useState(storiesFeedFilter);
     const [deleteTarget, setDeleteTarget] = useState<StoryFeedItem | null>(null);
     const [chips, setChips] = useState<PersonChipData[]>([]);
@@ -48,37 +58,37 @@ function StoriesFeed() {
     useEffect(() => {
         const timer = setTimeout(() => {
             setDebouncedFilter(filter);
-            setStoriesFeed(filter, sort);
+            setStoriesFeed(filter, sortKey, order);
         }, 300);
         return () => clearTimeout(timer);
-    }, [filter, sort, setStoriesFeed]);
+    }, [filter, sortKey, order, setStoriesFeed]);
 
     // Persist sort changes immediately
     useEffect(() => {
-        setStoriesFeed(filter, sort);
+        setStoriesFeed(filter, sortKey, order);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sort]);
+    }, [sortKey, order]);
 
     const isChipsMode = chips.length > 0;
     const isSearchMode = !!debouncedFilter;
 
     const { data: storiesData, isLoading } = useStories({
-        sort,
+        sort: toBackendSort(sortKey, order),
         q: debouncedFilter || undefined,
         personIds: chips.length > 0 ? chips.map(c => c.id) : undefined,
     });
     const deleteStory = useDeleteStory();
 
-    const stories: StoryFeedItem[] = storiesData?.stories ?? [];
+    // Backend always returns A-Z for alpha; reverse client-side for Z-A
+    const baseStories: StoryFeedItem[] = storiesData?.stories ?? [];
+    const stories = (sortKey === 'alpha' && order === 'desc')
+        ? [...baseStories].reverse()
+        : baseStories;
     const totalCount = storiesData?.totalCount ?? stories.length;
 
-    const parentRef = useRef<HTMLDivElement>(null);
-    const virtualizer = useVirtualizer({
-        count: stories.length,
-        getScrollElement: () => parentRef.current,
-        estimateSize: () => 180,
-        overscan: 5,
-    });
+    // Stable key derived from story order — ensures the virtualizer fully remounts
+    // whenever the list content or ordering changes (fixes stale position measurements).
+    const listKey = stories.map(s => s.id).join(',');
 
     const handleDelete = useCallback(async () => {
         if (!deleteTarget) return;
@@ -104,22 +114,38 @@ function StoriesFeed() {
                     onRemovePerson={(id) => setChips((prev) => prev.filter((c) => c.id !== id))}
                 />
 
-                {/* Sort toggle */}
+                {/* Sort */}
                 {!isSearchMode && (
-                    <div className="flex items-center gap-1 bg-muted rounded-md p-0.5">
-                        {SORT_OPTIONS.map((opt) => (
-                            <button
-                                key={opt.value}
-                                onClick={() => setSort(opt.value)}
-                                className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
-                                    sort === opt.value
-                                        ? 'bg-background text-foreground shadow-sm'
-                                        : 'text-muted-foreground hover:text-foreground'
-                                }`}
-                            >
-                                {opt.label}
-                            </button>
-                        ))}
+                    <div className="flex items-center gap-1">
+                        {SORT_OPTIONS.map(({ key, label }) => {
+                            const isActive = sortKey === key;
+                            const SortIcon = isActive
+                                ? order === 'asc' ? ArrowUp : ArrowDown
+                                : ArrowUpDown;
+                            return (
+                                <button
+                                    key={key}
+                                    type="button"
+                                    onClick={() => {
+                                        if (isActive) {
+                                            setOrder(o => o === 'asc' ? 'desc' : 'asc');
+                                        } else {
+                                            setSortKey(key);
+                                            // Alpha naturally sorts A→Z (asc); timestamps default to newest-first (desc)
+                                            setOrder(key === 'alpha' ? 'asc' : 'desc');
+                                        }
+                                    }}
+                                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors flex items-center gap-1 ${
+                                        isActive
+                                            ? 'bg-primary text-primary-foreground'
+                                            : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                                    }`}
+                                >
+                                    {label}
+                                    <SortIcon className={`h-3 w-3 ${isActive ? '' : 'opacity-40'}`} />
+                                </button>
+                            );
+                        })}
                     </div>
                 )}
 
@@ -138,64 +164,42 @@ function StoriesFeed() {
             </div>
 
             {/* Feed */}
-            <div ref={parentRef} key={sort + (isSearchMode ? '-search' : '-list')} className="flex-1 overflow-y-auto">
-                {isLoading ? (
+            {isLoading ? (
+                <div className="flex-1 overflow-y-auto">
                     <div className="flex flex-col gap-4 p-4 max-w-3xl mx-auto">
                         {[...Array(5)].map((_, i) => (
                             <Skeleton key={i} className="h-40 w-full rounded-lg" />
                         ))}
                     </div>
-                ) : stories.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-64 gap-3 text-muted-foreground">
-                        <span className="text-4xl">📖</span>
-                        <p className="text-sm">
-                            {isChipsMode
-                                ? 'No stories mention all selected people.'
-                                : isSearchMode
-                                    ? 'No stories match your search.'
-                                    : 'No stories yet.'}
-                        </p>
-                        {!isSearchMode && !isChipsMode && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => navigate({ to: '/stories/$id', params: { id: 'new' } })}
-                            >
-                                <Plus className="h-4 w-4 mr-1.5" />
-                                Write your first story
-                            </Button>
-                        )}
-                    </div>
-                ) : (
-                    <div
-                        style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
-                        className="max-w-3xl mx-auto px-4 py-4"
-                    >
-                        {virtualizer.getVirtualItems().map((vItem) => {
-                            const story = stories[vItem.index];
-                            return (
-                                <div
-                                    key={story.id}
-                                    style={{
-                                        position: 'absolute',
-                                        top: vItem.start,
-                                        left: 0,
-                                        right: 0,
-                                        padding: '0 1rem',
-                                    }}
-                                    data-index={vItem.index}
-                                    ref={virtualizer.measureElement}
-                                >
-                                    <StoryFeedCard
-                                        story={story}
-                                        onDelete={() => setDeleteTarget(story)}
-                                    />
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
+                </div>
+            ) : stories.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
+                    <span className="text-4xl">📖</span>
+                    <p className="text-sm">
+                        {isChipsMode
+                            ? 'No stories mention all selected people.'
+                            : isSearchMode
+                                ? 'No stories match your search.'
+                                : 'No stories yet.'}
+                    </p>
+                    {!isSearchMode && !isChipsMode && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate({ to: '/stories/$id', params: { id: 'new' } })}
+                        >
+                            <Plus className="h-4 w-4 mr-1.5" />
+                            Write your first story
+                        </Button>
+                    )}
+                </div>
+            ) : (
+                <StoryFeedList
+                    key={listKey}
+                    stories={stories}
+                    onDelete={setDeleteTarget}
+                />
+            )}
 
             {/* Delete confirmation */}
             <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
@@ -221,6 +225,52 @@ function StoriesFeed() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+        </div>
+    );
+}
+
+/** Virtualizer lives here so it fully remounts (and resets measurements) when `key` changes. */
+function StoryFeedList({
+    stories,
+    onDelete,
+}: {
+    stories: StoryFeedItem[];
+    onDelete: (story: StoryFeedItem) => void;
+}) {
+    const parentRef = useRef<HTMLDivElement>(null);
+    const virtualizer = useVirtualizer({
+        count: stories.length,
+        getScrollElement: () => parentRef.current,
+        estimateSize: () => 180,
+        overscan: 5,
+    });
+
+    return (
+        <div ref={parentRef} className="flex-1 overflow-y-auto">
+            <div
+                style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
+                className="max-w-3xl mx-auto px-4 py-4"
+            >
+                {virtualizer.getVirtualItems().map((vItem) => {
+                    const story = stories[vItem.index];
+                    return (
+                        <div
+                            key={story.id}
+                            style={{
+                                position: 'absolute',
+                                top: vItem.start,
+                                left: 0,
+                                right: 0,
+                                padding: '0 1rem',
+                            }}
+                            data-index={vItem.index}
+                            ref={virtualizer.measureElement}
+                        >
+                            <StoryFeedCard story={story} onDelete={() => onDelete(story)} />
+                        </div>
+                    );
+                })}
+            </div>
         </div>
     );
 }
