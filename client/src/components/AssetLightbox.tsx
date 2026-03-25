@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 
 // Inline place search combobox (mirrors EventEditorDialog pattern)
-function PlaceCombobox({
+export function PlaceCombobox({
     value,
     onChange,
     onSelect,

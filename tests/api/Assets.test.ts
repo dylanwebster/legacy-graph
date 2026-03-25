@@ -754,4 +754,92 @@ describe('Assets API', () => {
         expect(typeof item.metadata.created_at).toBe('string');
         expect(typeof item.metadata.modified_at).toBe('string');
     });
+
+    // ── POST /api/assets/upload ──────────────────────────────────────────────
+
+    describe('POST /api/assets/upload', () => {
+        const PNG_BUF = Buffer.from(
+            '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6260000000020001e221bc330000000049454e44ae426082',
+            'hex'
+        );
+
+        it('single PNG → 200, filename in uploaded[], file on disk, assets.yaml seeded', async () => {
+            const res = await request
+                .post('/api/assets/upload')
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-single.png', contentType: 'image/png' });
+
+            expect(res.status).toBe(200);
+            expect(Array.isArray(res.body.uploaded)).toBe(true);
+            expect(res.body.uploaded.length).toBe(1);
+            const { filename, originalName } = res.body.uploaded[0];
+            expect(typeof filename).toBe('string');
+            expect(originalName).toBe('test-asset-upload-single.png');
+            expect(fs.existsSync(path.join(ASSETS_DIR, filename))).toBe(true);
+            expect(fs.existsSync(path.join(META_DIR, 'assets.yaml'))).toBe(true);
+        });
+
+        it('3 files → all 3 in uploaded[]', async () => {
+            const res = await request
+                .post('/api/assets/upload')
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-a.png', contentType: 'image/png' })
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-b.png', contentType: 'image/png' })
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-c.png', contentType: 'image/png' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.uploaded.length).toBe(3);
+            const names = (res.body.uploaded as any[]).map((u) => u.originalName);
+            expect(names).toContain('test-asset-upload-a.png');
+            expect(names).toContain('test-asset-upload-b.png');
+            expect(names).toContain('test-asset-upload-c.png');
+        });
+
+        it('filename collision → second upload gets -1 suffix', async () => {
+            writeTestAsset('test-asset-upload-collision.png');
+
+            const res = await request
+                .post('/api/assets/upload')
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-collision.png', contentType: 'image/png' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.uploaded.length).toBe(1);
+            expect(res.body.uploaded[0].filename).toBe('test-asset-upload-collision-1.png');
+        });
+
+        it('disallowed MIME (.exe) + valid PNG → .exe in rejected[], PNG in uploaded[], HTTP 200', async () => {
+            const res = await request
+                .post('/api/assets/upload')
+                .attach('files', Buffer.from('MZ'), { filename: 'test-asset-upload-bad.exe', contentType: 'application/octet-stream' })
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-good.png', contentType: 'image/png' });
+
+            expect(res.status).toBe(200);
+            const rejectedNames = (res.body.rejected as any[]).map((r) => r.originalName);
+            const uploadedNames = (res.body.uploaded as any[]).map((u) => u.originalName);
+            expect(rejectedNames).toContain('test-asset-upload-bad.exe');
+            expect(uploadedNames).toContain('test-asset-upload-good.png');
+        });
+
+        it('empty body → 400 VALIDATION_ERROR', async () => {
+            const res = await request.post('/api/assets/upload');
+            expect(res.status).toBe(400);
+            expect(res.body.code).toBe('VALIDATION_ERROR');
+        });
+
+        it('two files → both appear in assets.yaml with created_at set', async () => {
+            const res = await request
+                .post('/api/assets/upload')
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-ts1.png', contentType: 'image/png' })
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-ts2.png', contentType: 'image/png' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.uploaded.length).toBe(2);
+
+            const listRes = await request.get('/api/assets');
+            expect(listRes.status).toBe(200);
+            for (const { filename } of res.body.uploaded as Array<{ filename: string; originalName: string }>) {
+                const item = (listRes.body.assets as any[]).find((a) => a.filename === filename);
+                expect(item).toBeDefined();
+                expect(typeof item.metadata.created_at).toBe('string');
+            }
+        });
+    });
 });

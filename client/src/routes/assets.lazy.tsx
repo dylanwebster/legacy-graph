@@ -4,12 +4,14 @@ import { ExternalLink } from 'lucide-react';
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useAssets, useDeleteGalleryAsset } from '@/api/hooks';
+import { useQueryClient } from '@tanstack/react-query';
 import type { AssetListItem } from '@/api/client';
 import type { AssetsQueryParams } from '@/api/client';
 import { assetType } from '@/lib/assetUtils';
 import { AssetLightbox } from '@/components/AssetLightbox';
 import { AssetSearchBar } from '@/components/AssetSearchBar';
 import type { PersonChipData } from '@/components/AssetSearchBar';
+import { BulkUploadDialog } from '@/components/BulkUploadDialog';
 import { Badge } from '@/components/ui/badge';
 import {
     Dialog,
@@ -21,7 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import {
-    FileText, Trash2, ZoomIn,
+    FileText, Trash2, ZoomIn, Upload,
     ArrowUpDown, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -167,6 +169,7 @@ type SortKey = 'name' | 'size' | 'date' | 'created' | 'modified';
 type TypeFilter = 'all' | 'image' | 'document';
 
 function AssetGallery() {
+    const queryClient = useQueryClient();
     const [query, setQuery] = useState('');
     const [debouncedQ, setDebouncedQ] = useState('');
     const [chips, setChips] = useState<PersonChipData[]>([]);
@@ -176,6 +179,7 @@ function AssetGallery() {
     const [order, setOrder] = useState<'asc' | 'desc'>('asc');
     const [detailFile, setDetailFile] = useState<string | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+    const [uploadOpen, setUploadOpen] = useState(false);
 
     const parentRef = useRef<HTMLDivElement>(null);
 
@@ -307,6 +311,11 @@ function AssetGallery() {
                     ))}
                 </div>
 
+                <Button size="sm" variant="outline" className="shrink-0" onClick={() => setUploadOpen(true)}>
+                    <Upload className="h-3.5 w-3.5 mr-1.5" />
+                    Upload
+                </Button>
+
                 <span className="ml-auto text-xs text-muted-foreground shrink-0">
                     {filtered.length} {filtered.length !== (data?.totalCount ?? 0) ? `/ ${data?.totalCount ?? 0}` : ''}
                 </span>
@@ -352,6 +361,13 @@ function AssetGallery() {
                     </div>
                 )}
             </div>
+
+            {/* Bulk Upload Dialog */}
+            <BulkUploadDialog
+                open={uploadOpen}
+                onOpenChange={setUploadOpen}
+                onSuccess={() => queryClient.invalidateQueries({ queryKey: ['assets'] })}
+            />
 
             {/* Asset Lightbox */}
             {detailAsset && (

@@ -486,6 +486,73 @@ export async function assetsRoutes(server: FastifyInstance) {
         }
     );
 
+    // ── POST /api/assets/upload ───────────────────────────────────────────────
+
+    server.post('/api/assets/upload', async (request, reply) => {
+        await fs.mkdir(assetsDir, { recursive: true });
+
+        const uploaded: Array<{ filename: string; originalName: string }> = [];
+        const rejected: Array<{ originalName: string; reason: string }> = [];
+
+        try {
+            const parts = (request as any).parts();
+            for await (const part of parts) {
+                if (part.type !== 'file') continue;
+
+                const originalName: string = part.filename || 'upload';
+
+                if (!isAllowedFile(originalName, part.mimetype)) {
+                    part.file.resume();
+                    rejected.push({ originalName, reason: 'File type not allowed' });
+                    continue;
+                }
+
+                const ext = path.extname(originalName).toLowerCase();
+                const rawBase = path.basename(originalName, path.extname(originalName))
+                    .replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
+                const baseName = rawBase || 'upload';
+
+                let uniqueFilename = `${baseName}${ext}`;
+                let counter = 1;
+                while (true) {
+                    try {
+                        await fs.access(path.join(assetsDir, uniqueFilename));
+                        uniqueFilename = `${baseName}-${counter}${ext}`;
+                        counter++;
+                    } catch { break; }
+                }
+
+                const destPath = path.join(assetsDir, uniqueFilename);
+                await pipeline(part.file, nodeFs.createWriteStream(destPath));
+                await txManager.trackFile(path.join('assets', uniqueFilename), `asset ${uniqueFilename}`);
+
+                const now = new Date().toISOString();
+                const [exifDate, exifGps] = await Promise.all([
+                    extractExifDate(destPath),
+                    extractExifGps(destPath),
+                ]);
+                await upsertAssetEntry(dataDir, uniqueFilename, {
+                    created_at: now,
+                    ...(exifDate && { date: exifDate }),
+                    ...(exifGps && { location: exifGps }),
+                }, txManager);
+
+                uploaded.push({ filename: uniqueFilename, originalName });
+            }
+        } catch (err: any) {
+            if (err?.code === 'FST_INVALID_MULTIPART_CONTENT_TYPE') {
+                return reply.status(400).send({ error: 'No files provided', code: 'VALIDATION_ERROR' });
+            }
+            throw err;
+        }
+
+        if (uploaded.length === 0 && rejected.length === 0) {
+            return reply.status(400).send({ error: 'No files provided', code: 'VALIDATION_ERROR' });
+        }
+
+        return { uploaded, rejected };
+    });
+
     // ── POST /api/people/:id/assets/link ─────────────────────────────────────
 
     server.post<{

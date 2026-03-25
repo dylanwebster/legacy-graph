@@ -183,6 +183,28 @@ export async function uploadEventMedia(
     return response.json();
 }
 
+export interface UploadGalleryAssetsResult {
+    uploaded: Array<{ filename: string; originalName: string }>;
+    rejected: Array<{ originalName: string; reason: string }>;
+}
+
+export async function uploadGalleryAssets(files: File[]): Promise<UploadGalleryAssetsResult> {
+    const formData = new FormData();
+    for (const file of files) {
+        formData.append('files', file);
+    }
+    const response = await fetch('/api/assets/upload', { method: 'POST', body: formData });
+    if (!response.ok) {
+        let errorMessage = response.statusText;
+        try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+        } catch { /* ignore */ }
+        throw new Error(errorMessage);
+    }
+    return response.json();
+}
+
 export async function linkAssetToPerson(
     personId: string,
     filename: string

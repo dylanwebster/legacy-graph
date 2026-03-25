@@ -4,9 +4,9 @@ import type { CreatePersonInput, PersonDetail, SlimPersonSummary } from './peopl
 import {
     apiFetch, deleteAsset, deleteAssetPermanently, searchPlaces, resolvePlace,
     getAssets, updateAssetMeta, deleteGalleryAsset, uploadEventMedia, linkAssetToPerson,
-    unlinkAssetFromPerson,
+    unlinkAssetFromPerson, uploadGalleryAssets,
 } from './client';
-import type { AssetListResponse, AssetListItem, AssetsQueryParams } from './client';
+import type { AssetListResponse, AssetListItem, AssetsQueryParams, UploadGalleryAssetsResult } from './client';
 import type { Place } from './people';
 import { storiesApi } from './stories';
 import type { CreateStoryInput, UpdateStoryInput, StoryFeedItem } from './stories';
@@ -377,6 +377,16 @@ export const useLinkAsset = () => {
             linkAssetToPerson(personId, filename),
         onSettled: (_data, _error, variables) => {
             queryClient.invalidateQueries({ queryKey: ['person', variables.personId] });
+            queryClient.invalidateQueries({ queryKey: ['assets'] });
+        },
+    });
+};
+
+export const useUploadGalleryAssets = () => {
+    const queryClient = useQueryClient();
+    return useMutation<UploadGalleryAssetsResult, Error, File[]>({
+        mutationFn: (files: File[]) => uploadGalleryAssets(files),
+        onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['assets'] });
         },
     });
