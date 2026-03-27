@@ -841,7 +841,7 @@ function PersonDetail() {
                     });
                 }}
                 excludeFilenames={person?.assets as string[] ?? []}
-                title="Link existing assets"
+                title="Link Existing Assets"
             />
 
             {/* Asset Lightbox */}

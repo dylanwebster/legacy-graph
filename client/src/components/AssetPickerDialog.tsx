@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useAssets } from '@/api/hooks';
 import type { AssetListItem, AssetsQueryParams } from '@/api/client';
@@ -69,29 +69,30 @@ export function AssetPickerDialog({
     const [sortKey, setSortKey] = useState<SortKey>('name');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
     const [selected, setSelected] = useState<string[]>([]);
-    const parentRef = useRef<HTMLDivElement>(null);
+    // Callback ref: triggers a re-render when the scroll container mounts/unmounts,
+    // so the virtualizer can observe the element even when data comes from cache
+    // (cache hits produce no loading→loaded re-render to piggyback on).
+    const [parentEl, setParentEl] = useState<HTMLDivElement | null>(null);
+    const getScrollElement = useCallback(() => parentEl, [parentEl]);
 
-    // Reset all state when dialog closes
+    // Reset state on close; seed preload chip on open.
+    // On close, chips reset to [preloadPersonChip] (not []) so the next open starts with
+    // the correct chip on the very first render — no render gap where chips = [] would
+    // briefly flip queryParams to `undefined`. This also keeps the person-filtered query
+    // subscribed while the dialog is closed, pre-warming the cache for instant first opens.
     useEffect(() => {
         if (!open) {
             setQuery('');
             setDebouncedQuery('');
-            setChips([]);
+            setChips(preloadPersonChip ? [preloadPersonChip] : []);
             setTypeFilter('all');
             setSortKey('name');
             setSortOrder('asc');
             setSelected([]);
-        }
-    }, [open]);
-
-    // Seed preload chip when dialog opens (fires after the reset above)
-    useEffect(() => {
-        if (open && preloadPersonChip) {
+        } else if (preloadPersonChip) {
             setChips([preloadPersonChip]);
         }
-    // preloadPersonChip intentionally omitted — only react to the open transition
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open]);
+    }, [open, preloadPersonChip]);
 
     // Debounce search
     useEffect(() => {
@@ -113,7 +114,7 @@ export function AssetPickerDialog({
 
     const rowVirtualizer = useVirtualizer({
         count: rows.length,
-        getScrollElement: () => parentRef.current,
+        getScrollElement,
         estimateSize: () => CELL_SIZE + 8,
         overscan: 3,
     });
@@ -202,7 +203,7 @@ export function AssetPickerDialog({
                 </div>
 
                 {/* Virtualized grid — explicit height so the virtualizer always has a stable measurement */}
-                <div ref={parentRef} className="h-[340px] overflow-auto shrink-0 px-1 py-1">
+                <div ref={setParentEl} className="h-[340px] overflow-auto shrink-0 px-1 py-1">
                     {isLoading ? (
                         <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
                             Loading…
