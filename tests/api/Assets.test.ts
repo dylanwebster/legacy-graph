@@ -824,7 +824,137 @@ describe('Assets API', () => {
             expect(res.body.code).toBe('VALIDATION_ERROR');
         });
 
-        it('two files → both appear in assets.yaml with created_at set', async () => {
+        // ── PUT /api/people/:id/events/:eventId/media ────────────────────────────
+
+    describe('PUT /api/people/:id/events/:eventId/media', () => {
+        const PNG_BUF = Buffer.from(
+            '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6260000000020001e221bc330000000049454e44ae426082',
+            'hex'
+        );
+        const TEST_EVENT_ID = 'test-event-id-upload';
+
+        it('links uploaded file to person.assets[] in addition to event.assets[]', async () => {
+            const createRes = await request.post('/api/people').send({
+                names: [{ first: 'EventUpload', last: 'Test' }],
+                sex: 'U',
+                events: [{ type: 'birth', id: TEST_EVENT_ID }],
+            });
+            expect(createRes.status).toBe(201);
+            const personId = createRes.body.id;
+
+            const uploadRes = await request
+                .put(`/api/people/${personId}/events/${TEST_EVENT_ID}/media`)
+                .attach('file', PNG_BUF, { filename: 'test-asset-event-upload.png', contentType: 'image/png' });
+
+            expect(uploadRes.status).toBe(200);
+            const { filename } = uploadRes.body;
+            expect(typeof filename).toBe('string');
+
+            // File should appear in person.assets[]
+            const personRes = await request.get(`/api/people/${personId}`);
+            expect(personRes.status).toBe(200);
+            expect(personRes.body.assets).toContain(filename);
+
+            // File should also be in the event.assets[]
+            const event = (personRes.body.events as any[]).find((e: any) => e.id === TEST_EVENT_ID);
+            expect(event).toBeDefined();
+            expect(event.assets).toContain(filename);
+
+            // Cleanup
+            try { fs.unlinkSync(path.join(ASSETS_DIR, filename)); } catch { /* ignore */ }
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+        });
+
+        it('does not duplicate person.assets[] on second upload to same event', async () => {
+            const createRes = await request.post('/api/people').send({
+                names: [{ first: 'EventDupeCheck', last: 'Test' }],
+                sex: 'U',
+                events: [{ type: 'birth', id: TEST_EVENT_ID }],
+            });
+            expect(createRes.status).toBe(201);
+            const personId = createRes.body.id;
+
+            const up1 = await request
+                .put(`/api/people/${personId}/events/${TEST_EVENT_ID}/media`)
+                .attach('file', PNG_BUF, { filename: 'test-asset-event-dupe1.png', contentType: 'image/png' });
+            const up2 = await request
+                .put(`/api/people/${personId}/events/${TEST_EVENT_ID}/media`)
+                .attach('file', PNG_BUF, { filename: 'test-asset-event-dupe2.png', contentType: 'image/png' });
+
+            expect(up1.status).toBe(200);
+            expect(up2.status).toBe(200);
+
+            const personRes = await request.get(`/api/people/${personId}`);
+            const assets: string[] = personRes.body.assets;
+            // Each filename should appear exactly once in person.assets[]
+            const count1 = assets.filter(a => a === up1.body.filename).length;
+            const count2 = assets.filter(a => a === up2.body.filename).length;
+            expect(count1).toBe(1);
+            expect(count2).toBe(1);
+
+            // Cleanup
+            try { fs.unlinkSync(path.join(ASSETS_DIR, up1.body.filename)); } catch { /* ignore */ }
+            try { fs.unlinkSync(path.join(ASSETS_DIR, up2.body.filename)); } catch { /* ignore */ }
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+        });
+    });
+
+    // ── DELETE /api/assets/:filename?force=true cleans event.assets[] ───────
+
+    describe('DELETE /api/assets/:filename?force=true event cleanup', () => {
+        it('removes filename from event.assets[] when force-deleting', async () => {
+            writeTestAsset();
+
+            const createRes = await request.post('/api/people').send({
+                names: [{ first: 'EventForce', last: 'Delete' }],
+                sex: 'U',
+                events: [{ type: 'census', id: 'test-event-force-del', assets: [TEST_ASSET] }],
+            });
+            expect(createRes.status).toBe(201);
+            const personId = createRes.body.id;
+
+            // Verify the event has the asset
+            const before = await request.get(`/api/people/${personId}`);
+            const eventBefore = (before.body.events as any[]).find((e: any) => e.id === 'test-event-force-del');
+            expect(eventBefore?.assets).toContain(TEST_ASSET);
+
+            // Force-delete the asset
+            const delRes = await request.delete(`/api/assets/${TEST_ASSET}?force=true`);
+            expect(delRes.status).toBe(204);
+            expect(fs.existsSync(TEST_ASSET_PATH)).toBe(false);
+
+            // Event should no longer reference the asset
+            const after = await request.get(`/api/people/${personId}`);
+            expect(after.status).toBe(200);
+            const eventAfter = (after.body.events as any[]).find((e: any) => e.id === 'test-event-force-del');
+            expect(eventAfter?.assets).not.toContain(TEST_ASSET);
+
+            // Cleanup
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+        });
+
+        it('returns 409 (not 200) when asset is only in event.assets[] and force is false', async () => {
+            writeTestAsset();
+
+            const createRes = await request.post('/api/people').send({
+                names: [{ first: 'EventNoForce', last: 'Delete' }],
+                sex: 'U',
+                events: [{ type: 'census', id: 'test-event-no-force', assets: [TEST_ASSET] }],
+            });
+            expect(createRes.status).toBe(201);
+            const personId = createRes.body.id;
+
+            const delRes = await request.delete(`/api/assets/${TEST_ASSET}`);
+            expect(delRes.status).toBe(409);
+            expect(delRes.body.code).toBe('ASSET_REFERENCED');
+            expect(fs.existsSync(TEST_ASSET_PATH)).toBe(true);
+
+            // Cleanup
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+        });
+    });
+
+    it('two files → both appear in assets.yaml with created_at set', async () => {
             const res = await request
                 .post('/api/assets/upload')
                 .attach('files', PNG_BUF, { filename: 'test-asset-upload-ts1.png', contentType: 'image/png' })

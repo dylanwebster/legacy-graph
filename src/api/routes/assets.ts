@@ -470,6 +470,11 @@ export async function assetsRoutes(server: FastifyInstance) {
                     ? { ...e, assets: [...(Array.isArray(e.assets) ? e.assets : []), uniqueFilename] }
                     : e
             );
+            // Also link the uploaded file to the person's top-level assets[] (idempotent)
+            if (!Array.isArray(fullPerson.assets)) fullPerson.assets = [];
+            if (!(fullPerson.assets as string[]).includes(uniqueFilename)) {
+                fullPerson.assets = [...(fullPerson.assets as string[]), uniqueFilename];
+            }
             fullPerson.last_modified = new Date().toISOString();
 
             PersonSchema.parse(fullPerson);

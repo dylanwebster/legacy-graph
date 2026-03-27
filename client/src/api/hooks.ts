@@ -354,6 +354,8 @@ export const useDeleteGalleryAsset = () => {
             deleteGalleryAsset(filename, force),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['assets'] });
+            // Also invalidate person queries so event.assets[] stale refs disappear immediately
+            queryClient.invalidateQueries({ queryKey: ['person'] });
         },
     });
 };

@@ -1,15 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useUpdatePerson, useSearch, usePlacesSearch, useUploadEventMedia } from '@/api/hooks';
+import { createPortal } from 'react-dom';
+import { useUpdatePerson, useSearch, usePlacesSearch, useUploadEventMedia, useAssets } from '@/api/hooks';
 import type { Place } from '@/api/people';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
 import { AssetPickerDialog } from '@/components/AssetPickerDialog';
+import type { PersonChipData } from '@/components/AssetSearchBar';
+import { AssetLightbox } from '@/components/AssetLightbox';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Paperclip, Upload, X } from 'lucide-react';
+import { FileText, Link2, Upload, X } from 'lucide-react';
+import { assetType } from '@/lib/assetUtils';
 import { toast } from 'sonner';
 
 const EVENT_TYPES = [
@@ -22,6 +26,7 @@ interface EventEditorDialogProps {
     isOpen: boolean;
     onClose: () => void;
     personId: string;
+    personChip?: PersonChipData;
     existingEvent?: Record<string, unknown>;
     existingEventIndex?: number;
     currentEvents: Array<Record<string, unknown>>;
@@ -46,7 +51,6 @@ function PersonSearchCombobox({
     }, [query]);
 
     const { data: searchResults } = useSearch(debouncedQuery, { limit: 8 });
-    // Search API enriches results with `names: PersonName[]` and `birthDate`, not `name: string`
     const people = (searchResults?.people ?? []) as Array<{ id: string; names?: Array<{ first?: string; given?: string; last?: string; surname?: string }>; birthDate?: string }>;
 
     const handleSelect = (id: string, displayName?: string) => {
@@ -179,10 +183,13 @@ function getRequiredFields(type: EventType): string[] {
     }
 }
 
+// ── Main component ───────────────────────────────────────────────────────────
+
 export function EventEditorDialog({
     isOpen,
     onClose,
     personId,
+    personChip,
     existingEvent,
     existingEventIndex,
     currentEvents,
@@ -192,8 +199,13 @@ export function EventEditorDialog({
 
     const [eventAssets, setEventAssets] = useState<string[]>((existingEvent?.assets as string[]) ?? []);
     const [assetPickerOpen, setAssetPickerOpen] = useState(false);
+    const [lightboxFile, setLightboxFile] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const uploadEventMedia = useUploadEventMedia();
+
+    // All known assets for stale-asset guard in the gallery
+    const { data: allAssetsData } = useAssets();
+    const assetSet = new Set((allAssetsData?.assets ?? []).map(a => a.filename));
 
     const [eventType, setEventType] = useState<EventType>(
         (existingEvent?.type as EventType) ?? initialEventType ?? 'birth'
@@ -256,6 +268,7 @@ export function EventEditorDialog({
 
     const buildEvent = useCallback((): Record<string, unknown> => {
         const base: Record<string, unknown> = { type: eventType, assets: eventAssets };
+        if (existingEvent?.id) base.id = existingEvent.id;
         if (date) {
             base.date = date;
             const iso = parseToISO(date);
@@ -298,7 +311,7 @@ export function EventEditorDialog({
     }, [
         eventType, date, locationPlace, locationQuery, description,
         partnerId, marriageStatus, cause, title, organization,
-        institution, degree, householdId, eventAssets,
+        institution, degree, householdId, eventAssets, existingEvent,
     ]);
 
     const handleSave = () => {
@@ -324,15 +337,32 @@ export function EventEditorDialog({
         updatePerson.mutate(
             { id: personId, updates: { events: updatedEvents } },
             {
-                onSuccess: () => { toast.success(isEdit ? 'Event updated.' : 'Event added.'); onClose(); },
+                onSuccess: () => {
+                    toast.success(isEdit ? 'Event updated.' : 'Event added.');
+                    onClose();
+                },
                 onError: () => toast.error('Failed to save event.'),
             }
         );
     };
 
+    // Visible assets filtered to only those that still exist in the gallery
+    const visibleEventAssets = eventAssets.filter(fn =>
+        allAssetsData == null || assetSet.has(fn)
+    );
+
     return (
+        <>
         <Dialog open={isOpen} onOpenChange={(o) => !o && onClose()}>
-            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogContent
+                className="max-w-lg max-h-[90vh] overflow-y-auto"
+                onEscapeKeyDown={(e) => {
+                    if (lightboxFile) {
+                        e.preventDefault();
+                        setLightboxFile(null);
+                    }
+                }}
+            >
                 <DialogHeader>
                     <DialogTitle>{isEdit ? 'Edit Event' : 'Add Event'}</DialogTitle>
                 </DialogHeader>
@@ -361,7 +391,7 @@ export function EventEditorDialog({
                         </div>
                     </div>
 
-                    {/* Date — single smart input */}
+                    {/* Date */}
                     <div className="space-y-1">
                         <label className="text-xs font-medium">Date</label>
                         <SmartDateInput
@@ -498,30 +528,51 @@ export function EventEditorDialog({
                         </div>
                     )}
 
-                    {/* Attachments */}
+                    {/* Linked Assets */}
                     <div className="space-y-1.5">
                         <label className="text-xs font-medium flex items-center gap-1">
-                            <Paperclip className="h-3 w-3" /> Attachments
+                            <Link2 className="h-3 w-3" /> Linked Assets
                         </label>
-                        {eventAssets.length > 0 && (
-                            <div className="flex flex-wrap gap-1">
-                                {eventAssets.map((fn) => (
-                                    <span
-                                        key={fn}
-                                        className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-xs text-muted-foreground"
-                                    >
-                                        {fn}
-                                        <button
-                                            type="button"
-                                            onClick={() => setEventAssets((prev) => prev.filter((a) => a !== fn))}
-                                            className="hover:text-destructive transition-colors"
-                                        >
-                                            <X className="h-3 w-3" />
-                                        </button>
-                                    </span>
-                                ))}
+
+                        {/* Thumbnail gallery */}
+                        {visibleEventAssets.length > 0 && (
+                            <div className="grid grid-cols-3 gap-2">
+                                {visibleEventAssets.map((fn) => {
+                                    const isImg = assetType(fn) === 'image';
+                                    return (
+                                        <div key={fn} className="relative group aspect-square">
+                                            <button
+                                                type="button"
+                                                onClick={() => setLightboxFile(fn)}
+                                                className="w-full h-full rounded-md border border-border bg-muted overflow-hidden hover:border-primary/60 transition-colors"
+                                            >
+                                                {isImg ? (
+                                                    <img
+                                                        src={`/assets/${fn}`}
+                                                        alt={fn}
+                                                        className="object-cover w-full h-full"
+                                                        loading="lazy"
+                                                    />
+                                                ) : (
+                                                    <div className="flex flex-col items-center justify-center w-full h-full gap-1 p-1">
+                                                        <FileText className="h-5 w-5 text-muted-foreground" />
+                                                        <span className="text-[8px] text-muted-foreground text-center break-all leading-tight line-clamp-2">{fn}</span>
+                                                    </div>
+                                                )}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setEventAssets((prev) => prev.filter((a) => a !== fn))}
+                                                className="absolute top-0.5 right-0.5 rounded-full bg-black/60 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+                                            >
+                                                <X className="h-3 w-3 text-white" />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
+
                         <div className="flex gap-2">
                             {isEdit && (
                                 <>
@@ -555,7 +606,7 @@ export function EventEditorDialog({
                                         className="flex items-center gap-1 px-2 py-1 rounded border border-border text-xs hover:bg-muted transition-colors disabled:opacity-50"
                                     >
                                         <Upload className="h-3 w-3" />
-                                        {uploadEventMedia.isPending ? 'Uploading…' : 'Upload New'}
+                                        {uploadEventMedia.isPending ? 'Uploading…' : 'Upload new'}
                                     </button>
                                 </>
                             )}
@@ -569,18 +620,22 @@ export function EventEditorDialog({
                                 onClick={() => setAssetPickerOpen(true)}
                                 className="flex items-center gap-1 px-2 py-1 rounded border border-border text-xs hover:bg-muted transition-colors"
                             >
-                                <Paperclip className="h-3 w-3" /> Pick Existing
+                                <Link2 className="h-3 w-3" /> Link existing
                             </button>
                         </div>
                     </div>
                 </div>
 
                 <AssetPickerDialog
-                    isOpen={assetPickerOpen}
-                    onClose={() => setAssetPickerOpen(false)}
-                    onSelect={(fn) => setEventAssets((prev) => prev.includes(fn) ? prev : [...prev, fn])}
+                    open={assetPickerOpen}
+                    onOpenChange={setAssetPickerOpen}
+                    onConfirm={(filenames) => setEventAssets((prev) => {
+                        const toAdd = filenames.filter(fn => !prev.includes(fn));
+                        return [...prev, ...toAdd];
+                    })}
                     excludeFilenames={eventAssets}
-                    title="Attach Existing Asset"
+                    title="Link Assets to Event"
+                    preloadPersonChip={personChip}
                 />
 
                 <DialogFooter>
@@ -594,7 +649,19 @@ export function EventEditorDialog({
                         {updatePerson.isPending ? 'Saving…' : isEdit ? 'Update' : 'Add Event'}
                     </Button>
                 </DialogFooter>
+
             </DialogContent>
         </Dialog>
+
+        {lightboxFile && createPortal(
+            <AssetLightbox
+                filename={lightboxFile}
+                allFilenames={visibleEventAssets}
+                onClose={() => setLightboxFile(null)}
+                onNavigate={(fn) => setLightboxFile(fn)}
+            />,
+            document.body
+        )}
+    </>
     );
 }

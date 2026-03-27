@@ -1,7 +1,8 @@
 import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { usePerson, useUpdatePerson, useDeleteAsset, useDeleteAssetPermanently, useAssets } from '@/api/hooks';
+import { usePerson, useUpdatePerson, useDeleteAsset, useDeleteAssetPermanently, useAssets, useLinkAsset } from '@/api/hooks';
 import type { AssetListItem } from '@/api/client';
 import { AssetLightbox } from '@/components/AssetLightbox';
+import { AssetPickerDialog } from '@/components/AssetPickerDialog';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { loadAvatarCrop, saveAvatarCrop, clearAvatarCrop } from '@/lib/avatarCrop';
 import { assetType, primaryImageAsset } from '@/lib/assetUtils';
@@ -30,7 +31,7 @@ import {
 import {
     Calendar, MapPin, Heart, Sunrise, Sunset, Leaf, GraduationCap, Briefcase, Church,
     Ship, ScrollText, FileText, Plus, ChevronRight, Image, BookOpen, Code,
-    Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2, Crop,
+    Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2, Crop, Link2,
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -105,6 +106,8 @@ function PersonDetail() {
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const deleteAssetMutation = useDeleteAsset();
     const deleteAssetPermanentlyMutation = useDeleteAssetPermanently();
+    const linkAsset = useLinkAsset();
+    const [assetPickerOpen, setAssetPickerOpen] = useState(false);
     const [showCropDialog, setShowCropDialog] = useState(false);
     const [avatarCrop, setAvatarCrop] = useState<CropArea | null>(null);
 
@@ -376,7 +379,7 @@ function PersonDetail() {
     };
 
     // --- Event editor ---
-    const openAddEvent = () => openEventDialog();
+    const openAddEvent = () => { openEventDialog(); };
 
     const openEditEvent = (timelineItem: Record<string, unknown>) => {
         // Timeline items have shape { type, sort_date, data: LegacyEvent }.
@@ -506,7 +509,7 @@ function PersonDetail() {
                             {birthDate ? (
                                 <button
                                     className="group flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-                                    onClick={() => openEventDialog('birth', events.findIndex((e) => e.type === 'birth'))}
+                                    onClick={() => { openEventDialog('birth', events.findIndex((e) => e.type === 'birth')); }}
                                     title="Edit birth event"
                                 >
                                     <Sunrise className="h-4 w-4 shrink-0" />
@@ -527,7 +530,7 @@ function PersonDetail() {
                             {deathDate ? (
                                 <button
                                     className="group flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-                                    onClick={() => openEventDialog('death', events.findIndex((e) => e.type === 'death'))}
+                                    onClick={() => { openEventDialog('death', events.findIndex((e) => e.type === 'death')); }}
                                     title="Edit death event"
                                 >
                                     <Sunset className="h-4 w-4 shrink-0" />
@@ -677,7 +680,7 @@ function PersonDetail() {
                             />
                             {/* Upload zone */}
                             <div
-                                className={`rounded-lg border-2 border-dashed transition-colors mb-3 flex flex-col items-center justify-center gap-2 py-4 text-xs text-muted-foreground ${
+                                className={`rounded-lg border-2 border-dashed transition-colors mb-2 flex flex-col items-center justify-center gap-2 py-4 text-xs text-muted-foreground ${
                                     isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground/40'
                                 }`}
                                 onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
@@ -694,6 +697,14 @@ function PersonDetail() {
                                     Browse files
                                 </button>
                             </div>
+                            {/* Link existing assets */}
+                            <button
+                                type="button"
+                                onClick={() => setAssetPickerOpen(true)}
+                                className="w-full mb-3 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                            >
+                                <Link2 className="h-3.5 w-3.5" /> Search existing assets
+                            </button>
                             {allAssets.length > 0 ? (
                                 <div className="grid grid-cols-2 gap-2">
                                     {allAssets.map((asset) => {
@@ -816,6 +827,23 @@ function PersonDetail() {
                 </ResizablePanel>
             </ResizablePanelGroup>
 
+            {/* Link existing assets picker */}
+            <AssetPickerDialog
+                open={assetPickerOpen}
+                onOpenChange={setAssetPickerOpen}
+                onConfirm={(filenames) => {
+                    Promise.all(
+                        filenames.map(fn => linkAsset.mutateAsync({ personId: id, filename: fn }))
+                    ).then(() => {
+                        toast.success(filenames.length === 1 ? '1 asset linked.' : `${filenames.length} assets linked.`);
+                    }).catch(() => {
+                        toast.error('Some assets could not be linked.');
+                    });
+                }}
+                excludeFilenames={person?.assets as string[] ?? []}
+                title="Link existing assets"
+            />
+
             {/* Asset Lightbox */}
             {lightboxAsset && (() => {
                 const lbAssets = (person.assets as string[]);
@@ -851,6 +879,7 @@ function PersonDetail() {
                 isOpen={eventDialogOpen}
                 onClose={() => { setEventDialogOpen(false); setEditingEventIndex(undefined); setEventInitialType(undefined); }}
                 personId={id}
+                personChip={{ id, name: displayName }}
                 existingEvent={existingEvent}
                 existingEventIndex={editingEventIndex}
                 currentEvents={events}
