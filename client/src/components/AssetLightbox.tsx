@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 
 // Inline place search combobox (mirrors EventEditorDialog pattern)
-function PlaceCombobox({
+export function PlaceCombobox({
     value,
     onChange,
     onSelect,
@@ -93,7 +93,7 @@ export interface AssetLightboxProps {
     assetData?: AssetListItem;
     /** Extra content rendered as an absolute overlay on the left panel (e.g. primary photo bar) */
     overlayContent?: ReactNode;
-    /** Called when the user confirms deletion of an orphan asset */
+    /** Called when user clicks the delete button — parent shows the confirmation dialog */
     onDeleteRequest?: (filename: string) => void;
 }
 
@@ -168,8 +168,8 @@ export function AssetLightbox({
         const handler = (e: KeyboardEvent) => {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
             if (e.key === 'Escape') { onClose(); return; }
-            if (e.key === 'ArrowLeft' && hasPrev) onNavigate(allFilenames[currentIdx - 1]);
-            if (e.key === 'ArrowRight' && hasNext) onNavigate(allFilenames[currentIdx + 1]);
+            if (e.key === 'ArrowLeft') { e.preventDefault(); if (hasPrev) onNavigate(allFilenames[currentIdx - 1]); }
+            if (e.key === 'ArrowRight') { e.preventDefault(); if (hasNext) onNavigate(allFilenames[currentIdx + 1]); }
         };
         document.addEventListener('keydown', handler);
         return () => document.removeEventListener('keydown', handler);
@@ -566,17 +566,20 @@ export function AssetLightbox({
                         )}
                     </div>
 
-                    {/* Footer: orphan delete */}
-                    {assetData?.isOrphan && onDeleteRequest && (
+                    {/* Footer: delete */}
+                    {onDeleteRequest && (
                         <div className="p-3 border-t border-border space-y-2">
-                            <Badge variant="destructive" className="text-xs w-full justify-center">Orphan — not linked to anyone</Badge>
+                            {assetData?.isOrphan && (
+                                <Badge variant="destructive" className="text-xs w-full justify-center">Unlinked — not attached to anyone</Badge>
+                            )}
                             <Button
                                 variant="destructive"
                                 size="sm"
                                 className="w-full h-7 text-xs"
-                                onClick={() => { onDeleteRequest(filename); onClose(); }}
+                                onClick={() => { onDeleteRequest(filename); }}
                             >
-                                <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete file
+                                <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                {assetData?.isOrphan ? 'Delete asset' : 'Delete asset…'}
                             </Button>
                         </div>
                     )}

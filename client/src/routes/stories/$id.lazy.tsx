@@ -749,7 +749,10 @@ function StoryPage() {
                         ) : (
                             <>
                                 {!!fm.date && (
-                                    <span className="h-7 flex items-center gap-1 text-sm text-muted-foreground">
+                                    <span
+                                        className="h-7 flex items-center gap-1 text-sm text-muted-foreground"
+                                        title="When this story occurred"
+                                    >
                                         <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                                         {fm.date}
                                     </span>
@@ -804,6 +807,12 @@ function StoryPage() {
                     </div>
 
                     {filmstrip}
+
+                    {!isEditMode && story?.metadata.modified_at && (
+                        <p className="text-[10px] text-muted-foreground/50 mt-4 text-right">
+                            Last edited {new Date(story.metadata.modified_at).toLocaleDateString()}
+                        </p>
+                    )}
                 </div>
             </div>
 

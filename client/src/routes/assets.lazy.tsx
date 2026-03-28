@@ -4,12 +4,15 @@ import { ExternalLink } from 'lucide-react';
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useAssets, useDeleteGalleryAsset } from '@/api/hooks';
+import { useQueryClient } from '@tanstack/react-query';
 import type { AssetListItem } from '@/api/client';
 import type { AssetsQueryParams } from '@/api/client';
 import { assetType } from '@/lib/assetUtils';
 import { AssetLightbox } from '@/components/AssetLightbox';
+import { AssetSearchBar } from '@/components/AssetSearchBar';
+import type { PersonChipData } from '@/components/AssetSearchBar';
+import { BulkUploadDialog } from '@/components/BulkUploadDialog';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import {
     Dialog,
     DialogContent,
@@ -20,7 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import {
-    Search, FileText, Trash2, ZoomIn,
+    FileText, Trash2, ZoomIn, Upload,
     ArrowUpDown, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -50,10 +53,10 @@ function fileDisplayName(filename: string, name?: string): string {
 interface AssetCardProps {
     asset: AssetListItem;
     onOpen: (filename: string) => void;
-    onDelete: (filename: string) => void;
+    onDeleteRequest: (filename: string) => void;
 }
 
-function AssetCard({ asset, onOpen, onDelete }: AssetCardProps) {
+function AssetCard({ asset, onOpen, onDeleteRequest }: AssetCardProps) {
     const type = assetType(asset.filename);
     const isImg = type === 'image';
     const ext = asset.filename.split('.').pop()?.toUpperCase() ?? 'FILE';
@@ -79,7 +82,7 @@ function AssetCard({ asset, onOpen, onDelete }: AssetCardProps) {
 
                 {asset.isOrphan && (
                     <div className="absolute top-1.5 left-1.5">
-                        <Badge variant="destructive" className="text-[9px] px-1.5 py-0">Orphan</Badge>
+                        <Badge variant="destructive" className="text-[9px] px-1.5 py-0">Unlinked</Badge>
                     </div>
                 )}
 
@@ -92,16 +95,14 @@ function AssetCard({ asset, onOpen, onDelete }: AssetCardProps) {
                     >
                         <ZoomIn className="h-4 w-4" />
                     </button>
-                    {asset.isOrphan && (
-                        <button
-                            type="button"
-                            title="Delete orphan"
-                            onClick={() => onDelete(asset.filename)}
-                            className="p-1.5 rounded-full bg-white/20 hover:bg-red-500/70 text-white"
-                        >
-                            <Trash2 className="h-4 w-4" />
-                        </button>
-                    )}
+                    <button
+                        type="button"
+                        title="Delete asset"
+                        onClick={() => onDeleteRequest(asset.filename)}
+                        className="p-1.5 rounded-full bg-white/20 hover:bg-red-500/70 text-white"
+                    >
+                        <Trash2 className="h-4 w-4" />
+                    </button>
                 </div>
             </div>
 
@@ -164,18 +165,21 @@ function AssetCard({ asset, onOpen, onDelete }: AssetCardProps) {
 
 // ── AssetGallery page ──────────────────────────────────────────────────────
 
-type SortKey = 'name' | 'size' | 'date';
+type SortKey = 'name' | 'size' | 'date' | 'created' | 'modified';
 type TypeFilter = 'all' | 'image' | 'document';
 
 function AssetGallery() {
+    const queryClient = useQueryClient();
     const [query, setQuery] = useState('');
     const [debouncedQ, setDebouncedQ] = useState('');
+    const [chips, setChips] = useState<PersonChipData[]>([]);
     const [orphansOnly, setOrphansOnly] = useState(false);
     const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
     const [sort, setSort] = useState<SortKey>('name');
     const [order, setOrder] = useState<'asc' | 'desc'>('asc');
     const [detailFile, setDetailFile] = useState<string | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+    const [uploadOpen, setUploadOpen] = useState(false);
 
     const parentRef = useRef<HTMLDivElement>(null);
 
@@ -187,6 +191,7 @@ function AssetGallery() {
 
     const queryParams: AssetsQueryParams = {
         q: debouncedQ || undefined,
+        personIds: chips.length > 0 ? chips.map((c) => c.id) : undefined,
         type: typeFilter,
         sort,
         order,
@@ -211,12 +216,18 @@ function AssetGallery() {
         overscan: 3,
     });
 
-    const handleDelete = (filename: string) => {
-        deleteAsset.mutate(filename, {
-            onSuccess: () => toast.success(`Deleted ${filename}`),
+    const handleDelete = (filename: string, force: boolean) => {
+        const wasOpen = detailFile === filename;
+        const idx = filtered.findIndex(a => a.filename === filename);
+        const next = filtered[idx + 1]?.filename ?? filtered[idx - 1]?.filename ?? null;
+        setDeleteTarget(null);
+        deleteAsset.mutate({ filename, force }, {
+            onSuccess: () => {
+                toast.success(`Deleted ${filename}`);
+                if (wasOpen) setDetailFile(next);
+            },
             onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to delete'),
         });
-        setDeleteTarget(null);
     };
 
     const handleNavigate = (filename: string) => setDetailFile(filename);
@@ -224,6 +235,8 @@ function AssetGallery() {
     const SortIcon = order === 'asc' ? ArrowUp : ArrowDown;
 
     const detailAsset = detailFile ? allAssets.find(a => a.filename === detailFile) ?? null : null;
+    const deleteTargetAsset = deleteTarget ? allAssets.find(a => a.filename === deleteTarget) ?? null : null;
+    const isOrphanDelete = deleteTargetAsset?.isOrphan ?? true;
 
     return (
         <div className="flex flex-col h-full">
@@ -232,15 +245,13 @@ function AssetGallery() {
                 <h1 className="text-base font-semibold shrink-0">Assets</h1>
 
                 {/* Search */}
-                <div className="relative flex-1 max-w-xs">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                    <Input
-                        placeholder="Search by name, description, person…"
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        className="pl-7 h-8 text-sm"
-                    />
-                </div>
+                <AssetSearchBar
+                    textValue={query}
+                    onTextChange={setQuery}
+                    selectedPeople={chips}
+                    onAddPerson={(id, name) => setChips((prev) => prev.some((c) => c.id === id) ? prev : [...prev, { id, name }])}
+                    onRemovePerson={(id) => setChips((prev) => prev.filter((c) => c.id !== id))}
+                />
 
                 {/* Type filter */}
                 <div className="flex gap-1">
@@ -270,12 +281,20 @@ function AssetGallery() {
                             : 'bg-muted text-muted-foreground hover:bg-muted/80'
                     }`}
                 >
-                    Orphans
+                    Unlinked
                 </button>
 
                 {/* Sort */}
                 <div className="flex items-center gap-1">
-                    {(['name', 'size', 'date'] as const).map((s) => (
+                    {(
+                        [
+                            { key: 'name', label: 'Name' },
+                            { key: 'size', label: 'Size' },
+                            { key: 'date', label: 'Date taken' },
+                            { key: 'created', label: 'Added' },
+                            { key: 'modified', label: 'Edited' },
+                        ] as const
+                    ).map(({ key: s, label }) => (
                         <button
                             key={s}
                             type="button"
@@ -289,7 +308,7 @@ function AssetGallery() {
                                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                             }`}
                         >
-                            {s === 'name' ? 'Name' : s === 'size' ? 'Size' : 'Date'}
+                            {label}
                             {sort === s
                                 ? <SortIcon className="h-3 w-3" />
                                 : <ArrowUpDown className="h-3 w-3 opacity-40" />
@@ -297,6 +316,11 @@ function AssetGallery() {
                         </button>
                     ))}
                 </div>
+
+                <Button size="sm" variant="outline" className="shrink-0" onClick={() => setUploadOpen(true)}>
+                    <Upload className="h-3.5 w-3.5 mr-1.5" />
+                    Upload
+                </Button>
 
                 <span className="ml-auto text-xs text-muted-foreground shrink-0">
                     {filtered.length} {filtered.length !== (data?.totalCount ?? 0) ? `/ ${data?.totalCount ?? 0}` : ''}
@@ -334,7 +358,7 @@ function AssetGallery() {
                                             key={asset.filename}
                                             asset={asset}
                                             onOpen={setDetailFile}
-                                            onDelete={setDeleteTarget}
+                                            onDeleteRequest={setDeleteTarget}
                                         />
                                     ))}
                                 </div>
@@ -343,6 +367,13 @@ function AssetGallery() {
                     </div>
                 )}
             </div>
+
+            {/* Bulk Upload Dialog */}
+            <BulkUploadDialog
+                open={uploadOpen}
+                onOpenChange={setUploadOpen}
+                onSuccess={() => queryClient.invalidateQueries({ queryKey: ['assets'] })}
+            />
 
             {/* Asset Lightbox */}
             {detailAsset && (
@@ -361,17 +392,40 @@ function AssetGallery() {
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Delete asset?</DialogTitle>
-                        <DialogDescription>
-                            This will permanently delete <strong>{deleteTarget}</strong> from disk. This action cannot be undone.
-                        </DialogDescription>
+                        {isOrphanDelete ? (
+                            <DialogDescription>
+                                This will permanently delete <strong>{deleteTarget}</strong> from disk. This action cannot be undone.
+                            </DialogDescription>
+                        ) : (
+                            <DialogDescription asChild>
+                                <div className="space-y-2">
+                                    <p>
+                                        <strong>{deleteTarget}</strong> is still linked to{' '}
+                                        {deleteTargetAsset && deleteTargetAsset.referencedBy.people.length > 0 && (
+                                            <span>{deleteTargetAsset.referencedBy.people.length} {deleteTargetAsset.referencedBy.people.length === 1 ? 'person' : 'people'}</span>
+                                        )}
+                                        {deleteTargetAsset && deleteTargetAsset.referencedBy.people.length > 0 && deleteTargetAsset.referencedBy.stories.length > 0 && ' and '}
+                                        {deleteTargetAsset && deleteTargetAsset.referencedBy.stories.length > 0 && (
+                                            <span>{deleteTargetAsset.referencedBy.stories.length} {deleteTargetAsset.referencedBy.stories.length === 1 ? 'story' : 'stories'}</span>
+                                        )}.
+                                    </p>
+                                    <p>Deleting it will remove all these links and permanently delete the file from disk. This action cannot be undone.</p>
+                                </div>
+                            </DialogDescription>
+                        )}
                     </DialogHeader>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
                         <Button
                             variant="destructive"
-                            onClick={() => deleteTarget && handleDelete(deleteTarget)}
+                            disabled={deleteAsset.isPending}
+                            onClick={() => deleteTarget && handleDelete(deleteTarget, !isOrphanDelete)}
                         >
-                            Delete
+                            {deleteAsset.isPending
+                                ? 'Deleting…'
+                                : isOrphanDelete
+                                    ? 'Delete'
+                                    : 'Delete & unlink all'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

@@ -356,6 +356,36 @@ describe('Assets API', () => {
         expect(res.body.code).toBe('ASSET_NOT_FOUND');
     });
 
+    it('DELETE /api/assets/:filename?force=true deletes file and removes from person assets[]', async () => {
+        writeTestAsset();
+
+        const createRes = await request.post('/api/people').send({
+            names: [{ first: 'Force', last: 'Delete' }],
+            sex: 'U',
+            assets: [TEST_ASSET],
+        });
+        expect(createRes.status).toBe(201);
+        const personId = createRes.body.id;
+
+        const res = await request.delete(`/api/assets/${TEST_ASSET}?force=true`);
+        expect(res.status).toBe(204);
+        expect(fs.existsSync(TEST_ASSET_PATH)).toBe(false);
+
+        // Person should no longer reference the deleted asset
+        const personRes = await request.get(`/api/people/${personId}`);
+        expect(personRes.status).toBe(200);
+        expect(personRes.body.assets).not.toContain(TEST_ASSET);
+
+        // Cleanup
+        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+    });
+
+    it('DELETE /api/assets/:filename?force=true still returns 404 for missing file', async () => {
+        const res = await request.delete('/api/assets/does-not-exist.png?force=true');
+        expect(res.status).toBe(404);
+        expect(res.body.code).toBe('ASSET_NOT_FOUND');
+    });
+
     // ── POST /api/people/:id/assets/link ─────────────────────────────────────
 
     it('POST /api/people/:id/assets/link links an existing asset', async () => {
@@ -457,6 +487,104 @@ describe('Assets API', () => {
         fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
 
+    // ── GET /api/assets?personIds= ───────────────────────────────────────────
+
+    describe('GET /api/assets with personIds filter', () => {
+        it('returns only assets tagged with a specific person', async () => {
+            writeTestAsset('test-asset-person-a.png');
+            writeTestAsset('test-asset-person-b.png');
+
+            const personARes = await request.post('/api/people').send({
+                names: [{ first: 'PersonA', last: 'Filter' }],
+                sex: 'U',
+                assets: ['test-asset-person-a.png'],
+            });
+            expect(personARes.status).toBe(201);
+            const personAId = personARes.body.id;
+
+            const personBRes = await request.post('/api/people').send({
+                names: [{ first: 'PersonB', last: 'Filter' }],
+                sex: 'U',
+                assets: ['test-asset-person-b.png'],
+            });
+            expect(personBRes.status).toBe(201);
+            const personBId = personBRes.body.id;
+
+            const res = await request.get(`/api/assets?personIds=${personAId}`);
+            expect(res.status).toBe(200);
+
+            const filenames = res.body.assets.map((a: any) => a.filename);
+            expect(filenames).toContain('test-asset-person-a.png');
+            expect(filenames).not.toContain('test-asset-person-b.png');
+
+            // Cleanup
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personAId}.yaml`));
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personBId}.yaml`));
+            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-person-a.png')); } catch { /* ignore */ }
+            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-person-b.png')); } catch { /* ignore */ }
+        });
+
+        it('returns only assets tagged with ALL specified people (AND filter)', async () => {
+            writeTestAsset('test-asset-shared.png');
+            writeTestAsset('test-asset-only-first.png');
+
+            const firstRes = await request.post('/api/people').send({
+                names: [{ first: 'AndFirst', last: 'Filter' }],
+                sex: 'U',
+                assets: ['test-asset-shared.png', 'test-asset-only-first.png'],
+            });
+            expect(firstRes.status).toBe(201);
+            const firstId = firstRes.body.id;
+
+            const secondRes = await request.post('/api/people').send({
+                names: [{ first: 'AndSecond', last: 'Filter' }],
+                sex: 'U',
+                assets: ['test-asset-shared.png'],
+            });
+            expect(secondRes.status).toBe(201);
+            const secondId = secondRes.body.id;
+
+            const res = await request.get(`/api/assets?personIds=${firstId},${secondId}`);
+            expect(res.status).toBe(200);
+
+            const filenames = res.body.assets.map((a: any) => a.filename);
+            expect(filenames).toContain('test-asset-shared.png');
+            expect(filenames).not.toContain('test-asset-only-first.png');
+
+            // Cleanup
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${firstId}.yaml`));
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${secondId}.yaml`));
+            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-shared.png')); } catch { /* ignore */ }
+            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-only-first.png')); } catch { /* ignore */ }
+        });
+
+        it('personIds filter combines with text search q', async () => {
+            writeTestAsset('test-asset-combo-alpha.png');
+            writeTestAsset('test-asset-combo-beta.png');
+
+            const personRes = await request.post('/api/people').send({
+                names: [{ first: 'ComboFilter', last: 'Person' }],
+                sex: 'U',
+                assets: ['test-asset-combo-alpha.png', 'test-asset-combo-beta.png'],
+            });
+            expect(personRes.status).toBe(201);
+            const personId = personRes.body.id;
+
+            // q=alpha only matches the alpha file (beta does not contain alpha as substring)
+            const res = await request.get(`/api/assets?personIds=${personId}&q=alpha`);
+            expect(res.status).toBe(200);
+
+            const filenames = res.body.assets.map((a: any) => a.filename);
+            expect(filenames).toContain('test-asset-combo-alpha.png');
+            expect(filenames).not.toContain('test-asset-combo-beta.png');
+
+            // Cleanup
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-combo-alpha.png')); } catch { /* ignore */ }
+            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-combo-beta.png')); } catch { /* ignore */ }
+        });
+    });
+
     // ── DELETE /api/people/:id/assets/link/:filename ─────────────────────────
 
     it('DELETE /api/people/:id/assets/link/:filename unlinks asset from person.assets[]', async () => {
@@ -504,5 +632,344 @@ describe('Assets API', () => {
 
         // Cleanup
         fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+    });
+
+    // ── Timestamps ──────────────────────────────────────────────────────────
+
+    it('PUT /api/assets/:filename/meta sets created_at and modified_at on first write', async () => {
+        writeTestAsset();
+        const before = new Date().toISOString();
+
+        const res = await request
+            .put(`/api/assets/${TEST_ASSET}/meta`)
+            .send({ description: 'timestamp test' });
+
+        const after = new Date().toISOString();
+        expect(res.status).toBe(200);
+        expect(typeof res.body.created_at).toBe('string');
+        expect(typeof res.body.modified_at).toBe('string');
+        expect(res.body.created_at >= before).toBe(true);
+        expect(res.body.created_at <= after).toBe(true);
+        expect(res.body.modified_at).toBe(res.body.created_at);
+    });
+
+    it('PUT /api/assets/:filename/meta updates modified_at but preserves created_at on subsequent writes', async () => {
+        writeTestAsset();
+
+        const first = await request
+            .put(`/api/assets/${TEST_ASSET}/meta`)
+            .send({ description: 'first write' });
+        expect(first.status).toBe(200);
+        const originalCreatedAt = first.body.created_at;
+        expect(typeof originalCreatedAt).toBe('string');
+
+        await new Promise(r => setTimeout(r, 15));
+
+        const second = await request
+            .put(`/api/assets/${TEST_ASSET}/meta`)
+            .send({ description: 'second write' });
+        expect(second.status).toBe(200);
+        expect(second.body.created_at).toBe(originalCreatedAt);
+        expect(second.body.modified_at > originalCreatedAt).toBe(true);
+    });
+
+    it('GET /api/assets?sort=created&order=desc returns most recently added first', async () => {
+        writeTestAsset('test-asset-ts-first.png');
+        await new Promise(r => setTimeout(r, 15));
+        writeTestAsset('test-asset-ts-second.png');
+
+        // Write timestamps via meta PUT
+        await request.put('/api/assets/test-asset-ts-first.png/meta').send({ description: 'first' });
+        await new Promise(r => setTimeout(r, 15));
+        await request.put('/api/assets/test-asset-ts-second.png/meta').send({ description: 'second' });
+
+        const res = await request.get('/api/assets?sort=created&order=desc');
+        expect(res.status).toBe(200);
+
+        const testAssets = (res.body.assets as any[]).filter(a =>
+            a.filename === 'test-asset-ts-first.png' || a.filename === 'test-asset-ts-second.png'
+        );
+        expect(testAssets.length).toBe(2);
+        // second was created last, so it should appear first in desc order
+        expect(testAssets[0].filename).toBe('test-asset-ts-second.png');
+        expect(testAssets[1].filename).toBe('test-asset-ts-first.png');
+
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-ts-first.png')); } catch { /* ignore */ }
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-ts-second.png')); } catch { /* ignore */ }
+    });
+
+    it('GET /api/assets?sort=modified returns most recently edited first by default', async () => {
+        writeTestAsset('test-asset-mod-a.png');
+        writeTestAsset('test-asset-mod-b.png');
+
+        await request.put('/api/assets/test-asset-mod-a.png/meta').send({ description: 'a' });
+        await request.put('/api/assets/test-asset-mod-b.png/meta').send({ description: 'b' });
+        await new Promise(r => setTimeout(r, 15));
+        // Update a — it should now have newest modified_at
+        await request.put('/api/assets/test-asset-mod-a.png/meta').send({ description: 'a updated' });
+
+        const res = await request.get('/api/assets?sort=modified&order=desc');
+        expect(res.status).toBe(200);
+
+        const testAssets = (res.body.assets as any[]).filter(a =>
+            a.filename === 'test-asset-mod-a.png' || a.filename === 'test-asset-mod-b.png'
+        );
+        expect(testAssets.length).toBe(2);
+        expect(testAssets[0].filename).toBe('test-asset-mod-a.png');
+
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-mod-a.png')); } catch { /* ignore */ }
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-mod-b.png')); } catch { /* ignore */ }
+    });
+
+    it('GET /api/assets assets without created_at sort last for sort=created desc', async () => {
+        // Write an asset WITHOUT going through meta PUT (no timestamps)
+        writeTestAsset('test-asset-no-ts.png');
+        // Write an asset WITH timestamps via meta PUT
+        writeTestAsset('test-asset-with-ts.png');
+        await request.put('/api/assets/test-asset-with-ts.png/meta').send({ description: 'has ts' });
+
+        const res = await request.get('/api/assets?sort=created&order=desc');
+        expect(res.status).toBe(200);
+
+        const testAssets = (res.body.assets as any[]).filter(a =>
+            a.filename === 'test-asset-no-ts.png' || a.filename === 'test-asset-with-ts.png'
+        );
+        expect(testAssets.length).toBe(2);
+        // with-ts should appear before no-ts (nulls last)
+        expect(testAssets[0].filename).toBe('test-asset-with-ts.png');
+        expect(testAssets[1].filename).toBe('test-asset-no-ts.png');
+
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-no-ts.png')); } catch { /* ignore */ }
+        try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-with-ts.png')); } catch { /* ignore */ }
+    });
+
+    it('GET /api/assets response includes created_at and modified_at in metadata', async () => {
+        writeTestAsset();
+        await request.put(`/api/assets/${TEST_ASSET}/meta`).send({ description: 'include ts' });
+
+        const res = await request.get('/api/assets');
+        expect(res.status).toBe(200);
+        const item = res.body.assets.find((a: any) => a.filename === TEST_ASSET);
+        expect(item).toBeDefined();
+        expect(typeof item.metadata.created_at).toBe('string');
+        expect(typeof item.metadata.modified_at).toBe('string');
+    });
+
+    // ── POST /api/assets/upload ──────────────────────────────────────────────
+
+    describe('POST /api/assets/upload', () => {
+        const PNG_BUF = Buffer.from(
+            '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6260000000020001e221bc330000000049454e44ae426082',
+            'hex'
+        );
+
+        it('single PNG → 200, filename in uploaded[], file on disk, assets.yaml seeded', async () => {
+            const res = await request
+                .post('/api/assets/upload')
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-single.png', contentType: 'image/png' });
+
+            expect(res.status).toBe(200);
+            expect(Array.isArray(res.body.uploaded)).toBe(true);
+            expect(res.body.uploaded.length).toBe(1);
+            const { filename, originalName } = res.body.uploaded[0];
+            expect(typeof filename).toBe('string');
+            expect(originalName).toBe('test-asset-upload-single.png');
+            expect(fs.existsSync(path.join(ASSETS_DIR, filename))).toBe(true);
+            expect(fs.existsSync(path.join(META_DIR, 'assets.yaml'))).toBe(true);
+        });
+
+        it('3 files → all 3 in uploaded[]', async () => {
+            const res = await request
+                .post('/api/assets/upload')
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-a.png', contentType: 'image/png' })
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-b.png', contentType: 'image/png' })
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-c.png', contentType: 'image/png' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.uploaded.length).toBe(3);
+            const names = (res.body.uploaded as any[]).map((u) => u.originalName);
+            expect(names).toContain('test-asset-upload-a.png');
+            expect(names).toContain('test-asset-upload-b.png');
+            expect(names).toContain('test-asset-upload-c.png');
+        });
+
+        it('filename collision → second upload gets -1 suffix', async () => {
+            writeTestAsset('test-asset-upload-collision.png');
+
+            const res = await request
+                .post('/api/assets/upload')
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-collision.png', contentType: 'image/png' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.uploaded.length).toBe(1);
+            expect(res.body.uploaded[0].filename).toBe('test-asset-upload-collision-1.png');
+        });
+
+        it('disallowed MIME (.exe) + valid PNG → .exe in rejected[], PNG in uploaded[], HTTP 200', async () => {
+            const res = await request
+                .post('/api/assets/upload')
+                .attach('files', Buffer.from('MZ'), { filename: 'test-asset-upload-bad.exe', contentType: 'application/octet-stream' })
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-good.png', contentType: 'image/png' });
+
+            expect(res.status).toBe(200);
+            const rejectedNames = (res.body.rejected as any[]).map((r) => r.originalName);
+            const uploadedNames = (res.body.uploaded as any[]).map((u) => u.originalName);
+            expect(rejectedNames).toContain('test-asset-upload-bad.exe');
+            expect(uploadedNames).toContain('test-asset-upload-good.png');
+        });
+
+        it('empty body → 400 VALIDATION_ERROR', async () => {
+            const res = await request.post('/api/assets/upload');
+            expect(res.status).toBe(400);
+            expect(res.body.code).toBe('VALIDATION_ERROR');
+        });
+
+        it('two files → both appear in assets.yaml with created_at set', async () => {
+            const res = await request
+                .post('/api/assets/upload')
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-ts1.png', contentType: 'image/png' })
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-ts2.png', contentType: 'image/png' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.uploaded.length).toBe(2);
+
+            const listRes = await request.get('/api/assets');
+            expect(listRes.status).toBe(200);
+            for (const { filename } of res.body.uploaded as Array<{ filename: string; originalName: string }>) {
+                const item = (listRes.body.assets as any[]).find((a) => a.filename === filename);
+                expect(item).toBeDefined();
+                expect(typeof item.metadata.created_at).toBe('string');
+            }
+        });
+    });
+
+    // ── PUT /api/people/:id/events/:eventId/media ────────────────────────────
+
+    describe('PUT /api/people/:id/events/:eventId/media', () => {
+        const PNG_BUF = Buffer.from(
+            '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6260000000020001e221bc330000000049454e44ae426082',
+            'hex'
+        );
+        const TEST_EVENT_ID = 'test-event-id-upload';
+
+        it('links uploaded file to person.assets[] in addition to event.assets[]', async () => {
+            const createRes = await request.post('/api/people').send({
+                names: [{ first: 'EventUpload', last: 'Test' }],
+                sex: 'U',
+                events: [{ type: 'birth', id: TEST_EVENT_ID }],
+            });
+            expect(createRes.status).toBe(201);
+            const personId = createRes.body.id;
+
+            const uploadRes = await request
+                .put(`/api/people/${personId}/events/${TEST_EVENT_ID}/media`)
+                .attach('file', PNG_BUF, { filename: 'test-asset-event-upload.png', contentType: 'image/png' });
+
+            expect(uploadRes.status).toBe(200);
+            const { filename } = uploadRes.body;
+            expect(typeof filename).toBe('string');
+
+            // File should appear in person.assets[]
+            const personRes = await request.get(`/api/people/${personId}`);
+            expect(personRes.status).toBe(200);
+            expect(personRes.body.assets).toContain(filename);
+
+            // File should also be in the event.assets[]
+            const event = (personRes.body.events as any[]).find((e: any) => e.id === TEST_EVENT_ID);
+            expect(event).toBeDefined();
+            expect(event.assets).toContain(filename);
+
+            // Cleanup
+            try { fs.unlinkSync(path.join(ASSETS_DIR, filename)); } catch { /* ignore */ }
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+        });
+
+        it('does not duplicate person.assets[] on second upload to same event', async () => {
+            const createRes = await request.post('/api/people').send({
+                names: [{ first: 'EventDupeCheck', last: 'Test' }],
+                sex: 'U',
+                events: [{ type: 'birth', id: TEST_EVENT_ID }],
+            });
+            expect(createRes.status).toBe(201);
+            const personId = createRes.body.id;
+
+            const up1 = await request
+                .put(`/api/people/${personId}/events/${TEST_EVENT_ID}/media`)
+                .attach('file', PNG_BUF, { filename: 'test-asset-event-dupe1.png', contentType: 'image/png' });
+            const up2 = await request
+                .put(`/api/people/${personId}/events/${TEST_EVENT_ID}/media`)
+                .attach('file', PNG_BUF, { filename: 'test-asset-event-dupe2.png', contentType: 'image/png' });
+
+            expect(up1.status).toBe(200);
+            expect(up2.status).toBe(200);
+
+            const personRes = await request.get(`/api/people/${personId}`);
+            const assets: string[] = personRes.body.assets;
+            // Each filename should appear exactly once in person.assets[]
+            const count1 = assets.filter(a => a === up1.body.filename).length;
+            const count2 = assets.filter(a => a === up2.body.filename).length;
+            expect(count1).toBe(1);
+            expect(count2).toBe(1);
+
+            // Cleanup
+            try { fs.unlinkSync(path.join(ASSETS_DIR, up1.body.filename)); } catch { /* ignore */ }
+            try { fs.unlinkSync(path.join(ASSETS_DIR, up2.body.filename)); } catch { /* ignore */ }
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+        });
+    });
+
+    // ── DELETE /api/assets/:filename?force=true cleans event.assets[] ───────
+
+    describe('DELETE /api/assets/:filename?force=true event cleanup', () => {
+        it('removes filename from event.assets[] when force-deleting', async () => {
+            writeTestAsset();
+
+            const createRes = await request.post('/api/people').send({
+                names: [{ first: 'EventForce', last: 'Delete' }],
+                sex: 'U',
+                events: [{ type: 'census', id: 'test-event-force-del', assets: [TEST_ASSET] }],
+            });
+            expect(createRes.status).toBe(201);
+            const personId = createRes.body.id;
+
+            // Verify the event has the asset
+            const before = await request.get(`/api/people/${personId}`);
+            const eventBefore = (before.body.events as any[]).find((e: any) => e.id === 'test-event-force-del');
+            expect(eventBefore?.assets).toContain(TEST_ASSET);
+
+            // Force-delete the asset
+            const delRes = await request.delete(`/api/assets/${TEST_ASSET}?force=true`);
+            expect(delRes.status).toBe(204);
+            expect(fs.existsSync(TEST_ASSET_PATH)).toBe(false);
+
+            // Event should no longer reference the asset
+            const after = await request.get(`/api/people/${personId}`);
+            expect(after.status).toBe(200);
+            const eventAfter = (after.body.events as any[]).find((e: any) => e.id === 'test-event-force-del');
+            expect(eventAfter?.assets).not.toContain(TEST_ASSET);
+
+            // Cleanup
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+        });
+
+        it('returns 409 (not 200) when asset is only in event.assets[] and force is false', async () => {
+            writeTestAsset();
+
+            const createRes = await request.post('/api/people').send({
+                names: [{ first: 'EventNoForce', last: 'Delete' }],
+                sex: 'U',
+                events: [{ type: 'census', id: 'test-event-no-force', assets: [TEST_ASSET] }],
+            });
+            expect(createRes.status).toBe(201);
+            const personId = createRes.body.id;
+
+            const delRes = await request.delete(`/api/assets/${TEST_ASSET}`);
+            expect(delRes.status).toBe(409);
+            expect(delRes.body.code).toBe('ASSET_REFERENCED');
+            expect(fs.existsSync(TEST_ASSET_PATH)).toBe(true);
+
+            // Cleanup
+            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
+        });
     });
 });

@@ -3,8 +3,12 @@ import * as path from 'path';
 import yaml from 'js-yaml';
 import sharp from 'sharp';
 import exifReader from 'exif-reader';
+import { Mutex } from 'async-mutex';
 import { AssetIndexSchema } from '../schemas/AssetSchema';
 import type { Place } from '../schemas/PlaceSchema';
+
+// Serializes all load → modify → save cycles for assets.yaml to prevent lost updates under concurrent uploads.
+const assetIndexMutex = new Mutex();
 
 const META_REL = path.join('_meta', 'assets.yaml');
 
@@ -117,4 +121,25 @@ export async function extractExifDate(filepath: string): Promise<string | null> 
     } catch {
         return null;
     }
+}
+
+/**
+ * Atomically insert a new entry into assets.yaml only if it doesn't already exist.
+ * Serialized by assetIndexMutex to prevent lost updates under concurrent uploads.
+ */
+export async function upsertAssetEntry(
+    dataDir: string,
+    filename: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    entry: Record<string, any>,
+    txManager: { writeFile: (rel: string, content: string, label: string) => Promise<void> },
+): Promise<void> {
+    await assetIndexMutex.runExclusive(async () => {
+        const index = await loadAssetIndex(dataDir);
+        if (!index[filename]) {
+            const now = (entry.created_at as string | undefined) ?? new Date().toISOString();
+            index[filename] = { ...entry, created_at: now, modified_at: now };
+            await saveAssetIndex(dataDir, index, txManager);
+        }
+    });
 }

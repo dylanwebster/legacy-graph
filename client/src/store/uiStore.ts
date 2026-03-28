@@ -1,25 +1,25 @@
 import { create } from 'zustand';
 
-type StoriesSortMode = 'newest' | 'oldest' | 'alpha';
+export type StoriesSortKey = 'date' | 'alpha' | 'created' | 'modified';
 
 interface UIState {
     sidebarOpen: boolean;
     searchOpen: boolean;
     theme: 'dark' | 'light';
     storiesFeedFilter: string;
-    storiesFeedSort: StoriesSortMode;
+    storiesFeedSortKey: StoriesSortKey;
+    storiesFeedSortOrder: 'asc' | 'desc';
     toggleSidebar: () => void;
     setSearchOpen: (open: boolean) => void;
     toggleTheme: () => void;
-    setStoriesFeed: (filter: string, sort: StoriesSortMode) => void;
+    setStoriesFeed: (filter: string, sortKey: StoriesSortKey, sortOrder: 'asc' | 'desc') => void;
 }
-
-export type { StoriesSortMode };
 
 export const useUIStore = create<UIState>((set) => ({
     storiesFeedFilter: '',
-    storiesFeedSort: 'newest',
-    setStoriesFeed: (filter, sort) => set({ storiesFeedFilter: filter, storiesFeedSort: sort }),
+    storiesFeedSortKey: 'date',
+    storiesFeedSortOrder: 'desc',
+    setStoriesFeed: (filter, sortKey, sortOrder) => set({ storiesFeedFilter: filter, storiesFeedSortKey: sortKey, storiesFeedSortOrder: sortOrder }),
     sidebarOpen: typeof window !== 'undefined' && window.innerWidth >= 768,
     searchOpen: false,
     theme: typeof document !== 'undefined' && document.documentElement.classList.contains('dark') ? 'dark' : 'light',

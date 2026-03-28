@@ -8,6 +8,8 @@ export interface StoryMetadata {
     people: string[];
     tags: string[];
     assets: string[];
+    created_at?: string;
+    modified_at?: string;
 }
 
 export interface StoryFeedItem {
@@ -19,6 +21,8 @@ export interface StoryFeedItem {
     excerpt: string;
     firstAsset?: string;
     private: boolean;
+    created_at?: string;
+    modified_at?: string;
 }
 
 export interface FullStory {
@@ -55,13 +59,16 @@ export interface UpdateStoryInput {
 }
 
 export const storiesApi = {
-    getStories: (params?: { limit?: number; offset?: number; sort?: string }) => {
+    getStories: (params?: { limit?: number; offset?: number; sort?: string; personIds?: string[]; q?: string }) => {
         const searchParams = new URLSearchParams();
         if (params?.limit !== undefined) searchParams.append('limit', String(params.limit));
         if (params?.offset !== undefined) searchParams.append('offset', String(params.offset));
         if (params?.sort) searchParams.append('sort', params.sort);
-        const q = searchParams.toString();
-        return apiFetch<PaginatedStoriesResponse>(`/stories${q ? `?${q}` : ''}`);
+        if (params?.personIds && params.personIds.length > 0)
+            searchParams.append('personIds', params.personIds.join(','));
+        if (params?.q) searchParams.append('q', params.q);
+        const qs = searchParams.toString();
+        return apiFetch<PaginatedStoriesResponse>(`/stories${qs ? `?${qs}` : ''}`);
     },
 
     getStory: (id: string) => apiFetch<FullStory>(`/stories/${id}`),

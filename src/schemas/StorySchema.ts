@@ -8,7 +8,9 @@ export const StorySchema = z.object({
     private: z.boolean().optional().default(false),
     people: z.array(z.string()).default([]),
     tags: z.array(z.string()).default([]),
-    assets: z.array(z.string()).default([])
+    assets: z.array(z.string()).default([]),
+    created_at: z.string().optional(),
+    modified_at: z.string().optional(),
 });
 // Note: Content is handled separately as the Markdown body
 export type StoryMetadata = z.infer<typeof StorySchema>;
@@ -23,6 +25,8 @@ export interface StoryFeedItem {
     excerpt: string;       // first 280 chars of body text
     firstAsset?: string;
     private: boolean;
+    created_at?: string;   // ISO 8601 — set once on POST
+    modified_at?: string;  // ISO 8601 — updated on every PUT
 }
 
 // Shape returned by GET /api/stories/:id (detail)

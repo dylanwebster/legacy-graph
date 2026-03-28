@@ -45,6 +45,7 @@ interface PersonIndexDoc {
 interface StoryIndexDoc {
     id: string;
     title: string;
+    place: string;
     content: string;
     [key: string]: any;
 }
@@ -78,7 +79,7 @@ export class SearchService {
         this.storyIndex = new Document({
             document: {
                 id: "id",
-                index: ["title", "content"],
+                index: ["title", "place", "content"],
                 store: true
             },
             tokenize: "forward"
@@ -100,7 +101,7 @@ export class SearchService {
         this.storyIndex = new Document({
             document: {
                 id: "id",
-                index: ["title", "content"],
+                index: ["title", "place", "content"],
                 store: true
             },
             tokenize: "forward"
@@ -216,6 +217,7 @@ export class SearchService {
         this.storyIndex.add({
             id: story.id,
             title: story.metadata.title,
+            place: story.metadata.place ?? '',
             content: story.content
         });
         this.trackStory(story.id);

@@ -17,6 +17,8 @@ export const AssetMetadataSchema = z.object({
     date: z.string().optional(),
     date_taken: z.string().optional(), // legacy — consumed by transform (date_taken → date)
     location: LocationField,
+    created_at: z.string().optional(),
+    modified_at: z.string().optional(),
 }).transform(({ caption, date_taken, ...rest }) => ({
     ...rest,
     description: rest.description ?? caption,

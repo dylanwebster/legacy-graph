@@ -5,8 +5,10 @@ import type { Place } from './people';
 export interface AssetMetadata {
     name?: string;
     description?: string;
-    date?: string;
+    date?: string;        // when photo was taken
     location?: Place;
+    created_at?: string;  // upload timestamp
+    modified_at?: string; // last meta edit
 }
 
 export interface AssetStoryRef {
@@ -99,8 +101,9 @@ export async function resolvePlace(name: string): Promise<Place> {
 export interface AssetsQueryParams {
     q?: string;
     type?: 'all' | 'image' | 'document';
-    sort?: 'name' | 'size' | 'date';
+    sort?: 'name' | 'size' | 'date' | 'created' | 'modified';
     order?: 'asc' | 'desc';
+    personIds?: string[];
 }
 
 export async function getAssets(params?: AssetsQueryParams): Promise<AssetListResponse> {
@@ -109,6 +112,7 @@ export async function getAssets(params?: AssetsQueryParams): Promise<AssetListRe
     if (params?.type && params.type !== 'all') qs.set('type', params.type);
     if (params?.sort) qs.set('sort', params.sort);
     if (params?.order) qs.set('order', params.order);
+    if (params?.personIds && params.personIds.length > 0) qs.set('personIds', params.personIds.join(','));
     const queryString = qs.toString();
     return apiFetch<AssetListResponse>(`/assets${queryString ? `?${queryString}` : ''}`);
 }
@@ -142,8 +146,11 @@ export async function unlinkAssetFromPerson(
     }
 }
 
-export async function deleteGalleryAsset(filename: string): Promise<void> {
-    const response = await fetch(`/api/assets/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+export async function deleteGalleryAsset(filename: string, force = false): Promise<void> {
+    const url = force
+        ? `/api/assets/${encodeURIComponent(filename)}?force=true`
+        : `/api/assets/${encodeURIComponent(filename)}`;
+    const response = await fetch(url, { method: 'DELETE' });
     if (!response.ok && response.status !== 204) {
         let errorMessage = response.statusText;
         try {
@@ -165,6 +172,28 @@ export async function uploadEventMedia(
         method: 'PUT',
         body: formData,
     });
+    if (!response.ok) {
+        let errorMessage = response.statusText;
+        try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+        } catch { /* ignore */ }
+        throw new Error(errorMessage);
+    }
+    return response.json();
+}
+
+export interface UploadGalleryAssetsResult {
+    uploaded: Array<{ filename: string; originalName: string }>;
+    rejected: Array<{ originalName: string; reason: string }>;
+}
+
+export async function uploadGalleryAssets(files: File[]): Promise<UploadGalleryAssetsResult> {
+    const formData = new FormData();
+    for (const file of files) {
+        formData.append('files', file);
+    }
+    const response = await fetch('/api/assets/upload', { method: 'POST', body: formData });
     if (!response.ok) {
         let errorMessage = response.statusText;
         try {

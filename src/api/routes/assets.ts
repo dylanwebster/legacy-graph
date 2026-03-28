@@ -8,7 +8,7 @@ import { pipeline } from 'stream/promises';
 import { AssetMetadataSchema } from '../../schemas/AssetSchema';
 import { PersonSchema, toSlimPerson } from '../../schemas/PersonSchema';
 import type { AppInstance } from '../types';
-import { loadAssetIndex, saveAssetIndex, extractExifDate, extractExifGps } from '../../core/assetMetaUtils';
+import { loadAssetIndex, saveAssetIndex, upsertAssetEntry, extractExifDate, extractExifGps } from '../../core/assetMetaUtils';
 import type { Place } from '../../schemas/PlaceSchema';
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif', '.svg']);
@@ -48,10 +48,11 @@ export async function assetsRoutes(server: FastifyInstance) {
     // ── GET /api/assets ──────────────────────────────────────────────────────
 
     server.get<{
-        Querystring: { q?: string; type?: string; sort?: string; order?: string }
+        Querystring: { q?: string; type?: string; sort?: string; order?: string; personIds?: string }
     }>('/api/assets', async (request) => {
-        const { q, type = 'all', sort = 'name', order = 'asc' } = request.query;
+        const { q, type = 'all', sort = 'name', order = 'asc', personIds } = request.query;
         const searchQ = q?.trim().toLowerCase();
+        const filterPersonIds = personIds ? personIds.split(',').filter(Boolean) : [];
 
         await fs.mkdir(assetsDir, { recursive: true });
 
@@ -138,6 +139,8 @@ export async function assetsRoutes(server: FastifyInstance) {
                 description: rawMeta?.description as string | undefined,
                 date: rawMeta?.date as string | undefined,
                 location: rawMeta?.location as Place | undefined,
+                created_at: rawMeta?.created_at as string | undefined,
+                modified_at: rawMeta?.modified_at as string | undefined,
             };
 
             return {
@@ -164,6 +167,7 @@ export async function assetsRoutes(server: FastifyInstance) {
                 if (a.metadata.name?.toLowerCase().includes(searchQ)) return true;
                 if (a.metadata.description?.toLowerCase().includes(searchQ)) return true;
                 if (a.metadata.date?.toLowerCase().includes(searchQ)) return true;
+                if (a.metadata.location?.name?.toLowerCase().includes(searchQ)) return true;
                 // Match person names
                 for (const pid of a.referencedBy.people) {
                     const name = personNames.get(pid) ?? '';
@@ -177,6 +181,13 @@ export async function assetsRoutes(server: FastifyInstance) {
             });
         }
 
+        // Apply personIds AND-filter
+        if (filterPersonIds.length > 0) {
+            assets = assets.filter(a =>
+                filterPersonIds.every(pid => a.referencedBy.people.includes(pid))
+            );
+        }
+
         // Apply sort
         const sortOrder = order === 'desc' ? -1 : 1;
         assets.sort((a, b) => {
@@ -185,6 +196,22 @@ export async function assetsRoutes(server: FastifyInstance) {
                 const da = a.metadata.date ?? '';
                 const db = b.metadata.date ?? '';
                 return da < db ? -1 * sortOrder : da > db ? 1 * sortOrder : 0;
+            }
+            if (sort === 'created') {
+                const ca = (a.metadata as any).created_at as string | undefined;
+                const cb = (b.metadata as any).created_at as string | undefined;
+                if (!ca && !cb) return 0;
+                if (!ca) return 1;   // nulls sort last regardless of sortOrder
+                if (!cb) return -1;
+                return ca.localeCompare(cb) * sortOrder;
+            }
+            if (sort === 'modified') {
+                const ma = (a.metadata as any).modified_at as string | undefined;
+                const mb = (b.metadata as any).modified_at as string | undefined;
+                if (!ma && !mb) return 0;
+                if (!ma) return 1;   // nulls sort last regardless of sortOrder
+                if (!mb) return -1;
+                return ma.localeCompare(mb) * sortOrder;
             }
             // default: name (use display name if set, else filename)
             const na = a.metadata.name ?? a.filename;
@@ -217,12 +244,16 @@ export async function assetsRoutes(server: FastifyInstance) {
         const resolvedDescription = description ?? caption;
         const resolvedDate = date ?? date_taken;
 
+        const now = new Date().toISOString();
         const merged = {
             ...existing,
             ...(name !== undefined && { name }),
             ...(resolvedDescription !== undefined && { description: resolvedDescription }),
             ...(resolvedDate !== undefined && { date: resolvedDate }),
             ...(location !== undefined && { location }),
+            // Preserve existing created_at; always bump modified_at
+            created_at: (existing as any).created_at ?? now,
+            modified_at: now,
         };
 
         index[filename] = AssetMetadataSchema.parse(merged);
@@ -233,13 +264,19 @@ export async function assetsRoutes(server: FastifyInstance) {
             description: index[filename].description,
             date: index[filename].date,
             location: index[filename].location,
+            created_at: (index[filename] as any).created_at,
+            modified_at: (index[filename] as any).modified_at,
         };
     });
 
     // ── DELETE /api/assets/:filename ─────────────────────────────────────────
 
-    server.delete<{ Params: { filename: string } }>('/api/assets/:filename', async (request, reply) => {
+    server.delete<{
+        Params: { filename: string };
+        Querystring: { force?: string };
+    }>('/api/assets/:filename', async (request, reply) => {
         const { filename } = request.params;
+        const force = request.query.force === 'true';
         const filePath = path.join(assetsDir, filename);
 
         try {
@@ -283,11 +320,59 @@ export async function assetsRoutes(server: FastifyInstance) {
         } catch { /* ignore */ }
 
         if (people.length > 0 || stories.length > 0 || events.length > 0) {
-            return reply.status(409).send({
-                error: 'Asset is still referenced and cannot be deleted',
-                code: 'ASSET_REFERENCED',
-                referencedBy: { people, stories, events },
-            });
+            if (!force) {
+                return reply.status(409).send({
+                    error: 'Asset is still referenced and cannot be deleted',
+                    code: 'ASSET_REFERENCED',
+                    referencedBy: { people, stories, events },
+                });
+            }
+
+            // force=true: strip all references first, then fall through to deletion
+            const affectedPersonIds = new Set([...people, ...events.map(e => e.personId)]);
+
+            for (const personId of affectedPersonIds) {
+                if (!graph.hasNode(personId)) continue;
+
+                const slimData = graph.getNodeAttributes(personId).data as any;
+                const heavyFields = await graphEngine.loadHeavyFields(personId);
+                const fullPerson = {
+                    ...slimData,
+                    scrapbook_md: heavyFields?.scrapbook_md ?? '',
+                    _gedcom: heavyFields?._gedcom,
+                } as any;
+
+                if (Array.isArray(fullPerson.assets)) {
+                    fullPerson.assets = fullPerson.assets.filter((a: string) => a !== filename);
+                }
+                if (Array.isArray(fullPerson.events)) {
+                    fullPerson.events = fullPerson.events.map((e: any) => ({
+                        ...e,
+                        assets: Array.isArray(e.assets) ? e.assets.filter((a: string) => a !== filename) : e.assets,
+                    }));
+                }
+                fullPerson.last_modified = new Date().toISOString();
+
+                const primaryName = fullPerson.names?.[0];
+                const label = primaryName ? `${primaryName.first} ${primaryName.last}` : personId;
+                await txManager.writeFile(path.join('people', `${personId}.yaml`), yaml.dump(fullPerson), label);
+
+                const newSlim = toSlimPerson(fullPerson);
+                graph.setNodeAttribute(personId, 'data', newSlim);
+                graphEngine.applyWriteSideEffects(personId, slimData, newSlim, fullPerson.scrapbook_md || '');
+            }
+
+            for (const storyId of stories) {
+                const storyFilePath = path.join(storiesDir, `${storyId}.md`);
+                try {
+                    const raw = await fs.readFile(storyFilePath, 'utf8');
+                    const parsed = matter(raw);
+                    if (Array.isArray(parsed.data.assets)) {
+                        parsed.data.assets = (parsed.data.assets as string[]).filter(a => a !== filename);
+                        await txManager.writeFile(path.join('stories', `${storyId}.md`), matter.stringify(parsed.content, parsed.data), `story ${storyId}`);
+                    }
+                } catch { /* skip if story missing */ }
+            }
         }
 
         await fs.unlink(filePath);
@@ -360,21 +445,17 @@ export async function assetsRoutes(server: FastifyInstance) {
             await pipeline(fileData.file, nodeFs.createWriteStream(uniqueFilepath));
             await txManager.trackFile(path.join('assets', uniqueFilename), `asset ${uniqueFilename}`);
 
-            // Seed assets.yaml with EXIF capture date + GPS location (best-effort, never blocks upload)
+            // Seed assets.yaml with created_at + EXIF capture date + GPS location (best-effort, never blocks upload)
+            const now = new Date().toISOString();
             const [exifDate, exifGps] = await Promise.all([
                 extractExifDate(uniqueFilepath),
                 extractExifGps(uniqueFilepath),
             ]);
-            if (exifDate || exifGps) {
-                const index = await loadAssetIndex(dataDir);
-                if (!index[uniqueFilename]) {
-                    index[uniqueFilename] = {
-                        ...(exifDate && { date: exifDate }),
-                        ...(exifGps && { location: exifGps }),
-                    };
-                    await saveAssetIndex(dataDir, index, txManager);
-                }
-            }
+            await upsertAssetEntry(dataDir, uniqueFilename, {
+                created_at: now,
+                ...(exifDate && { date: exifDate }),
+                ...(exifGps && { location: exifGps }),
+            }, txManager);
 
             const heavyFields = await graphEngine.loadHeavyFields(id);
             const fullPerson = {
@@ -388,6 +469,11 @@ export async function assetsRoutes(server: FastifyInstance) {
                     ? { ...e, assets: [...(Array.isArray(e.assets) ? e.assets : []), uniqueFilename] }
                     : e
             );
+            // Also link the uploaded file to the person's top-level assets[] (idempotent)
+            if (!Array.isArray(fullPerson.assets)) fullPerson.assets = [];
+            if (!(fullPerson.assets as string[]).includes(uniqueFilename)) {
+                fullPerson.assets = [...(fullPerson.assets as string[]), uniqueFilename];
+            }
             fullPerson.last_modified = new Date().toISOString();
 
             PersonSchema.parse(fullPerson);
@@ -403,6 +489,73 @@ export async function assetsRoutes(server: FastifyInstance) {
             return { filename: uniqueFilename, events: fullPerson.events };
         }
     );
+
+    // ── POST /api/assets/upload ───────────────────────────────────────────────
+
+    server.post('/api/assets/upload', async (request, reply) => {
+        await fs.mkdir(assetsDir, { recursive: true });
+
+        const uploaded: Array<{ filename: string; originalName: string }> = [];
+        const rejected: Array<{ originalName: string; reason: string }> = [];
+
+        try {
+            const parts = (request as any).parts();
+            for await (const part of parts) {
+                if (part.type !== 'file') continue;
+
+                const originalName: string = part.filename || 'upload';
+
+                if (!isAllowedFile(originalName, part.mimetype)) {
+                    part.file.resume();
+                    rejected.push({ originalName, reason: 'File type not allowed' });
+                    continue;
+                }
+
+                const ext = path.extname(originalName).toLowerCase();
+                const rawBase = path.basename(originalName, path.extname(originalName))
+                    .replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
+                const baseName = rawBase || 'upload';
+
+                let uniqueFilename = `${baseName}${ext}`;
+                let counter = 1;
+                while (true) {
+                    try {
+                        await fs.access(path.join(assetsDir, uniqueFilename));
+                        uniqueFilename = `${baseName}-${counter}${ext}`;
+                        counter++;
+                    } catch { break; }
+                }
+
+                const destPath = path.join(assetsDir, uniqueFilename);
+                await pipeline(part.file, nodeFs.createWriteStream(destPath));
+                await txManager.trackFile(path.join('assets', uniqueFilename), `asset ${uniqueFilename}`);
+
+                const now = new Date().toISOString();
+                const [exifDate, exifGps] = await Promise.all([
+                    extractExifDate(destPath),
+                    extractExifGps(destPath),
+                ]);
+                await upsertAssetEntry(dataDir, uniqueFilename, {
+                    created_at: now,
+                    ...(exifDate && { date: exifDate }),
+                    ...(exifGps && { location: exifGps }),
+                }, txManager);
+
+                uploaded.push({ filename: uniqueFilename, originalName });
+            }
+        } catch (err: any) {
+            if (err?.code === 'FST_INVALID_MULTIPART_CONTENT_TYPE') {
+                return reply.status(400).send({ error: 'No files provided', code: 'VALIDATION_ERROR' });
+            }
+            throw err;
+        }
+
+        if (uploaded.length === 0 && rejected.length === 0) {
+            return reply.status(400).send({ error: 'No files provided', code: 'VALIDATION_ERROR' });
+        }
+
+        return { uploaded, rejected };
+    });
 
     // ── POST /api/people/:id/assets/link ─────────────────────────────────────
 
