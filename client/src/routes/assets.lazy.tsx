@@ -217,11 +217,17 @@ function AssetGallery() {
     });
 
     const handleDelete = (filename: string, force: boolean) => {
+        const wasOpen = detailFile === filename;
+        const idx = filtered.findIndex(a => a.filename === filename);
+        const next = filtered[idx + 1]?.filename ?? filtered[idx - 1]?.filename ?? null;
+        setDeleteTarget(null);
         deleteAsset.mutate({ filename, force }, {
-            onSuccess: () => toast.success(`Deleted ${filename}`),
+            onSuccess: () => {
+                toast.success(`Deleted ${filename}`);
+                if (wasOpen) setDetailFile(next);
+            },
             onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to delete'),
         });
-        setDeleteTarget(null);
     };
 
     const handleNavigate = (filename: string) => setDetailFile(filename);

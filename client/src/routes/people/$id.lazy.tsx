@@ -338,13 +338,16 @@ function PersonDetail() {
     const handleConfirmDeleteAsset = () => {
         if (!deleteConfirmAsset) return;
         const filename = deleteConfirmAsset;
+        const currentAssets = (person.assets as string[]);
+        const idx = currentAssets.indexOf(filename);
+        const nextAsset = currentAssets[idx + 1] ?? currentAssets[idx - 1] ?? null;
         setDeleteConfirmAsset(null);
         deleteAssetMutation.mutate(
             { personId: id, filename },
             {
                 onSuccess: () => {
                     toast.success('Removed from profile.');
-                    if (lightboxAsset === filename) setLightboxAsset(null);
+                    if (lightboxAsset === filename) setLightboxAsset(nextAsset);
                 },
                 onError: () => toast.error('Failed to remove asset.'),
             }
@@ -354,6 +357,9 @@ function PersonDetail() {
     const handleDeleteFileEntirely = () => {
         if (!deleteConfirmAsset) return;
         const filename = deleteConfirmAsset;
+        const currentAssets = (person.assets as string[]);
+        const idx = currentAssets.indexOf(filename);
+        const nextAsset = currentAssets[idx + 1] ?? currentAssets[idx - 1] ?? null;
         setDeleteConfirmAsset(null);
         deleteAssetPermanentlyMutation.mutate(
             { personId: id, filename },
@@ -364,7 +370,7 @@ function PersonDetail() {
                     } else {
                         toast.success('Removed from profile. File kept — still referenced elsewhere.');
                     }
-                    if (lightboxAsset === filename) setLightboxAsset(null);
+                    if (lightboxAsset === filename) setLightboxAsset(nextAsset);
                 },
                 onError: () => toast.error('Failed to delete asset.'),
             }
@@ -855,6 +861,7 @@ function PersonDetail() {
                         assetData={lbAssetData}
                         onClose={() => setLightboxAsset(null)}
                         onNavigate={(fn) => setLightboxAsset(fn)}
+                        onDeleteRequest={(fn) => handleDeleteAsset(fn)}
                         overlayContent={lightboxAsset === primaryPhoto ? (
                             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-black/60 backdrop-blur-sm rounded-full px-4 py-2">
                                 <div className="flex items-center gap-1.5 text-white text-xs">
@@ -920,7 +927,7 @@ function PersonDetail() {
                     </ConfirmDialogHeader>
                     <div className="px-6 pb-2 space-y-2 text-sm text-muted-foreground">
                         <p><strong className="text-foreground">Remove from profile</strong> — unlinks the file from this person. It stays in the asset gallery.</p>
-                        <p><strong className="text-foreground">Delete file</strong> — permanently removes the file from disk.</p>
+                        <p><strong className="text-foreground">Delete asset</strong> — permanently removes the file from disk.</p>
                     </div>
                     <ConfirmDialogFooter className="flex-col sm:flex-row gap-2">
                         <Button variant="outline" size="sm" onClick={() => setDeleteConfirmAsset(null)}>Cancel</Button>
@@ -938,7 +945,7 @@ function PersonDetail() {
                             onClick={handleDeleteFileEntirely}
                             disabled={deleteAssetMutation.isPending || deleteAssetPermanentlyMutation.isPending}
                         >
-                            {deleteAssetPermanentlyMutation.isPending ? 'Deleting…' : 'Delete file'}
+                            {deleteAssetPermanentlyMutation.isPending ? 'Deleting…' : 'Delete asset'}
                         </Button>
                     </ConfirmDialogFooter>
                 </ConfirmDialogContent>

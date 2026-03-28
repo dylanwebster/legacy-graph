@@ -576,10 +576,10 @@ export function AssetLightbox({
                                 variant="destructive"
                                 size="sm"
                                 className="w-full h-7 text-xs"
-                                onClick={() => { onDeleteRequest(filename); onClose(); }}
+                                onClick={() => { onDeleteRequest(filename); }}
                             >
                                 <Trash2 className="h-3.5 w-3.5 mr-1" />
-                                {assetData?.isOrphan ? 'Delete file' : 'Delete file…'}
+                                {assetData?.isOrphan ? 'Delete asset' : 'Delete asset…'}
                             </Button>
                         </div>
                     )}

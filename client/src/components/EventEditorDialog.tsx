@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useUpdatePerson, useSearch, usePlacesSearch, useUploadEventMedia, useAssets } from '@/api/hooks';
+import { useUpdatePerson, useSearch, usePlacesSearch, useUploadEventMedia, useAssets, useDeleteGalleryAsset } from '@/api/hooks';
 import type { Place } from '@/api/people';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
@@ -201,8 +201,10 @@ export function EventEditorDialog({
     const [assetPickerOpen, setAssetPickerOpen] = useState(false);
     const [lightboxFile, setLightboxFile] = useState<string | null>(null);
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [deleteAssetTarget, setDeleteAssetTarget] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const uploadEventMedia = useUploadEventMedia();
+    const deleteGalleryAsset = useDeleteGalleryAsset();
 
     // All known assets for stale-asset guard in the gallery
     const { data: allAssetsData } = useAssets();
@@ -371,9 +373,10 @@ export function EventEditorDialog({
 
     return (
         <>
-        <Dialog open={isOpen} onOpenChange={(o) => !o && onClose()}>
+        <Dialog open={isOpen} modal={!lightboxFile && !deleteAssetTarget} onOpenChange={(o) => !o && onClose()}>
             <DialogContent
                 className="max-w-lg max-h-[90vh] overflow-y-auto"
+                onInteractOutside={(e) => e.preventDefault()}
                 onEscapeKeyDown={(e) => {
                     if (lightboxFile) {
                         e.preventDefault();
@@ -709,9 +712,80 @@ export function EventEditorDialog({
             <AssetLightbox
                 filename={lightboxFile}
                 allFilenames={visibleEventAssets}
+                assetData={allAssetsData?.assets.find(a => a.filename === lightboxFile)}
                 onClose={() => setLightboxFile(null)}
                 onNavigate={(fn) => setLightboxFile(fn)}
+                onDeleteRequest={(fn) => setDeleteAssetTarget(fn)}
             />,
+            document.body
+        )}
+
+        {deleteAssetTarget && createPortal(
+            <Dialog open onOpenChange={(open) => { if (!open) setDeleteAssetTarget(null); }}>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>Remove asset?</DialogTitle>
+                        <DialogDescription>
+                            What would you like to do with <span className="font-mono text-xs">{deleteAssetTarget}</span>?
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="px-6 pb-2 space-y-2 text-sm text-muted-foreground">
+                        <p><strong className="text-foreground">Remove from event</strong> — unlinks the file from this event. It stays in the asset gallery.</p>
+                        <p><strong className="text-foreground">Delete asset</strong> — permanently removes the file from disk.</p>
+                    </div>
+                    <DialogFooter className="flex-col sm:flex-row gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setDeleteAssetTarget(null)}>Cancel</Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={updatePerson.isPending}
+                            onClick={() => {
+                                const fn = deleteAssetTarget;
+                                const idx = visibleEventAssets.indexOf(fn);
+                                const next = idx >= 0 ? (visibleEventAssets[idx + 1] ?? visibleEventAssets[idx - 1] ?? null) : null;
+                                const newAssets = eventAssets.filter(a => a !== fn);
+                                setDeleteAssetTarget(null);
+                                setEventAssets(newAssets);
+                                if (lightboxFile === fn) setLightboxFile(next);
+                                if (isEdit) {
+                                    const updatedEvent = { ...buildEvent(), assets: newAssets };
+                                    const updatedEvents = currentEvents.map((e, i) =>
+                                        i === existingEventIndex ? updatedEvent : e
+                                    );
+                                    updatePerson.mutate(
+                                        { id: personId, updates: { events: updatedEvents } },
+                                        {
+                                            onSuccess: () => toast.success('Asset removed from event.'),
+                                            onError: () => toast.error('Failed to remove asset from event.'),
+                                        }
+                                    );
+                                }
+                            }}
+                        >
+                            Remove from event
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={deleteGalleryAsset.isPending}
+                            onClick={() => {
+                                const fn = deleteAssetTarget;
+                                const idx = visibleEventAssets.indexOf(fn);
+                                const next = idx >= 0 ? (visibleEventAssets[idx + 1] ?? visibleEventAssets[idx - 1] ?? null) : null;
+                                setDeleteAssetTarget(null);
+                                setEventAssets(prev => prev.filter(a => a !== fn));
+                                if (lightboxFile === fn) setLightboxFile(next);
+                                deleteGalleryAsset.mutate(
+                                    { filename: fn, force: true },
+                                    { onError: () => toast.error('Failed to delete asset.') }
+                                );
+                            }}
+                        >
+                            {deleteGalleryAsset.isPending ? 'Deleting…' : 'Delete asset'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>,
             document.body
         )}
     </>
