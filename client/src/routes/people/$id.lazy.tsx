@@ -279,16 +279,19 @@ function PersonDetail() {
     // --- Asset upload (shared by drag-drop and file dialog) ---
     const uploadFiles = async (files: File[]) => {
         if (files.length === 0) return;
-        const results = await Promise.all(files.map(async (file) => {
+        // Sequential uploads to avoid read-modify-write races on person.assets[]
+        const results: Array<{ ok: boolean; name: string; error?: string }> = [];
+        for (const file of files) {
             const formData = new FormData();
             formData.append('file', file);
             const res = await fetch(`/api/people/${id}/media`, { method: 'PUT', body: formData });
             if (!res.ok) {
                 const body = await res.json().catch(() => ({}));
-                return { ok: false, name: file.name, error: body?.error ?? 'Upload failed' };
+                results.push({ ok: false, name: file.name, error: body?.error ?? 'Upload failed' });
+            } else {
+                results.push({ ok: true, name: file.name });
             }
-            return { ok: true, name: file.name };
-        }));
+        }
         const failed = results.filter(r => !r.ok);
         const succeeded = results.filter(r => r.ok);
         if (succeeded.length > 0) {

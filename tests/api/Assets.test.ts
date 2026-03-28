@@ -824,7 +824,26 @@ describe('Assets API', () => {
             expect(res.body.code).toBe('VALIDATION_ERROR');
         });
 
-        // ── PUT /api/people/:id/events/:eventId/media ────────────────────────────
+        it('two files → both appear in assets.yaml with created_at set', async () => {
+            const res = await request
+                .post('/api/assets/upload')
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-ts1.png', contentType: 'image/png' })
+                .attach('files', PNG_BUF, { filename: 'test-asset-upload-ts2.png', contentType: 'image/png' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.uploaded.length).toBe(2);
+
+            const listRes = await request.get('/api/assets');
+            expect(listRes.status).toBe(200);
+            for (const { filename } of res.body.uploaded as Array<{ filename: string; originalName: string }>) {
+                const item = (listRes.body.assets as any[]).find((a) => a.filename === filename);
+                expect(item).toBeDefined();
+                expect(typeof item.metadata.created_at).toBe('string');
+            }
+        });
+    });
+
+    // ── PUT /api/people/:id/events/:eventId/media ────────────────────────────
 
     describe('PUT /api/people/:id/events/:eventId/media', () => {
         const PNG_BUF = Buffer.from(
@@ -951,25 +970,6 @@ describe('Assets API', () => {
 
             // Cleanup
             fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
-        });
-    });
-
-    it('two files → both appear in assets.yaml with created_at set', async () => {
-            const res = await request
-                .post('/api/assets/upload')
-                .attach('files', PNG_BUF, { filename: 'test-asset-upload-ts1.png', contentType: 'image/png' })
-                .attach('files', PNG_BUF, { filename: 'test-asset-upload-ts2.png', contentType: 'image/png' });
-
-            expect(res.status).toBe(200);
-            expect(res.body.uploaded.length).toBe(2);
-
-            const listRes = await request.get('/api/assets');
-            expect(listRes.status).toBe(200);
-            for (const { filename } of res.body.uploaded as Array<{ filename: string; originalName: string }>) {
-                const item = (listRes.body.assets as any[]).find((a) => a.filename === filename);
-                expect(item).toBeDefined();
-                expect(typeof item.metadata.created_at).toBe('string');
-            }
         });
     });
 });

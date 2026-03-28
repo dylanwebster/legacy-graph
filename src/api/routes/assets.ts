@@ -369,8 +369,7 @@ export async function assetsRoutes(server: FastifyInstance) {
                     const parsed = matter(raw);
                     if (Array.isArray(parsed.data.assets)) {
                         parsed.data.assets = (parsed.data.assets as string[]).filter(a => a !== filename);
-                        await fs.writeFile(storyFilePath, matter.stringify(parsed.content, parsed.data), 'utf8');
-                        await txManager.trackFile(path.join('stories', `${storyId}.md`), `story ${storyId}`);
+                        await txManager.writeFile(path.join('stories', `${storyId}.md`), matter.stringify(parsed.content, parsed.data), `story ${storyId}`);
                     }
                 } catch { /* skip if story missing */ }
             }

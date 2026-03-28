@@ -86,9 +86,10 @@ function StoriesFeed() {
         : baseStories;
     const totalCount = storiesData?.totalCount ?? stories.length;
 
-    // Stable key derived from story order — ensures the virtualizer fully remounts
+    // Stable key derived from query inputs — ensures the virtualizer fully remounts
     // whenever the list content or ordering changes (fixes stale position measurements).
-    const listKey = stories.map(s => s.id).join(',');
+    // Derived from inputs rather than all story IDs to avoid O(n) work on every render.
+    const listKey = [sortKey, order, debouncedFilter || '', chips.map(c => c.id).join('|')].join(':');
 
     const handleDelete = useCallback(async () => {
         if (!deleteTarget) return;
