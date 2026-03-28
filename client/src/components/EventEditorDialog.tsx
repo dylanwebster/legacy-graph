@@ -8,11 +8,11 @@ import { AssetPickerDialog } from '@/components/AssetPickerDialog';
 import type { PersonChipData } from '@/components/AssetSearchBar';
 import { AssetLightbox } from '@/components/AssetLightbox';
 import {
-    Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+    Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { FileText, Link2, Upload, X } from 'lucide-react';
+import { FileText, Link2, Trash2, Upload, X } from 'lucide-react';
 import { assetType } from '@/lib/assetUtils';
 import { toast } from 'sonner';
 
@@ -200,6 +200,7 @@ export function EventEditorDialog({
     const [eventAssets, setEventAssets] = useState<string[]>((existingEvent?.assets as string[]) ?? []);
     const [assetPickerOpen, setAssetPickerOpen] = useState(false);
     const [lightboxFile, setLightboxFile] = useState<string | null>(null);
+    const [confirmDelete, setConfirmDelete] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const uploadEventMedia = useUploadEventMedia();
 
@@ -313,6 +314,23 @@ export function EventEditorDialog({
         partnerId, marriageStatus, cause, title, organization,
         institution, degree, householdId, eventAssets, existingEvent,
     ]);
+
+    const handleDeleteEvent = () => setConfirmDelete(true);
+
+    const handleConfirmDelete = () => {
+        const updatedEvents = currentEvents.filter((_, i) => i !== existingEventIndex);
+        updatePerson.mutate(
+            { id: personId, updates: { events: updatedEvents } },
+            {
+                onSuccess: () => {
+                    toast.success('Event deleted.');
+                    setConfirmDelete(false);
+                    onClose();
+                },
+                onError: () => toast.error('Failed to delete event.'),
+            }
+        );
+    };
 
     const handleSave = () => {
         const required = getRequiredFields(eventType);
@@ -639,6 +657,18 @@ export function EventEditorDialog({
                 />
 
                 <DialogFooter>
+                    {isEdit && (
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            className="mr-auto"
+                            onClick={handleDeleteEvent}
+                            disabled={updatePerson.isPending}
+                        >
+                            <Trash2 className="h-3.5 w-3.5 mr-1" />
+                            Delete Event
+                        </Button>
+                    )}
                     <Button variant="outline" onClick={onClose} size="sm">Cancel</Button>
                     <Button
                         onClick={handleSave}
@@ -650,6 +680,28 @@ export function EventEditorDialog({
                     </Button>
                 </DialogFooter>
 
+            </DialogContent>
+        </Dialog>
+
+        <Dialog open={confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(false)}>
+            <DialogContent className="max-w-sm">
+                <DialogHeader>
+                    <DialogTitle>Delete Event?</DialogTitle>
+                    <DialogDescription>
+                        This will permanently remove this <strong>{eventType}</strong> event. This action cannot be undone.
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                    <Button variant="outline" size="sm" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+                    <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={handleConfirmDelete}
+                        disabled={updatePerson.isPending}
+                    >
+                        {updatePerson.isPending ? 'Deleting…' : 'Delete Event'}
+                    </Button>
+                </DialogFooter>
             </DialogContent>
         </Dialog>
 
