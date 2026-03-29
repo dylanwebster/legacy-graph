@@ -688,17 +688,25 @@ The landing page. Overview of the family graph.
   - Spouse bonds visually distinguished: **solid edge** (active marriage) vs **dashed edge** (divorced/widowed).
   
   #### Mode 2: Fan Chart
-  - **Ancestor semi-circle** radiating from a selected root person.
-  - Each generation occupies a ring; root person at the center.
-  - **Color-coded by lineage** (paternal vs. maternal branches use distinct hues).
-  - Click a segment → navigate to `/people/:id` or re-root the chart.
-  - Root person selector: search input to pick the focal ancestor.
-  
+  - **Full 360° ancestor circle** centered in viewport, radiating from a selected root person.
+  - Each generation occupies a ring; root person circle at the center of the viewport.
+  - **Color-coded by lineage**: hue-interpolated paternal (blue 220°) → maternal (rose 340°) branches.
+  - **Generation depth selector**: buttons to show 3–6 generations.
+  - **Pan/zoom**: pointer drag to pan, scroll-wheel to zoom (cursor-relative), reset button.
+  - **Click arc to re-root**: clicking a filled ancestor arc re-roots the chart to that person (stays on dashboard).
+  - Root person selector: shared focal picker in dashboard header.
+  - Arc labels shown when angular width ≥ 0.22 rad; truncated to fit.
+
   #### Mode 3: Pedigree Chart
-  - **Standard rigid horizontal tree** (root person on left, ancestors branch right).
-  - Generations as columns; each person as a card node.
-  - Click a node → navigate to `/people/:id`.
-  - Scroll/pan for large trees. Export to PNG (Phase 6+).
+  - **Bidirectional adaptive tree**: shows both ancestors (negative generations) and descendants (positive generations) from the focal person.
+  - **Adaptive layout**: simplified Reingold-Tilford algorithm — spacing adapts to actual subtree sizes instead of fixed 2^n slots.
+  - Users can toggle between **horizontal** (ancestors left, descendants right) and **vertical** (ancestors above, descendants below) layouts with `aria-pressed` toggle buttons.
+  - **Progressive disclosure**: default 3 generations up + 3 down (2+2 on mobile). Expand chevrons on boundary cards reveal additional ancestors, descendants, or siblings per-node.
+  - **Person preview**: click a card to show a popover (desktop ≥ 640px) or bottom sheet (mobile < 640px) with name, birth year, sex badge, primary asset thumbnail, and action buttons.
+  - **Re-root from tree**: "Make focal person" button in preview re-roots the entire tree to the clicked person.
+  - **"View profile"** button navigates to `/people/:id`.
+  - **Pan/zoom**: pointer drag to pan (5px threshold to distinguish from clicks), scroll-wheel to zoom (cursor-relative), +/−/reset buttons.
+  - **Responsive**: cards scale down on narrow viewports; mobile uses bottom sheet for preview; reduced default depth on mobile.
 
 ### **6.8 Import & Settings Pages**
 

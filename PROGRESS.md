@@ -44,6 +44,7 @@
 | 5.4 | Asset Gallery: `GET /api/assets` (list+refs+orphan), `PUT /api/assets/:fn/meta`, `DELETE /api/assets/:fn` (orphan guard), `PUT /api/people/:id/events/:eventId/media`, `POST /api/people/:id/assets/link`; virtualised 3-col gallery; orphan filter; sort; inline description edit; lightbox; delete confirm; Assets nav item; AssetPickerDialog; event attachment section in EventEditorDialog; "Search existing" in person page Assets tab |
 | 5.4b | Asset System Overhaul: single source of truth (`person.assets[]`); removed `tagged_people` from `AssetMetadataSchema`; `caption`→`description` with backwards-compat transform; `date_taken` surfaced in UI; `DELETE /api/people/:id/media/:filename` changed to unlink-only; new `DELETE /api/people/:id/assets/link/:filename` explicit unlink endpoint; `GET /api/assets` gains `?q=` (search filename/description/person names/story titles), `?type=` (all/image/document), `?sort=` + `?order=` server-side params; `PUT /api/assets/:fn/meta` accepts `description`+`date_taken`; `AssetDetailModal` replaces simple lightbox (left image + right metadata panel, ←/→ keyboard nav, person tag/untag via `PersonSearchCombobox`, orphan delete); card redesign (4:3 aspect ratio, `object-contain`, no fixed height); `PersonSearchCombobox` extracted as shared component; person page removes "Tagged In" section (unified `person.assets[]` is single source); 321 backend tests |
 | 5.4c | Bulk Upload from Gallery: `POST /api/assets/upload` (multipart, multi-file, EXIF seed, dedup, rejected[] list); 6 new backend tests (370 total); `BulkUploadDialog` (drag-drop zone, image previews, shared metadata form — description/date/location/people tagging, rejected file list); `uploadGalleryAssets()` + `useUploadGalleryAssets()` in API layer; Upload button in gallery toolbar; `PlaceCombobox` exported from `AssetLightbox.tsx` for reuse |
+| 5.5 | Dashboard Visualization Modes: mode toggle segmented control (Force Graph / Fan Chart / Pedigree) in panel header; **Fan Chart** — full 360° SVG circle centered in viewport with Ahnentafel ancestor slots, hue-interpolated paternal (blue 220°) → maternal (rose 340°) lineage colors, auto-scaling ring widths, gen depth selector (3–6), root circle, arc labels, pointer-drag pan + wheel zoom (cursor-relative), click arc to re-root chart, `data-testid="fan-chart-svg"`, `FanChartPanel.tsx`; **Pedigree Chart** — bidirectional adaptive tree (ancestors + descendants from focal person), simplified Reingold-Tilford layout adapts to actual subtree sizes, horizontal/vertical toggles with `aria-pressed`, pointer-drag pan + wheel zoom (5px threshold for click-vs-drag), progressive disclosure (expand chevrons on boundary cards for ancestors/descendants/siblings), person preview popover (desktop ≥640px) or bottom sheet (mobile <640px) with "Make focal person" re-root + "View profile" navigation, responsive card sizing, `data-testid="pedigree-svg"`, `PedigreePanel.tsx`; pure TS layout utilities (`genealogyLayout.ts`): `buildAncestorTree`, `computeFanArcLayout`, `buildFamilyTree` (bidirectional BFS with expansion state), `computeAdaptiveTreeLayout` (Reingold-Tilford); types: `FamilyTreeNode`, `PositionedTreeNode`, `TreeConnector`; state persisted to `dashboard-state-v1` localStorage (vizMode, fanMaxGen, pedigreeOrientation, positions, zoom, rootPersonId); migrates from `fg-state-v5` on first load; 32 unit tests in `tests/core/genealogyLayout.test.ts`; 20 Playwright E2E tests in `tests/e2e/dashboard-viz-modes.test.ts` |
 
 ---
 
@@ -60,14 +61,6 @@
 6. Filters: by event type, by person (search selector), by date range (year slider).
 7. Deep-link support: `/map?place=...` centers map; `/map?person=N_xxx` filters to one person's locations.
 8. Add Map (Globe) icon + link to sidebar nav.
-9. Note: requires Phase 3.15 ✅ (geo-tagging complete).
-
-#### 5.5 Dashboard Visualization Modes (Fan Chart + Pedigree Chart)
-1. Toggle UI (segmented control) between Force Graph / Fan Chart / Pedigree Chart.
-2. **Fan Chart**: implement ancestor semi-circle using D3 or `@nivo/sunburst`. Root person selector (search input). Color-coded by paternal/maternal lineage.
-3. **Pedigree Chart**: standard horizontal tree using D3 tree layout. Click node → navigate. Scroll/pan for large trees.
-4. Persist selected mode to Zustand store (session-level, not localStorage).
-5. Phase 4.9 Force Graph moves here (force graph implementation is prerequisite).
 
 #### 5.5 Private Mode & Guest Mode
 1. Add `private?: boolean` to `PersonSchema` (optional, default `false`). Update Zod schema and YAML writer.
@@ -150,5 +143,4 @@ TypeScript 6.0.0 shipped 2026-03-23. Dependabot PRs #61 and #62 were closed beca
 2. **Electron**: Desktop wrapper with `nodeIntegration` for local file-system access; bundle backend + frontend.
 3. **CI/CD**: GitHub Action on PRs — `npm test` (Vitest, all 266+) + `npm run test:e2e` (Playwright, all CUJs).
 4. **"Living Surname"** anonymization: Living persons (no death event) with `private: true` displayed as "Living [LastName]" in guest/unauthenticated mode. Requires Phase 5.6.
-5. **Pedigree Chart PNG export**: "Export to PNG" button on Pedigree Chart view. Uses canvas `toDataURL`.
-6. **GEDCOM Export UI**: Trigger from Command Palette "Export GEDCOM" command → `GET /api/export/gedcom` → browser download.
+5. **GEDCOM Export UI**: Trigger from Command Palette "Export GEDCOM" command → `GET /api/export/gedcom` → browser download.

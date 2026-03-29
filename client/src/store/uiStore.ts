@@ -1,6 +1,19 @@
 import { create } from 'zustand';
 
 export type StoriesSortKey = 'date' | 'alpha' | 'created' | 'modified';
+export type DashboardVizMode = 'force' | 'fan' | 'pedigree';
+
+function loadInitialVizMode(): DashboardVizMode {
+    if (typeof localStorage === 'undefined') return 'force';
+    try {
+        const raw = localStorage.getItem('dashboard-state-v1');
+        if (raw) {
+            const parsed = JSON.parse(raw) as { vizMode?: string };
+            if (parsed.vizMode === 'fan' || parsed.vizMode === 'pedigree') return parsed.vizMode;
+        }
+    } catch { /* ignore */ }
+    return 'force';
+}
 
 interface UIState {
     sidebarOpen: boolean;
@@ -9,10 +22,12 @@ interface UIState {
     storiesFeedFilter: string;
     storiesFeedSortKey: StoriesSortKey;
     storiesFeedSortOrder: 'asc' | 'desc';
+    dashboardVizMode: DashboardVizMode;
     toggleSidebar: () => void;
     setSearchOpen: (open: boolean) => void;
     toggleTheme: () => void;
     setStoriesFeed: (filter: string, sortKey: StoriesSortKey, sortOrder: 'asc' | 'desc') => void;
+    setDashboardVizMode: (mode: DashboardVizMode) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -31,4 +46,6 @@ export const useUIStore = create<UIState>((set) => ({
         localStorage.setItem('theme', newTheme);
         return { theme: newTheme };
     }),
+    dashboardVizMode: loadInitialVizMode(),
+    setDashboardVizMode: (mode) => set({ dashboardVizMode: mode }),
 }));

@@ -8,8 +8,10 @@ import { useGraphData, usePerson } from '@/api/hooks';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
 import { PersonHoverContent } from '@/components/PersonChip';
 import { Skeleton } from '@/components/ui/skeleton';
-import { GitBranch, RefreshCw, Scan, Maximize2, Minimize2, Network, Search, X } from 'lucide-react';
+import { GitBranch, RefreshCw, Scan, Maximize2, Minimize2, Network, Search, X, PieChart } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
+import FanChartPanel from '@/components/viz/FanChartPanel';
+import PedigreePanel from '@/components/viz/PedigreePanel';
 
 export const Route = createLazyFileRoute('/')({
     component: Dashboard,
@@ -147,8 +149,8 @@ function computeGenerationLevels(
     for (const n of nodes) { parentIds.set(n.id, []); childIds.set(n.id, []); }
     for (const l of links) {
         if (l.type !== 'parent_child') continue;
-        const childId = getId(l.target); // swapped: target is child
-        const parentId = getId(l.source); // swapped: source is parent
+        const childId = getId(l.source); // source = child (API convention)
+        const parentId = getId(l.target); // target = parent (API convention)
         parentIds.get(childId)?.push(parentId);
         childIds.get(parentId)?.push(childId);
     }
@@ -183,36 +185,45 @@ function computeGenerationLevels(
     return levels;
 }
 
-// ─── Graph State ──────────────────────────────────────────────────────────────
+// ─── Dashboard State ──────────────────────────────────────────────────────────
+// Single localStorage key covering all three viz modes.
 
-interface GraphState {
+const DS_KEY = 'dashboard-state-v1';
+
+interface DashboardState {
+    rootPersonId: string | null;
+    vizMode: 'force' | 'fan' | 'pedigree';
     positions: Record<string, { x: number; y: number }>;
     zoom: { k: number; cx: number; cy: number } | null;
-    rootPersonId: string | null;
+    fanMaxGen: number;
+    pedigreeOrientation: 'horizontal' | 'vertical';
 }
 
-function loadGraphState(): GraphState {
+const DS_DEFAULTS: DashboardState = {
+    rootPersonId: null,
+    vizMode: 'force',
+    positions: {},
+    zoom: null,
+    fanMaxGen: 4,
+    pedigreeOrientation: 'horizontal',
+};
+
+function loadDashboardState(): DashboardState {
     try {
-        const raw = localStorage.getItem(LS_KEY);
-        if (!raw) return { positions: {}, zoom: null, rootPersonId: null };
-        const p = JSON.parse(raw) as Partial<GraphState>;
-        return { positions: p.positions ?? {}, zoom: p.zoom ?? null, rootPersonId: p.rootPersonId ?? null };
-    } catch {
-        return { positions: {}, zoom: null, rootPersonId: null };
-    }
+        const raw = localStorage.getItem(DS_KEY);
+        if (raw) return { ...DS_DEFAULTS, ...(JSON.parse(raw) as Partial<DashboardState>) };
+        // Migrate from legacy fg-state-v5 key
+        const old = localStorage.getItem(LS_KEY);
+        if (old) {
+            const p = JSON.parse(old) as { positions?: Record<string, { x: number; y: number }>; zoom?: { k: number; cx: number; cy: number } | null; rootPersonId?: string | null };
+            return { ...DS_DEFAULTS, positions: p.positions ?? {}, zoom: p.zoom ?? null, rootPersonId: p.rootPersonId ?? null };
+        }
+    } catch { /* ignore */ }
+    return { ...DS_DEFAULTS };
 }
 
-function saveGraphState(
-    nodes: SimNode[],
-    zoom: { k: number; cx: number; cy: number } | null,
-    rootPersonId: string | null,
-) {
-    const positions: Record<string, { x: number; y: number }> = {};
-    for (const n of nodes) {
-        if (typeof n.x === 'number' && typeof n.y === 'number')
-            positions[n.id as string] = { x: n.x, y: n.y };
-    }
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ positions, zoom, rootPersonId })); } catch { /* ignore storage errors */ }
+function saveDashboardState(state: DashboardState): void {
+    try { localStorage.setItem(DS_KEY, JSON.stringify(state)); } catch { /* ignore */ }
 }
 
 // ─── Topological Y Pre-Sorter ─────────────────────────────────────────────────
@@ -388,20 +399,42 @@ function GraphNodeHoverCard({ id }: { id: string }) {
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 function Dashboard() {
+    const [dsState, setDsState] = useState<DashboardState>(() => loadDashboardState());
+    const setVizModeStore = useUIStore((s) => s.setDashboardVizMode);
+
+    const updateDs = useCallback((updates: Partial<DashboardState>) => {
+        setDsState((prev) => {
+            const next = { ...prev, ...updates };
+            saveDashboardState(next);
+            return next;
+        });
+    }, []);
+
+    // Keep Zustand store in sync so external components can read the current mode
+    useEffect(() => {
+        setVizModeStore(dsState.vizMode);
+    }, [dsState.vizMode, setVizModeStore]);
+
     return (
         <div className="h-full overflow-auto p-6 space-y-4">
             <div>
                 <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
                 <p className="text-sm text-muted-foreground mt-1">Interactive family graph</p>
             </div>
-            <FamilyGraphPanel />
+            <FamilyGraphPanel dsState={dsState} updateDs={updateDs} />
         </div>
     );
 }
 
 // ─── Family Graph Panel ───────────────────────────────────────────────────────
 
-function FamilyGraphPanel() {
+function FamilyGraphPanel({
+    dsState,
+    updateDs,
+}: {
+    dsState: DashboardState;
+    updateDs: (updates: Partial<DashboardState>) => void;
+}) {
     const { data: graphData, isLoading, isError, refetch } = useGraphData();
     const navigate = useNavigate();
     const theme = useUIStore((s) => s.theme);
@@ -427,8 +460,13 @@ function FamilyGraphPanel() {
     const hoveredNodeIdRef = useRef<string | null>(null);
     const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
 
-    // ── Position + zoom persistence ────────────────────────────────────────
-    const initialState = useMemo(() => loadGraphState(), []);
+    // ── Position + zoom persistence (read initial values from dsState) ────
+    // Capture mount-time snapshot so zoom restore / guard comparisons are stable
+    const initialState = useRef({
+        positions: dsState.positions,
+        zoom: dsState.zoom,
+        rootPersonId: dsState.rootPersonId,
+    }).current;
     const savedPositionsRef = useRef<Record<string, { x: number; y: number }>>(
         initialState.positions
     );
@@ -445,6 +483,19 @@ function FamilyGraphPanel() {
     const rootPersonIdRef = useRef<string | null>(initialState.rootPersonId);
     // Set to true when root changes or reset fires; forces useEffect re-layouts
     const shouldReheatRef = useRef(false);
+
+    // ── saveForceState — persist force-graph state via updateDs ────────────
+    const saveForceState = useCallback((overrideRootId?: string | null) => {
+        const gd = stableGraphDataRef.current;
+        if (!gd) return;
+        const positions: Record<string, { x: number; y: number }> = {};
+        for (const n of gd.nodes as SimNode[]) {
+            if (typeof n.x === 'number' && typeof n.y === 'number')
+                positions[n.id as string] = { x: n.x, y: n.y };
+        }
+        const rootId = overrideRootId !== undefined ? overrideRootId : rootPersonIdRef.current;
+        updateDs({ positions, zoom: zoomStateRef.current, rootPersonId: rootId });
+    }, [updateDs]);
 
     // ── Year bounds ref (set by stableGraphData useMemo) ───────────────────
     const yearBoundsRef = useRef<{ minYear: number; maxYear: number; midYear: number } | null>(null);
@@ -513,8 +564,8 @@ function FamilyGraphPanel() {
     const handleEngineStop = useCallback(() => {
         const gd = stableGraphDataRef.current;
         if (!gd) return;
-        saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, rootPersonIdRef.current);
-    }, []);
+        saveForceState();
+    }, [saveForceState]);
 
     // ── Responsive sizing ──────────────────────────────────────────────────
     useEffect(() => {
@@ -630,9 +681,8 @@ function FamilyGraphPanel() {
         const fixedX = yearToX(n.effectiveBirthYear ?? bounds.midYear, bounds.midYear);
         (n as SimNode & { fx?: number }).fx = fixedX;
         n.x = fixedX;
-        const gd = stableGraphDataRef.current;
-        if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, rootPersonIdRef.current);
-    }, []);
+        saveForceState();
+    }, [saveForceState]);
 
     // ── Zoom tracking ──────────────────────────────────────────────────────
     const handleZoom = useCallback(({ k }: { k: number; x: number; y: number }) => {
@@ -648,10 +698,9 @@ function FamilyGraphPanel() {
         zoomStateRef.current = { k, cx: center.x, cy: center.y };
         if (zoomSaveTimerRef.current) clearTimeout(zoomSaveTimerRef.current);
         zoomSaveTimerRef.current = setTimeout(() => {
-            const gd = stableGraphDataRef.current;
-            if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, rootPersonIdRef.current);
+            saveForceState();
         }, 300);
-    }, [initialState.zoom]);
+    }, [initialState.zoom, saveForceState]);
 
     // ── Restore zoom on mount ──────────────────────────────────────────────
     useEffect(() => {
@@ -683,10 +732,10 @@ function FamilyGraphPanel() {
     // ── Cleanup on unmount ─────────────────────────────────────────────────
     useEffect(() => {
         return () => {
-            const gd = stableGraphDataRef.current;
-            if (gd) saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, rootPersonIdRef.current);
+            saveForceState();
             if (zoomSaveTimerRef.current) clearTimeout(zoomSaveTimerRef.current);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // ── Close dropdowns on outside click ──────────────────────────────────
@@ -723,11 +772,10 @@ function FamilyGraphPanel() {
         setRootPersonId(id);
         setRootSearch('');
         setRootFocused(false);
+        saveForceState(id);
 
         const gd = stableGraphDataRef.current;
         if (gd) {
-            saveGraphState(gd.nodes as SimNode[], zoomStateRef.current, id);
-
             // Focus camera on the new focal node immediately
             if (id && fgRef.current) {
                 const node = (gd.nodes as SimNode[]).find(n => n.id === id);
@@ -737,7 +785,7 @@ function FamilyGraphPanel() {
                 }
             }
         }
-    }, []);
+    }, [saveForceState]);
 
     const rootDropdownNodes = useMemo<SimNode[]>(() => {
         if (!rootFocused || !stableGraphData) return [];
@@ -1356,9 +1404,9 @@ function FamilyGraphPanel() {
 
     // ── Refresh (clears saved layout so graph re-settles from scratch) ─────
     const handleRefresh = useCallback(() => {
-        try { localStorage.removeItem(LS_KEY); } catch { /* empty */ }
         savedPositionsRef.current = {};
         zoomStateRef.current = null;
+        updateDs({ positions: {}, zoom: null });
         // Trigger a full re-layout through the forces useEffect
         shouldReheatRef.current = true;
         const gd = stableGraphDataRef.current;
@@ -1382,10 +1430,8 @@ function FamilyGraphPanel() {
             fgRef.current.d3ReheatSimulation();
             fgRef.current.zoomToFit(600, 80);
         }
-        // Preserve focal person across refresh — save it back after removeItem
-        try { localStorage.setItem(LS_KEY, JSON.stringify({ positions: {}, zoom: null, rootPersonId: rootPersonIdRef.current })); } catch { /* empty */ }
         refetch();
-    }, [refetch]);
+    }, [refetch, updateDs]);
 
     const handleResetView = () => fgRef.current?.zoomToFit(400, 60);
 
@@ -1407,7 +1453,32 @@ function FamilyGraphPanel() {
                 <Network className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="text-sm font-semibold tracking-wide">Family Graph</span>
 
-                {!isLoading && !isError && nodeCount > 0 && (
+                {/* Visualization mode toggle */}
+                <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5 bg-muted/30">
+                    {(
+                        [
+                            ['force', Network, 'Force Graph'],
+                            ['fan', PieChart, 'Fan Chart'],
+                            ['pedigree', GitBranch, 'Pedigree'],
+                        ] as const
+                    ).map(([mode, Icon, label]) => (
+                        <button
+                            key={mode}
+                            onClick={() => updateDs({ vizMode: mode })}
+                            title={label}
+                            className={`h-6 w-6 rounded flex items-center justify-center transition-colors ${
+                                dsState.vizMode === mode
+                                    ? 'bg-background shadow-sm text-foreground'
+                                    : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                        >
+                            <Icon className="h-3.5 w-3.5" />
+                        </button>
+                    ))}
+                </div>
+
+                {/* Node/link count — only in force mode */}
+                {dsState.vizMode === 'force' && !isLoading && !isError && nodeCount > 0 && (
                     <span className="text-xs text-muted-foreground font-mono">
                         {nodeCount} people · {linkCount} connections
                     </span>
@@ -1450,8 +1521,8 @@ function FamilyGraphPanel() {
                     </div>
                 )}
 
-                {/* Search */}
-                {!isLoading && !isError && nodeCount > 0 && (
+                {/* Search — force mode only */}
+                {dsState.vizMode === 'force' && !isLoading && !isError && nodeCount > 0 && (
                     <div ref={searchRef} className="relative">
                         <div className="flex items-center gap-1.5 h-7 rounded-md border border-border bg-muted/30 px-2 focus-within:border-ring/50 focus-within:bg-muted/50 transition-colors">
                             <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -1560,7 +1631,32 @@ function FamilyGraphPanel() {
                     </div>
                 )}
 
-                {!isLoading && !isError && nodeCount > 0 && (
+                {/* Fan Chart */}
+                {dsState.vizMode === 'fan' && !isLoading && !isError && (
+                    <FanChartPanel
+                        nodes={graphData?.nodes ?? []}
+                        links={graphData?.links ?? []}
+                        rootPersonId={rootPersonId}
+                        maxGen={dsState.fanMaxGen}
+                        onMaxGenChange={(g) => updateDs({ fanMaxGen: g })}
+                        onRootChange={(id) => handleSetRoot(id)}
+                    />
+                )}
+
+                {/* Pedigree Chart */}
+                {dsState.vizMode === 'pedigree' && !isLoading && !isError && (
+                    <PedigreePanel
+                        nodes={graphData?.nodes ?? []}
+                        links={graphData?.links ?? []}
+                        rootPersonId={rootPersonId}
+                        orientation={dsState.pedigreeOrientation}
+                        onOrientationChange={(o) => updateDs({ pedigreeOrientation: o })}
+                        onRootChange={(id) => handleSetRoot(id)}
+                    />
+                )}
+
+                {/* Force Graph */}
+                {dsState.vizMode === 'force' && !isLoading && !isError && nodeCount > 0 && (
                     <ForceGraph2D
                         ref={fgRef as React.RefObject<ForceGraphMethods>}
                         width={dims.width}
@@ -1597,8 +1693,8 @@ function FamilyGraphPanel() {
                     />
                 )}
 
-                {/* Hover tooltip */}
-                {hoveredNodeId && (
+                {/* Hover tooltip — force mode only */}
+                {dsState.vizMode === 'force' && hoveredNodeId && (
                     <div
                         className="pointer-events-none absolute z-50"
                         style={{
@@ -1613,8 +1709,8 @@ function FamilyGraphPanel() {
                     </div>
                 )}
 
-                {/* Legend */}
-                {!isLoading && !isError && nodeCount > 0 && (
+                {/* Legend — force mode only */}
+                {dsState.vizMode === 'force' && !isLoading && !isError && nodeCount > 0 && (
                     <div className="absolute bottom-3 right-3 rounded-lg border border-border bg-card/90 backdrop-blur-sm px-3 py-2 text-xs space-y-1.5 pointer-events-none">
                         <p className="text-muted-foreground font-mono text-[10px] uppercase tracking-wider mb-1.5">Legend</p>
                         <LegendRow color="#60a5fa" label="Male" />

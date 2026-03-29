@@ -1,0 +1,695 @@
+import { useRef, useState, useMemo, useCallback, useEffect } from 'react';
+import { useNavigate } from '@tanstack/react-router';
+import { ArrowRight, ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, MoreHorizontal, X, User, Focus } from 'lucide-react';
+import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
+import {
+    buildFamilyTree,
+    computeAdaptiveTreeLayout,
+    type PositionedTreeNode,
+} from '@/utils/genealogyLayout';
+
+// ─── Props ────────────────────────────────────────────────────────────────────
+
+interface PedigreePanelProps {
+    nodes: GraphNodeData[];
+    links: GraphLinkData[];
+    rootPersonId: string | null;
+    orientation: 'horizontal' | 'vertical';
+    onOrientationChange: (o: 'horizontal' | 'vertical') => void;
+    onRootChange: (id: string) => void;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const DEFAULT_ANCESTOR_DEPTH = 3;
+const DEFAULT_DESCENDANT_DEPTH = 3;
+const MOBILE_BREAKPOINT = 640;
+
+const CARD_W = 160;
+const CARD_H = 56;
+
+const SEX_STROKE: Record<string, string> = {
+    M: '#60a5fa',
+    F: '#f472b6',
+    I: '#a78bfa',
+    U: '#94a3b8',
+};
+
+function sexStroke(sex: string): string {
+    return SEX_STROKE[sex] ?? SEX_STROKE['U'];
+}
+
+function shortName(label: string, maxChars = 20): string {
+    if (label.length <= maxChars) return label;
+    const parts = label.split(' ');
+    if (parts.length >= 2) {
+        const first = parts[0];
+        const lastInitial = parts[parts.length - 1][0] + '.';
+        const candidate = `${first} ${lastInitial}`;
+        if (candidate.length <= maxChars) return candidate;
+        return first.slice(0, maxChars);
+    }
+    return label.slice(0, maxChars);
+}
+
+// ─── PersonPreview (popover on desktop, bottom sheet on mobile) ──────────────
+
+interface PersonPreviewProps {
+    node: PositionedTreeNode;
+    graphNode: GraphNodeData | undefined;
+    isMobile: boolean;
+    scale: number;
+    pan: { x: number; y: number };
+    originX: number;
+    originY: number;
+    onClose: () => void;
+    onMakeFocal: (id: string) => void;
+    onViewProfile: (id: string) => void;
+}
+
+function PersonPreview({
+    node,
+    graphNode,
+    isMobile,
+    scale,
+    pan,
+    originX,
+    originY,
+    onClose,
+    onMakeFocal,
+    onViewProfile,
+}: PersonPreviewProps) {
+    const personId = node.node.id!;
+    const label = node.node.label;
+    const sex = node.node.sex;
+    const birthYear = graphNode?.birthYear ?? null;
+    const primaryAsset = graphNode?.primaryAsset ?? null;
+
+    if (isMobile) {
+        // Bottom sheet
+        return (
+            <>
+                {/* Backdrop */}
+                <div
+                    className="absolute inset-0 z-20 bg-black/20"
+                    onClick={onClose}
+                />
+                {/* Sheet */}
+                <div
+                    className="absolute bottom-0 left-0 right-0 z-30 rounded-t-2xl border-t border-border bg-card p-4 shadow-lg animate-in slide-in-from-bottom duration-200"
+                    data-testid="person-preview-sheet"
+                >
+                    <div className="flex items-start gap-3">
+                        {primaryAsset ? (
+                            <img
+                                src={`/api/assets/${primaryAsset}`}
+                                alt={label}
+                                className="h-12 w-12 rounded-full object-cover flex-shrink-0"
+                            />
+                        ) : (
+                            <div
+                                className="h-12 w-12 rounded-full flex-shrink-0 flex items-center justify-center"
+                                style={{ backgroundColor: sexStroke(sex) + '33' }}
+                            >
+                                <User className="h-5 w-5" style={{ color: sexStroke(sex) }} />
+                            </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">{label}</p>
+                            {birthYear && (
+                                <p className="text-xs text-muted-foreground">b. {birthYear}</p>
+                            )}
+                            <span
+                                className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono"
+                                style={{ backgroundColor: sexStroke(sex) + '22', color: sexStroke(sex) }}
+                            >
+                                {sex}
+                            </span>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="p-1 rounded hover:bg-muted/40 text-muted-foreground"
+                        >
+                            <X className="h-4 w-4" />
+                        </button>
+                    </div>
+                    <div className="flex gap-2 mt-3">
+                        <button
+                            onClick={() => onMakeFocal(personId)}
+                            className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                            data-testid="make-focal-btn"
+                        >
+                            <Focus className="h-3.5 w-3.5" />
+                            Make focal person
+                        </button>
+                        <button
+                            onClick={() => onViewProfile(personId)}
+                            className="flex-1 h-9 rounded-lg border border-border text-sm font-medium hover:bg-muted/40 transition-colors"
+                        >
+                            View profile
+                        </button>
+                    </div>
+                </div>
+            </>
+        );
+    }
+
+    // Desktop popover — position near the card in SVG space
+    const screenX = originX + pan.x + (node.x + CARD_W / 2) * scale;
+    const screenY = originY + pan.y + (node.y + CARD_H) * scale + 8;
+
+    return (
+        <>
+            <div className="fixed inset-0 z-20" onClick={onClose} />
+            <div
+                className="absolute z-30 w-56 rounded-xl border border-border bg-card shadow-lg p-3 animate-in fade-in zoom-in-95 duration-150"
+                style={{
+                    left: Math.max(8, Math.min(screenX - 112, window.innerWidth - 240)),
+                    top: screenY,
+                }}
+                data-testid="person-preview-popover"
+            >
+                <div className="flex items-start gap-2.5">
+                    {primaryAsset ? (
+                        <img
+                            src={`/api/assets/${primaryAsset}`}
+                            alt={label}
+                            className="h-10 w-10 rounded-full object-cover flex-shrink-0"
+                        />
+                    ) : (
+                        <div
+                            className="h-10 w-10 rounded-full flex-shrink-0 flex items-center justify-center"
+                            style={{ backgroundColor: sexStroke(sex) + '33' }}
+                        >
+                            <User className="h-4 w-4" style={{ color: sexStroke(sex) }} />
+                        </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">{label}</p>
+                        {birthYear && (
+                            <p className="text-xs text-muted-foreground">b. {birthYear}</p>
+                        )}
+                        <span
+                            className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono"
+                            style={{ backgroundColor: sexStroke(sex) + '22', color: sexStroke(sex) }}
+                        >
+                            {sex}
+                        </span>
+                    </div>
+                </div>
+                <div className="flex gap-2 mt-2.5">
+                    <button
+                        onClick={() => onMakeFocal(personId)}
+                        className="flex-1 flex items-center justify-center gap-1 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+                        data-testid="make-focal-btn"
+                    >
+                        <Focus className="h-3 w-3" />
+                        Focal
+                    </button>
+                    <button
+                        onClick={() => onViewProfile(personId)}
+                        className="flex-1 h-7 rounded-md border border-border text-xs font-medium hover:bg-muted/40 transition-colors"
+                    >
+                        Profile
+                    </button>
+                </div>
+            </div>
+        </>
+    );
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export default function PedigreePanel({
+    nodes,
+    links,
+    rootPersonId,
+    orientation,
+    onOrientationChange,
+    onRootChange,
+}: PedigreePanelProps) {
+    const navigate = useNavigate();
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [dims, setDims] = useState({ width: 800, height: 600 });
+    const [scale, setScale] = useState(1);
+    const [pan, setPan] = useState({ x: 0, y: 0 });
+    const [isDragging, setIsDragging] = useState(false);
+    const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
+
+    // Expansion state
+    const [expandedUp, setExpandedUp] = useState<Set<string>>(new Set());
+    const [expandedDown, setExpandedDown] = useState<Set<string>>(new Set());
+    const [expandedSiblings, setExpandedSiblings] = useState<Set<string>>(new Set());
+
+    // Person preview
+    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+    const isMobile = dims.width < MOBILE_BREAKPOINT;
+    const ancestorDepth = isMobile ? 2 : DEFAULT_ANCESTOR_DEPTH;
+    const descendantDepth = isMobile ? 2 : DEFAULT_DESCENDANT_DEPTH;
+
+    // Reset expansion + selection when root changes
+    useEffect(() => {
+        setExpandedUp(new Set());
+        setExpandedDown(new Set());
+        setExpandedSiblings(new Set());
+        setSelectedNodeId(null);
+        setScale(1);
+        setPan({ x: 0, y: 0 });
+    }, [rootPersonId]);
+
+    // Observe container size
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const obs = new ResizeObserver((entries) => {
+            const { width, height } = entries[0].contentRect;
+            setDims({ width: Math.max(200, width), height: Math.max(200, height) });
+        });
+        obs.observe(el);
+        return () => obs.disconnect();
+    }, []);
+
+    // Wheel zoom
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const handleWheel = (e: WheelEvent) => {
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? 1.1 : 0.9;
+            const newScale = Math.max(0.15, Math.min(4, scale * factor));
+            const rect = el.getBoundingClientRect();
+            const cx = e.clientX - rect.left - dims.width / 2;
+            const cy = e.clientY - rect.top - dims.height / 2;
+            const ds = newScale - scale;
+            setPan(p => ({ x: p.x - cx * ds / scale, y: p.y - cy * ds / scale }));
+            setScale(newScale);
+        };
+        el.addEventListener('wheel', handleWheel, { passive: false });
+        return () => el.removeEventListener('wheel', handleWheel);
+    }, [scale, dims]);
+
+    const DRAG_THRESHOLD = 5;
+
+    const handlePointerDown = useCallback(
+        (e: React.PointerEvent) => {
+            if (e.button !== 0) return;
+            // Don't capture — let clicks on buttons and SVG elements work naturally
+            dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
+        },
+        [pan],
+    );
+
+    const handlePointerMove = useCallback(
+        (e: React.PointerEvent) => {
+            if (!dragRef.current) return;
+            const dx = e.clientX - dragRef.current.startX;
+            const dy = e.clientY - dragRef.current.startY;
+            // Only enter drag mode after exceeding threshold
+            if (!isDragging && Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) {
+                setIsDragging(true);
+            }
+            if (isDragging || Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) {
+                setPan({ x: dragRef.current.panX + dx, y: dragRef.current.panY + dy });
+            }
+        },
+        [isDragging],
+    );
+
+    const handlePointerUp = useCallback(() => {
+        setIsDragging(false);
+        dragRef.current = null;
+    }, []);
+
+    // Build family tree layout
+    const { treeNodes, treeConnectors } = useMemo(() => {
+        if (!rootPersonId) return { treeNodes: [], treeConnectors: [] };
+
+        const nodeRefs = nodes.map((n) => ({ id: n.id, label: n.label, sex: n.sex }));
+        const linkRefs = links.map((l) => ({
+            source: typeof l.source === 'object' ? (l.source as { id: string }).id : (l.source as string),
+            target: typeof l.target === 'object' ? (l.target as { id: string }).id : (l.target as string),
+            type: l.type,
+        }));
+
+        const tree = buildFamilyTree(
+            nodeRefs, linkRefs, rootPersonId,
+            ancestorDepth, descendantDepth,
+            expandedUp, expandedDown, expandedSiblings,
+        );
+        const layout = computeAdaptiveTreeLayout(tree, orientation);
+        return { treeNodes: layout.nodes, treeConnectors: layout.connectors };
+    }, [rootPersonId, nodes, links, orientation, ancestorDepth, descendantDepth,
+        expandedUp, expandedDown, expandedSiblings]);
+
+    // Node lookup for graph data (birthYear, primaryAsset)
+    const graphNodeMap = useMemo(
+        () => new Map(nodes.map(n => [n.id, n])),
+        [nodes],
+    );
+
+    const handleExpandAncestors = useCallback((id: string) => {
+        setExpandedUp(prev => new Set([...prev, id]));
+    }, []);
+
+    const handleExpandDescendants = useCallback((id: string) => {
+        setExpandedDown(prev => new Set([...prev, id]));
+    }, []);
+
+    const handleExpandSiblings = useCallback((id: string) => {
+        setExpandedSiblings(prev => new Set([...prev, id]));
+    }, []);
+
+    const handleCardClick = useCallback((id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setSelectedNodeId(prev => prev === id ? null : id);
+    }, []);
+
+    const handleMakeFocal = useCallback((id: string) => {
+        setSelectedNodeId(null);
+        onRootChange(id);
+    }, [onRootChange]);
+
+    const handleViewProfile = useCallback((id: string) => {
+        void navigate({ to: '/people/$id', params: { id } });
+    }, [navigate]);
+
+    // Dismiss preview on background click
+    const handleBackgroundClick = useCallback(() => {
+        if (selectedNodeId) setSelectedNodeId(null);
+    }, [selectedNodeId]);
+
+    if (!rootPersonId) {
+        return (
+            <div
+                ref={containerRef}
+                className="relative w-full h-full flex items-center justify-center"
+            >
+                <div className="text-center space-y-2 text-muted-foreground">
+                    <ArrowRight className="h-10 w-10 mx-auto opacity-25" />
+                    <p className="text-sm font-medium">Select a focal person</p>
+                    <p className="text-xs opacity-60">Use the Focal picker above to choose a root person</p>
+                </div>
+            </div>
+        );
+    }
+
+    const originX = dims.width / 2;
+    const originY = dims.height / 2;
+    const transform = `translate(${originX + pan.x}, ${originY + pan.y}) scale(${scale})`;
+
+    // Determine expand icon positions based on orientation
+    const ExpandAncestorIcon = orientation === 'horizontal' ? ChevronLeft : ChevronUp;
+    const ExpandDescendantIcon = orientation === 'horizontal' ? ChevronRight : ChevronDown;
+
+    const selectedNode = selectedNodeId
+        ? treeNodes.find(n => n.node.id === selectedNodeId) ?? null
+        : null;
+
+    return (
+        <div
+            ref={containerRef}
+            className="relative w-full h-full overflow-hidden"
+            style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onClick={handleBackgroundClick}
+        >
+            <svg
+                width={dims.width}
+                height={dims.height}
+                data-testid="pedigree-svg"
+                className="select-none"
+            >
+                <g transform={transform}>
+                    {/* Connectors */}
+                    {treeConnectors.map((c) => (
+                        <path
+                            key={c.id}
+                            d={c.path}
+                            fill="none"
+                            stroke="var(--border)"
+                            strokeWidth={1.5}
+                        />
+                    ))}
+
+                    {/* Person cards */}
+                    {treeNodes.map((n) => {
+                        if (!n.node.id) return null;
+                        const isRoot = n.node.generation === 0 && n.node.id === rootPersonId;
+                        const isSelected = n.node.id === selectedNodeId;
+                        const graphNode = graphNodeMap.get(n.node.id);
+                        const birthYear = graphNode?.birthYear ?? null;
+
+                        return (
+                            <g
+                                key={n.node.id}
+                                transform={`translate(${n.x}, ${n.y})`}
+                                data-person-id={n.node.id}
+                                onClick={(e) => handleCardClick(n.node.id!, e)}
+                                className="cursor-pointer"
+                                style={{ pointerEvents: 'all' }}
+                            >
+                                {/* Card background */}
+                                <rect
+                                    width={CARD_W}
+                                    height={CARD_H}
+                                    rx={6}
+                                    fill="var(--card)"
+                                    stroke={isSelected ? 'var(--primary)' : sexStroke(n.node.sex)}
+                                    strokeWidth={isSelected ? 2.5 : isRoot ? 2.5 : 2}
+                                    style={{ transition: 'stroke 0.15s, stroke-width 0.15s' }}
+                                />
+
+                                {/* Root indicator */}
+                                {isRoot && (
+                                    <rect
+                                        x={0}
+                                        y={0}
+                                        width={4}
+                                        height={CARD_H}
+                                        rx={2}
+                                        fill="var(--primary)"
+                                    />
+                                )}
+
+                                {/* Name */}
+                                <text
+                                    x={isRoot ? 12 : 8}
+                                    y={20}
+                                    fontSize={11}
+                                    fontWeight={isRoot ? 600 : 500}
+                                    fill="var(--card-foreground)"
+                                    style={{ pointerEvents: 'none' }}
+                                >
+                                    {shortName(n.node.label)}
+                                </text>
+
+                                {/* Birth year */}
+                                {!!birthYear && (
+                                    <text
+                                        x={isRoot ? 12 : 8}
+                                        y={36}
+                                        fontSize={9}
+                                        fill="var(--muted-foreground)"
+                                        style={{ pointerEvents: 'none' }}
+                                    >
+                                        b. {birthYear}
+                                    </text>
+                                )}
+
+                                {/* Generation badge */}
+                                {n.node.generation !== 0 && (
+                                    <text
+                                        x={CARD_W - 6}
+                                        y={CARD_H - 6}
+                                        fontSize={8}
+                                        textAnchor="end"
+                                        fill="var(--muted-foreground)"
+                                        opacity={0.5}
+                                        style={{ pointerEvents: 'none' }}
+                                    >
+                                        {n.node.generation > 0 ? `+${n.node.generation}` : n.node.generation}
+                                    </text>
+                                )}
+
+                                {/* Expand ancestors button */}
+                                {n.node.hasHiddenAncestors && (
+                                    <g
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleExpandAncestors(n.node.id!);
+                                        }}
+                                        className="cursor-pointer"
+                                        data-testid="expand-ancestors"
+                                    >
+                                        <circle
+                                            cx={orientation === 'horizontal' ? -10 : CARD_W / 2}
+                                            cy={orientation === 'horizontal' ? CARD_H / 2 : -10}
+                                            r={8}
+                                            fill="var(--muted)"
+                                            stroke="var(--border)"
+                                            strokeWidth={1}
+                                        />
+                                        <ExpandAncestorIcon
+                                            x={(orientation === 'horizontal' ? -10 : CARD_W / 2) - 5}
+                                            y={(orientation === 'horizontal' ? CARD_H / 2 : -10) - 5}
+                                            width={10}
+                                            height={10}
+                                            className="text-muted-foreground"
+                                        />
+                                    </g>
+                                )}
+
+                                {/* Expand descendants button */}
+                                {n.node.hasHiddenDescendants && (
+                                    <g
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleExpandDescendants(n.node.id!);
+                                        }}
+                                        className="cursor-pointer"
+                                        data-testid="expand-descendants"
+                                    >
+                                        <circle
+                                            cx={orientation === 'horizontal' ? CARD_W + 10 : CARD_W / 2}
+                                            cy={orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 10}
+                                            r={8}
+                                            fill="var(--muted)"
+                                            stroke="var(--border)"
+                                            strokeWidth={1}
+                                        />
+                                        <ExpandDescendantIcon
+                                            x={(orientation === 'horizontal' ? CARD_W + 10 : CARD_W / 2) - 5}
+                                            y={(orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 10) - 5}
+                                            width={10}
+                                            height={10}
+                                            className="text-muted-foreground"
+                                        />
+                                    </g>
+                                )}
+
+                                {/* Expand siblings button */}
+                                {n.node.hasHiddenSiblings && (
+                                    <g
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleExpandSiblings(n.node.id!);
+                                        }}
+                                        className="cursor-pointer"
+                                        data-testid="expand-siblings"
+                                    >
+                                        <circle
+                                            cx={orientation === 'horizontal' ? CARD_W / 2 : CARD_W + 10}
+                                            cy={orientation === 'horizontal' ? CARD_H + 10 : CARD_H / 2}
+                                            r={8}
+                                            fill="var(--muted)"
+                                            stroke="var(--border)"
+                                            strokeWidth={1}
+                                        />
+                                        <MoreHorizontal
+                                            x={(orientation === 'horizontal' ? CARD_W / 2 : CARD_W + 10) - 5}
+                                            y={(orientation === 'horizontal' ? CARD_H + 10 : CARD_H / 2) - 5}
+                                            width={10}
+                                            height={10}
+                                            className="text-muted-foreground"
+                                        />
+                                    </g>
+                                )}
+                            </g>
+                        );
+                    })}
+                </g>
+            </svg>
+
+            {/* Layout toggle + zoom controls */}
+            <div className="absolute top-3 left-3 z-10 flex items-center gap-1 rounded-lg border border-border bg-card/90 backdrop-blur-sm p-1 pointer-events-auto">
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onOrientationChange('horizontal');
+                    }}
+                    title="Horizontal layout"
+                    aria-pressed={orientation === 'horizontal'}
+                    className={`h-7 w-7 rounded flex items-center justify-center transition-colors ${
+                        orientation === 'horizontal'
+                            ? 'bg-foreground text-background'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+                    }`}
+                >
+                    <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onOrientationChange('vertical');
+                    }}
+                    title="Vertical layout"
+                    aria-pressed={orientation === 'vertical'}
+                    className={`h-7 w-7 rounded flex items-center justify-center transition-colors ${
+                        orientation === 'vertical'
+                            ? 'bg-foreground text-background'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+                    }`}
+                >
+                    <ArrowUp className="h-3.5 w-3.5" />
+                </button>
+                <div className="w-px h-5 bg-border mx-0.5" />
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setScale(s => Math.min(4, s * 1.2));
+                    }}
+                    title="Zoom in"
+                    className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors font-mono text-sm"
+                >
+                    +
+                </button>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setScale(s => Math.max(0.15, s * 0.8));
+                    }}
+                    title="Zoom out"
+                    className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors font-mono text-sm"
+                >
+                    −
+                </button>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setScale(1);
+                        setPan({ x: 0, y: 0 });
+                    }}
+                    title="Reset view"
+                    className="h-7 px-1.5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-[10px] font-mono"
+                >
+                    1:1
+                </button>
+            </div>
+
+            {/* Hint */}
+            <p className="absolute bottom-3 left-3 text-[10px] text-muted-foreground/50 pointer-events-none">
+                Scroll to zoom · drag to pan · click card for options
+            </p>
+
+            {/* Person preview popover/sheet */}
+            {selectedNode && selectedNode.node.id && (
+                <PersonPreview
+                    node={selectedNode}
+                    graphNode={graphNodeMap.get(selectedNode.node.id)}
+                    isMobile={isMobile}
+                    scale={scale}
+                    pan={pan}
+                    originX={originX}
+                    originY={originY}
+                    onClose={() => setSelectedNodeId(null)}
+                    onMakeFocal={handleMakeFocal}
+                    onViewProfile={handleViewProfile}
+                />
+            )}
+        </div>
+    );
+}
