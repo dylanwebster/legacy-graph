@@ -601,6 +601,7 @@ function FamilyGraphPanel() {
         } else {
             // First mount / API reload: ensure fx is set to birth year, restore saved fy
             const savedPos = savedPositionsRef.current;
+            const clusterY = computeFamilyClusterY(stableGraphData.nodes, stableGraphData.links);
             for (const node of stableGraphData.nodes) {
                 const n = node as SimNode & { fx?: number; fy?: number };
                 const fixedX = yearToX(n.effectiveBirthYear ?? bounds.midYear, bounds.midYear);
@@ -609,6 +610,9 @@ function FamilyGraphPanel() {
                 if (savedPos[n.id as string]) {
                     n.fy = savedPos[n.id as string].y;
                 } else {
+                    // Seed Y from cluster topology (same as handleRefresh) so first
+                    // load converges to the same layout as subsequent resets.
+                    n.y = (clusterY.get(n.id as string) ?? 0) + (Math.random() - 0.5) * 10;
                     delete n.fy;
                 }
             }
