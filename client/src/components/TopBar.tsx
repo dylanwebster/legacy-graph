@@ -1,4 +1,4 @@
-import { Menu, Search, Sun, Moon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Sun, Moon } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
 import { Button } from '@/components/ui/button';
 
@@ -7,24 +7,24 @@ export function TopBar() {
 
     return (
         <div className="flex h-14 items-center justify-between border-b border-border bg-background px-4 lg:px-6 z-10 w-full shrink-0">
-            <div className="flex items-center gap-3">
-                {/* Mobile: hamburger opens the sidebar. Hidden on desktop. */}
+            <div className="flex items-center gap-1 md:hidden">
+                {/* Mobile: chevron toggle — always at position 1 */}
                 <Button
                     variant="ghost"
                     size="icon"
-                    className="md:hidden shrink-0"
+                    className="shrink-0"
                     onClick={toggleSidebar}
-                    aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+                    aria-label={sidebarOpen ? 'Collapse navigation' : 'Expand navigation'}
                     aria-expanded={sidebarOpen}
                 >
-                    <Menu className="h-5 w-5" />
+                    {sidebarOpen
+                        ? <ChevronLeft className="h-5 w-5" />
+                        : <ChevronRight className="h-5 w-5" />
+                    }
                 </Button>
 
-                {/* Mobile: "LG" brand shown when sidebar is closed */}
-                {!sidebarOpen && (
-                    <span className="md:hidden font-bold text-base tracking-tight select-none">LG</span>
-                )}
-
+                {/* Mobile: LG logo — always at position 2 */}
+                <img src="/lg.svg" alt="LegacyGraph" className="h-8 w-8" />
             </div>
 
             <div className="flex items-center gap-2">

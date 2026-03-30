@@ -35,7 +35,7 @@ export const useUIStore = create<UIState>((set) => ({
     storiesFeedSortKey: 'date',
     storiesFeedSortOrder: 'desc',
     setStoriesFeed: (filter, sortKey, sortOrder) => set({ storiesFeedFilter: filter, storiesFeedSortKey: sortKey, storiesFeedSortOrder: sortOrder }),
-    sidebarOpen: typeof window !== 'undefined' && window.innerWidth >= 768,
+    sidebarOpen: false,
     searchOpen: false,
     theme: typeof document !== 'undefined' && document.documentElement.classList.contains('dark') ? 'dark' : 'light',
     toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
