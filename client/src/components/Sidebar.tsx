@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router';
 import { useUIStore } from '@/store/uiStore';
 import { cn } from '@/lib/utils';
 import { StatusDot } from './StatusDot';
-import { LayoutDashboard, Users, BookOpen, Image, Import, Settings, ChevronLeft, X } from 'lucide-react';
+import { Share2, Users, BookOpen, Image, Import, Settings, ChevronLeft, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 function LGLogo({ className }: { className?: string }) {
@@ -10,7 +10,7 @@ function LGLogo({ className }: { className?: string }) {
 }
 
 const navItems = [
-    { icon: LayoutDashboard, label: 'Dashboard', to: '/' },
+    { icon: Share2, label: 'Graph', to: '/' },
     { icon: Users, label: 'People', to: '/people' },
     { icon: BookOpen, label: 'Stories', to: '/stories' },
     { icon: Image, label: 'Assets', to: '/assets' },

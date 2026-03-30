@@ -8,7 +8,7 @@ import { useGraphData, usePerson } from '@/api/hooks';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
 import { PersonHoverContent } from '@/components/PersonChip';
 import { Skeleton } from '@/components/ui/skeleton';
-import { GitBranch, RefreshCw, Scan, Maximize2, Minimize2, Network, Search, X, PieChart } from 'lucide-react';
+import { GitBranch, RefreshCw, Scan, Maximize2, Minimize2, Network, Search, X, CircleDot } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
 import FanChartPanel from '@/components/viz/FanChartPanel';
 import PedigreePanel from '@/components/viz/PedigreePanel';
@@ -415,11 +415,14 @@ function Dashboard() {
         setVizModeStore(dsState.vizMode);
     }, [dsState.vizMode, setVizModeStore]);
 
+    const { data: graphData } = useGraphData();
+    const peopleCount = graphData?.nodes.length ?? 0;
+
     return (
         <div className="h-full overflow-auto p-6 space-y-4">
             <div>
-                <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-                <p className="text-sm text-muted-foreground mt-1">Interactive family graph</p>
+                <h1 className="text-2xl font-bold tracking-tight">Graph</h1>
+                <p className="text-sm text-muted-foreground mt-1">{peopleCount > 0 ? `${peopleCount} people in the graph` : 'Browse the family graph'}</p>
             </div>
             <FamilyGraphPanel dsState={dsState} updateDs={updateDs} />
         </div>
@@ -1450,16 +1453,13 @@ function FamilyGraphPanel({
         <div ref={panelRef} className={`border border-border bg-card overflow-visible ${isFullscreen ? 'rounded-none' : 'rounded-xl'}`}>
             {/* Header */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
-                <Network className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="text-sm font-semibold tracking-wide">Family Graph</span>
-
                 {/* Visualization mode toggle */}
                 <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5 bg-muted/30">
                     {(
                         [
-                            ['force', Network, 'Force Graph'],
-                            ['fan', PieChart, 'Fan Chart'],
-                            ['pedigree', GitBranch, 'Pedigree'],
+                            ['force', GitBranch, 'Force Graph'],
+                            ['fan', CircleDot, 'Fan Chart'],
+                            ['pedigree', Network, 'Pedigree'],
                         ] as const
                     ).map(([mode, Icon, label]) => (
                         <button

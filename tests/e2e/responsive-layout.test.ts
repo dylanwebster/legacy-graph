@@ -14,7 +14,7 @@ test.describe('CUJ 3: Responsive Layout', () => {
 
         // 3. Sidebar nav link labels should NOT be visible (sidebar collapses on mobile)
         // When sidebarOpen is false, sidebar uses "w-16 hidden md:flex" so it's hidden at mobile
-        const sidebarLabel = page.locator('nav a span, aside a span').filter({ hasText: 'Dashboard' }).first();
+        const sidebarLabel = page.locator('nav a span, aside a span').filter({ hasText: 'Graph' }).first();
         await expect(sidebarLabel).not.toBeVisible();
 
         // 4. Click hamburger → sidebar overlay opens
@@ -22,7 +22,7 @@ test.describe('CUJ 3: Responsive Layout', () => {
 
         // Sidebar with labels should now be visible
         await expect(page.getByText('LegacyGraph')).toBeVisible({ timeout: 3_000 });
-        await expect(page.getByRole('link', { name: 'Dashboard', exact: true })).toBeVisible({ timeout: 3_000 });
+        await expect(page.getByRole('link', { name: 'Graph', exact: true })).toBeVisible({ timeout: 3_000 });
     });
 
     test('desktop viewport shows full sidebar with labels', async ({ page }) => {
