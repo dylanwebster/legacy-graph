@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { StatusDot } from './StatusDot';
-import { Share2, Users, BookOpen, Image, Import, Settings } from 'lucide-react';
+import { Share2, Users, BookOpen, Image, Import, Settings, Search } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useUIStore } from '@/store/uiStore';
 import { cn } from '@/lib/utils';
@@ -22,7 +22,7 @@ const bottomItems = [
 ];
 
 export function Sidebar() {
-    const { sidebarOpen, toggleSidebar } = useUIStore();
+    const { sidebarOpen, toggleSidebar, setSearchOpen } = useUIStore();
 
     function handleNavClick() {
         if (window.innerWidth < 768) {
@@ -57,6 +57,24 @@ export function Sidebar() {
                             <TooltipContent side="right">{item.label}</TooltipContent>
                         </Tooltip>
                     ))}
+                </TooltipProvider>
+            </div>
+
+            {/* Search trigger */}
+            <div className="flex flex-col px-2 pb-2">
+                <TooltipProvider delayDuration={0}>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                onClick={() => setSearchOpen(true)}
+                                className="flex items-center justify-center rounded-md px-3 py-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
+                                aria-label="Search"
+                            >
+                                <Search className="h-5 w-5 shrink-0" />
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">Search <kbd className="ml-1 font-mono text-[10px]">/</kbd></TooltipContent>
+                    </Tooltip>
                 </TooltipProvider>
             </div>
 

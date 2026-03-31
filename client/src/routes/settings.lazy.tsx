@@ -12,7 +12,8 @@ import {
     DialogDescription,
 } from '@/components/ui/dialog';
 import { useState, useCallback } from 'react';
-import { RefreshCw, Camera, Loader2, Server, Database, Clock, Activity } from 'lucide-react';
+import { RefreshCw, Camera, Loader2, Server, Database, Clock, Activity, Sun, Moon, Palette } from 'lucide-react';
+import { useUIStore } from '@/store/uiStore';
 
 export const Route = createLazyFileRoute('/settings')({
     component: SettingsPage,
@@ -20,6 +21,7 @@ export const Route = createLazyFileRoute('/settings')({
 
 function SettingsPage() {
     const { data: status, isLoading } = useSystemStatus();
+    const { theme, toggleTheme } = useUIStore();
     const [rebuilding, setRebuilding] = useState(false);
     const [snapshotName, setSnapshotName] = useState('');
     const [snapshotDialogOpen, setSnapshotDialogOpen] = useState(false);
@@ -74,6 +76,27 @@ function SettingsPage() {
                         <StatusCard icon={Clock} label="Cache Written" value={status?.cacheAge ? new Date(status.cacheAge).toLocaleString() : '—'} />
                     </div>
                 )}
+            </div>
+
+            {/* Appearance */}
+            <div className="space-y-4 border-t border-border pt-6">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                    <Palette className="h-5 w-5" /> Appearance
+                </h2>
+                <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-card">
+                    <div>
+                        <div className="text-sm font-medium">Theme</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">{theme === 'dark' ? 'Dark mode' : 'Light mode'}</div>
+                    </div>
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={toggleTheme}
+                        aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                    >
+                        {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                    </Button>
+                </div>
             </div>
 
             {/* Cache Management */}
