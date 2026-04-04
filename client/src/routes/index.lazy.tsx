@@ -496,6 +496,7 @@ function FamilyGraphPanel({
             if (typeof n.x === 'number' && typeof n.y === 'number')
                 positions[n.id as string] = { x: n.x, y: n.y };
         }
+        savedPositionsRef.current = positions;
         const rootId = overrideRootId !== undefined ? overrideRootId : rootPersonIdRef.current;
         updateDs({ positions, zoom: zoomStateRef.current, rootPersonId: rootId });
     }, [updateDs]);
