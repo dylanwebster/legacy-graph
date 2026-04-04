@@ -1,9 +1,11 @@
-import { createLazyFileRoute } from '@tanstack/react-router';
+import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import { useSystemStatus } from '@/api/hooks';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 import {
     Dialog,
     DialogContent,
@@ -11,21 +13,42 @@ import {
     DialogTitle,
     DialogDescription,
 } from '@/components/ui/dialog';
-import { useState, useCallback } from 'react';
-import { RefreshCw, Camera, Loader2, Server, Database, Clock, Activity, Sun, Moon, Palette } from 'lucide-react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import {
+    RefreshCw, Camera, Loader2, Server, Database, Clock, Activity,
+    Sun, Moon, Palette, Upload, Download, AlertTriangle, CheckCircle2,
+} from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
 
 export const Route = createLazyFileRoute('/settings')({
     component: SettingsPage,
 });
 
+const IMPORT_MODE_DESCRIPTIONS = {
+    replace: 'All existing people will be permanently deleted and replaced with records from this file. Git history is preserved, so you can revert if needed.',
+    additive: 'People from this file will be added to your existing data. Duplicates are detected by matching first name, last name, and birth year — matched records will be skipped to preserve any hand-crafted edits. Name or date discrepancies may still result in duplicates.',
+} as const;
+
 function SettingsPage() {
     const { data: status, isLoading } = useSystemStatus();
     const { theme, toggleTheme } = useUIStore();
+    const navigate = useNavigate();
+
+    // Cache / snapshot state
     const [rebuilding, setRebuilding] = useState(false);
     const [snapshotName, setSnapshotName] = useState('');
     const [snapshotDialogOpen, setSnapshotDialogOpen] = useState(false);
     const [snapshotting, setSnapshotting] = useState(false);
+
+    // Import state
+    const [importFile, setImportFile] = useState<File | null>(null);
+    const [importing, setImporting] = useState(false);
+    const [importConfirmOpen, setImportConfirmOpen] = useState(false);
+    const [importProgress, setImportProgress] = useState<{ phase?: string; percent?: number } | null>(null);
+    const [importError, setImportError] = useState<string | null>(null);
+    const [importMode, setImportMode] = useState<'replace' | 'additive'>('replace');
+    const [importResult, setImportResult] = useState<{ imported: number; skipped?: number } | null>(null);
+    const evtSourceRef = useRef<EventSource | null>(null);
 
     const handleRebuild = useCallback(async () => {
         setRebuilding(true);
@@ -49,6 +72,78 @@ function SettingsPage() {
         setSnapshotDialogOpen(false);
         setSnapshotName('');
     }, [snapshotName]);
+
+    const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const f = e.target.files?.[0];
+        if (f && f.name.endsWith('.ged')) {
+            setImportFile(f);
+            setImportError(null);
+            setImportResult(null);
+        } else {
+            setImportError('Please select a valid .ged file');
+        }
+    }, []);
+
+    const handleImport = useCallback(async () => {
+        if (!importFile) return;
+        setImportConfirmOpen(false);
+        setImporting(true);
+        setImportError(null);
+        setImportResult(null);
+
+        try {
+            const formData = new FormData();
+            formData.append('file', importFile);
+            formData.append('mode', importMode);
+
+            const response = await fetch('/api/import/gedcom', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({ error: 'Upload failed' }));
+                throw new Error((err as { error?: string }).error || 'Upload failed');
+            }
+
+            const result = await response.json() as { imported: number; skipped?: number };
+
+            const evtSource = new EventSource('/api/system/hydration/stream');
+            evtSourceRef.current = evtSource;
+
+            evtSource.addEventListener('progress', (e) => {
+                try {
+                    const data = JSON.parse((e as MessageEvent).data) as { phase?: string; percent?: number };
+                    setImportProgress({ phase: data.phase, percent: data.percent });
+                } catch { /* ignore */ }
+            });
+
+            evtSource.addEventListener('complete', () => {
+                evtSource.close();
+                evtSourceRef.current = null;
+                setImporting(false);
+                if (importMode === 'additive') {
+                    setImportResult({ imported: result.imported, skipped: result.skipped });
+                } else {
+                    navigate({ to: '/' });
+                }
+            });
+
+            evtSource.addEventListener('error', () => {
+                evtSource.close();
+                evtSourceRef.current = null;
+                setImporting(false);
+                setImportError('Import completed but hydration stream disconnected.');
+            });
+        } catch (err) {
+            setImporting(false);
+            setImportError(err instanceof Error ? err.message : 'Upload failed');
+        }
+    }, [importFile, importMode, navigate]);
+
+    useEffect(() => {
+        return () => { evtSourceRef.current?.close(); };
+    }, []);
 
     return (
         <div className="h-full overflow-auto p-6 max-w-2xl mx-auto space-y-8">
@@ -114,6 +209,122 @@ function SettingsPage() {
                 </div>
             </div>
 
+            {/* Data */}
+            <div className="space-y-6 border-t border-border pt-6">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                    <Database className="h-5 w-5" /> Data
+                </h2>
+
+                {/* Import GEDCOM */}
+                <div className="space-y-4">
+                    <div>
+                        <h3 className="text-sm font-semibold">Import GEDCOM</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">Upload a GEDCOM (.ged) file to populate the graph.</p>
+                    </div>
+
+                    <label
+                        htmlFor="gedcom-upload"
+                        className="flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed border-border rounded-xl cursor-pointer hover:bg-muted/30 hover:border-muted-foreground/30 transition-colors"
+                    >
+                        <Upload className="h-8 w-8 text-muted-foreground" />
+                        <div className="text-center">
+                            <p className="text-sm font-medium">{importFile ? importFile.name : 'Click to select a .ged file'}</p>
+                            {importFile && (
+                                <p className="text-xs text-muted-foreground mt-1">{(importFile.size / 1024).toFixed(1)} KB</p>
+                            )}
+                        </div>
+                        <Input
+                            id="gedcom-upload"
+                            type="file"
+                            accept=".ged"
+                            className="hidden"
+                            onChange={handleFileChange}
+                        />
+                    </label>
+
+                    <div className="space-y-3">
+                        <p id="import-mode-label" className="text-sm font-medium">Import mode</p>
+                        <RadioGroup
+                            value={importMode}
+                            onValueChange={(v) => { if (v === 'replace' || v === 'additive') setImportMode(v); }}
+                            aria-labelledby="import-mode-label"
+                            className="space-y-2"
+                        >
+                            <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="replace" id="mode-replace" />
+                                <Label htmlFor="mode-replace" className="cursor-pointer">Replace existing people</Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="additive" id="mode-additive" />
+                                <Label htmlFor="mode-additive" className="cursor-pointer">Add to existing people</Label>
+                            </div>
+                        </RadioGroup>
+                        <p className="text-xs text-muted-foreground">{IMPORT_MODE_DESCRIPTIONS[importMode]}</p>
+                    </div>
+
+                    {importError && (
+                        <Badge variant="destructive" className="w-full justify-center py-2">{importError}</Badge>
+                    )}
+
+                    {importResult && (
+                        <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-4">
+                            <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+                            <div className="space-y-1">
+                                <p className="text-sm font-medium">Import complete</p>
+                                <p className="text-xs text-muted-foreground">
+                                    {importResult.imported} {importResult.imported === 1 ? 'person' : 'people'} added
+                                    {importResult.skipped != null && importResult.skipped > 0
+                                        ? `, ${importResult.skipped} duplicate${importResult.skipped === 1 ? '' : 's'} skipped`
+                                        : ''}
+                                </p>
+                            </div>
+                            <Button variant="outline" size="sm" className="ml-auto shrink-0" onClick={() => navigate({ to: '/' })}>
+                                Go to graph
+                            </Button>
+                        </div>
+                    )}
+
+                    {importing && importProgress && (
+                        <div className="space-y-2">
+                            <div className="flex justify-between text-sm text-muted-foreground">
+                                <span>{importProgress.phase || 'Processing...'}</span>
+                                {importProgress.percent !== undefined && <span>{Math.round(importProgress.percent)}%</span>}
+                            </div>
+                            <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+                                <div
+                                    className="h-full bg-primary transition-all duration-300"
+                                    style={{ width: `${importProgress.percent || 0}%` }}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    <Button
+                        disabled={!importFile || importing || !!importResult}
+                        onClick={() => setImportConfirmOpen(true)}
+                    >
+                        {importing ? (
+                            <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Importing...</>
+                        ) : (
+                            <><Upload className="h-4 w-4 mr-2" /> Import File</>
+                        )}
+                    </Button>
+                </div>
+
+                {/* Export GEDCOM */}
+                <div className="space-y-3 border-t border-border/50 pt-4">
+                    <div>
+                        <h3 className="text-sm font-semibold">Export GEDCOM</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">Download your entire family tree as a standard GEDCOM 5.5.1 file.</p>
+                    </div>
+                    <Button variant="outline" disabled title="Export GEDCOM is not yet implemented">
+                        <Download className="h-4 w-4 mr-2" /> Download GEDCOM
+                    </Button>
+                    <p className="text-xs text-muted-foreground italic">Export is not yet implemented.</p>
+                </div>
+            </div>
+
+            {/* Snapshot dialog */}
             <Dialog open={snapshotDialogOpen} onOpenChange={setSnapshotDialogOpen}>
                 <DialogContent>
                     <DialogHeader>
@@ -130,6 +341,28 @@ function SettingsPage() {
                         <Button disabled={!snapshotName.trim() || snapshotting} onClick={handleSnapshot}>
                             {snapshotting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                             Create
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Import confirmation dialog */}
+            <Dialog open={importConfirmOpen} onOpenChange={setImportConfirmOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            {importMode === 'replace' && <AlertTriangle className="h-5 w-5 text-amber-500" />}
+                            {importMode === 'replace' ? 'Destructive Action' : 'Add to Existing Data'}
+                        </DialogTitle>
+                        <DialogDescription>{IMPORT_MODE_DESCRIPTIONS[importMode]}</DialogDescription>
+                    </DialogHeader>
+                    <div className="flex justify-end gap-3 pt-4">
+                        <Button variant="outline" onClick={() => setImportConfirmOpen(false)}>Cancel</Button>
+                        <Button
+                            variant={importMode === 'replace' ? 'destructive' : 'default'}
+                            onClick={handleImport}
+                        >
+                            {importMode === 'replace' ? 'Yes, Replace All' : 'Yes, Import'}
                         </Button>
                     </div>
                 </DialogContent>

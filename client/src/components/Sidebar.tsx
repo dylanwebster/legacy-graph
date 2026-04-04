@@ -1,6 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { StatusDot } from './StatusDot';
-import { Share2, Users, BookOpen, Image, Import, Settings, Search } from 'lucide-react';
+import { Network, Users, BookOpen, Image, Settings, Search } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useUIStore } from '@/store/uiStore';
 import { cn } from '@/lib/utils';
@@ -10,11 +9,10 @@ function LGLogo({ className }: { className?: string }) {
 }
 
 const navItems = [
-    { icon: Share2, label: 'Graph', to: '/' },
+    { icon: Network, label: 'Graph', to: '/' },
     { icon: Users, label: 'People', to: '/people' },
     { icon: BookOpen, label: 'Stories', to: '/stories' },
     { icon: Image, label: 'Assets', to: '/assets' },
-    { icon: Import, label: 'Import GEDCOM', to: '/import' },
 ];
 
 const bottomItems = [
@@ -60,8 +58,8 @@ export function Sidebar() {
                 </TooltipProvider>
             </div>
 
-            {/* Search trigger */}
-            <div className="flex flex-col px-2 pb-2">
+            {/* Bottom: search + settings */}
+            <div className="flex flex-col py-4 px-2 gap-2 border-t border-border">
                 <TooltipProvider delayDuration={0}>
                     <Tooltip>
                         <TooltipTrigger asChild>
@@ -75,12 +73,6 @@ export function Sidebar() {
                         </TooltipTrigger>
                         <TooltipContent side="right">Search <kbd className="ml-1 font-mono text-[10px]">/</kbd></TooltipContent>
                     </Tooltip>
-                </TooltipProvider>
-            </div>
-
-            {/* Bottom: settings */}
-            <div className="flex flex-col py-4 px-2 gap-2 border-t border-border">
-                <TooltipProvider delayDuration={0}>
                     {bottomItems.map((item) => (
                         <Tooltip key={item.to}>
                             <TooltipTrigger asChild>
@@ -96,11 +88,6 @@ export function Sidebar() {
                         </Tooltip>
                     ))}
                 </TooltipProvider>
-            </div>
-
-            {/* Footer: system status */}
-            <div className="flex h-14 items-center justify-center border-t border-border shrink-0">
-                <StatusDot />
             </div>
         </div>
     );
