@@ -5,6 +5,7 @@ import type { SlimPersonSummary } from '@/api/people';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { loadAvatarCrop } from '@/lib/avatarCrop';
 import { CreatePersonDialog } from '@/components/CreatePersonDialog';
+import { TopBarActions } from '@/components/TopBarSlotContext';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -97,10 +98,9 @@ function PeopleBrowse() {
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0 flex-wrap">
-                <h1 className="text-xl font-bold tracking-tight shrink-0">People</h1>
-
-                <div className="relative flex-1 min-w-[180px]">
+            <TopBarActions>
+                <div className="w-px h-5 bg-border shrink-0 mx-1" />
+                <div className="relative w-56">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                         placeholder="Search all people..."
@@ -109,17 +109,15 @@ function PeopleBrowse() {
                         className="pl-9 bg-muted/30 h-8"
                     />
                 </div>
-
-                <span className="ml-auto text-xs text-muted-foreground shrink-0">
+                <span className="text-xs text-muted-foreground shrink-0">
                     {isSearchMode
                         ? `${totalCount} result${totalCount === 1 ? '' : 's'}`
                         : `${totalCount} people`}
                 </span>
-
-                <Button size="sm" className="gap-1.5 shrink-0" onClick={() => setCreateOpen(true)}>
+                <Button size="sm" className="gap-1.5 shrink-0 ml-auto" onClick={() => setCreateOpen(true)}>
                     <UserPlus className="h-4 w-4" /> New Person
                 </Button>
-            </div>
+            </TopBarActions>
 
             <CreatePersonDialog
                 isOpen={createOpen}

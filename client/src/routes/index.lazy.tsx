@@ -10,6 +10,7 @@ import { PersonHoverContent } from '@/components/PersonChip';
 import { Skeleton } from '@/components/ui/skeleton';
 import { GitBranch, RefreshCw, Scan, Maximize2, Minimize2, Network, Search, X, CircleDot } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
+import { TopBarActions } from '@/components/TopBarSlotContext';
 import FanChartPanel from '@/components/viz/FanChartPanel';
 import type { FanChartPanelHandle } from '@/components/viz/FanChartPanel';
 import PedigreePanel from '@/components/viz/PedigreePanel';
@@ -1452,12 +1453,11 @@ function FamilyGraphPanel({
 
     return (
         <div ref={panelRef} className="flex flex-col h-full">
-            {/* Toolbar */}
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0 flex-wrap">
-                <h1 className="text-xl font-bold tracking-tight shrink-0">Graph</h1>
+            <TopBarActions>
+                <div className="w-px h-5 bg-border shrink-0 mx-1" />
 
                 {/* Visualization mode toggle — icons + text labels */}
-                <div className="flex gap-1">
+                <div className="flex gap-1 shrink-0">
                     {(
                         [
                             ['force', GitBranch, 'Force Graph'],
@@ -1598,7 +1598,7 @@ function FamilyGraphPanel({
                         {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
                     </button>
                 </div>
-            </div>
+            </TopBarActions>
 
             {/* Canvas */}
             <div ref={containerRef} className="relative flex-1 overflow-hidden min-h-0">

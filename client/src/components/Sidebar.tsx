@@ -4,10 +4,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useUIStore } from '@/store/uiStore';
 import { cn } from '@/lib/utils';
 
-function LGLogo({ className }: { className?: string }) {
-    return <img src="/lg.svg" alt="LegacyGraph" className={className} />;
-}
-
 const navItems = [
     { icon: Network, label: 'Graph', to: '/' },
     { icon: Users, label: 'People', to: '/people' },
@@ -33,11 +29,6 @@ export function Sidebar() {
             'flex-col w-16 h-full bg-card border-r border-border z-20 shrink-0',
             sidebarOpen ? 'flex' : 'hidden md:flex',
         )}>
-            {/* Header: logo — desktop only; TopBar owns the logo on mobile */}
-            <div className="hidden md:flex h-14 items-center justify-center border-b border-border shrink-0">
-                <LGLogo className="h-8 w-8" />
-            </div>
-
             {/* Nav items */}
             <div className="flex-1 flex flex-col py-4 px-2 gap-2 overflow-y-auto">
                 <TooltipProvider delayDuration={0}>

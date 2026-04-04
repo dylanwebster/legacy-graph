@@ -6,10 +6,11 @@ import { GlobalNotFound } from '@/components/GlobalNotFound';
 import { Sidebar } from '@/components/Sidebar';
 import { TopBar } from '@/components/TopBar';
 import { CommandPalette } from '@/components/CommandPalette';
+import { TopBarSlotProvider } from '@/components/TopBarSlotContext';
 
 export const Route = createRootRoute({
     component: () => (
-        <>
+        <TopBarSlotProvider>
             <Toaster richColors position="bottom-right" />
             <HydrationProgress />
             <CommandPalette />
@@ -26,7 +27,7 @@ export const Route = createRootRoute({
                     </main>
                 </div>
             </div>
-        </>
+        </TopBarSlotProvider>
     ),
     errorComponent: ({ error, reset }) => <ErrorFallback error={error as Error} reset={reset} />,
     notFoundComponent: () => <GlobalNotFound />,
