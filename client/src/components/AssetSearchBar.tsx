@@ -112,8 +112,7 @@ export function AssetSearchBar({
             className="relative flex-1 max-w-xs"
             onClick={() => inputRef.current?.focus()}
         >
-            {/* Mimics shadcn Input styling */}
-            <div className="flex items-center gap-1 flex-wrap h-8 px-2 rounded-md border border-input bg-background text-sm ring-offset-background focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 cursor-text overflow-hidden">
+            <div className="flex items-center gap-1 flex-wrap h-8 px-2 rounded-md border border-input bg-background ring-offset-background focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 cursor-text overflow-hidden">
                 <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
 
                 {selectedPeople.map((p) => (

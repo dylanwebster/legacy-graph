@@ -6,11 +6,11 @@ import { CustomAvatar } from '@/components/CustomAvatar';
 import { loadAvatarCrop } from '@/lib/avatarCrop';
 import { CreatePersonDialog } from '@/components/CreatePersonDialog';
 import { TopBarActions } from '@/components/TopBarSlotContext';
-import { Input } from '@/components/ui/input';
+import { SearchBar } from '@/components/SearchBar';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { Search, ChevronUp, ChevronDown, ArrowUpDown, UserPlus } from 'lucide-react';
+import { ChevronUp, ChevronDown, ArrowUpDown, UserPlus } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 export const Route = createLazyFileRoute('/people/')({
@@ -100,15 +100,11 @@ function PeopleBrowse() {
         <div className="flex flex-col h-full">
             <TopBarActions>
                 <div className="w-px h-5 bg-border shrink-0 mx-1" />
-                <div className="relative w-56">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="Search all people..."
-                        value={filter}
-                        onChange={(e) => setFilter(e.target.value)}
-                        className="pl-9 bg-muted/30 h-8"
-                    />
-                </div>
+                <SearchBar
+                    value={filter}
+                    onChange={setFilter}
+                    placeholder="Search all people…"
+                />
                 <span className="text-xs text-muted-foreground shrink-0">
                     {isSearchMode
                         ? `${totalCount} result${totalCount === 1 ? '' : 's'}`

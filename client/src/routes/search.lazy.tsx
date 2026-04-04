@@ -3,11 +3,11 @@ import { useSearch } from '@/api/hooks';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { SearchBar } from '@/components/SearchBar';
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Search, Users, BookOpen, MapPin } from 'lucide-react';
+import { Users, BookOpen, MapPin } from 'lucide-react';
 
 export const Route = createLazyFileRoute('/search')({
     component: SearchPage,
@@ -30,15 +30,12 @@ function SearchPage() {
         <div className="h-full overflow-auto p-6 max-w-4xl mx-auto space-y-6">
             <h1 className="text-2xl font-bold tracking-tight">Search Results</h1>
 
-            <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                    placeholder="Search people, stories, places..."
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    className="pl-9"
-                />
-            </div>
+            <SearchBar
+                value={query}
+                onChange={setQuery}
+                placeholder="Search people, stories, places…"
+                className="max-w-none w-full"
+            />
 
             {isLoading && (
                 <div className="space-y-3">

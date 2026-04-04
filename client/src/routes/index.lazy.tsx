@@ -449,11 +449,13 @@ function FamilyGraphPanel({
     // ── Search state ───────────────────────────────────────────────────────
     const [searchQuery, setSearchQuery] = useState('');
     const [searchFocused, setSearchFocused] = useState(false);
+    const [searchActiveIndex, setSearchActiveIndex] = useState(-1);
     const searchRef = useRef<HTMLDivElement>(null);
 
     // ── Root person picker state ───────────────────────────────────────────
     const [rootSearch, setRootSearch] = useState('');
     const [rootFocused, setRootFocused] = useState(false);
+    const [rootActiveIndex, setRootActiveIndex] = useState(-1);
     const rootPickerRef = useRef<HTMLDivElement>(null);
 
     // ── Hover state ────────────────────────────────────────────────────────
@@ -1482,15 +1484,21 @@ function FamilyGraphPanel({
                 {/* Focal person picker */}
                 {!isLoading && !isError && nodeCount > 0 && (
                     <div ref={rootPickerRef} className="relative">
-                        <div className="flex items-center gap-1.5 h-8 rounded-md border border-border bg-muted/30 px-2 focus-within:border-ring/50 focus-within:bg-muted/50 transition-colors">
+                        <div className="flex items-center gap-1 h-8 rounded-md border border-input bg-background px-2 ring-offset-background focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
                             <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                             <input
                                 type="text"
                                 value={rootFocused ? rootSearch : (rootPersonId ? rootNodeLabel : '')}
-                                onChange={(e) => setRootSearch(e.target.value)}
-                                onFocus={() => { setRootFocused(true); setRootSearch(''); }}
+                                onChange={(e) => { setRootSearch(e.target.value); setRootActiveIndex(-1); }}
+                                onFocus={() => { setRootFocused(true); setRootSearch(''); setRootActiveIndex(-1); }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'ArrowDown') { e.preventDefault(); setRootActiveIndex(i => Math.min(i + 1, rootDropdownNodes.length - 1)); }
+                                    else if (e.key === 'ArrowUp') { e.preventDefault(); setRootActiveIndex(i => Math.max(i - 1, 0)); }
+                                    else if (e.key === 'Enter' && rootActiveIndex >= 0) { e.preventDefault(); handleSetRoot(rootDropdownNodes[rootActiveIndex].id as string); }
+                                    else if (e.key === 'Escape') { setRootFocused(false); setRootActiveIndex(-1); }
+                                }}
                                 placeholder="Focal person…"
-                                className="w-36 bg-transparent text-xs outline-none placeholder:text-muted-foreground/50"
+                                className="w-36 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
                             />
                             {rootPersonId && !rootFocused && (
                                 <button onClick={() => handleSetRoot(null)} className="text-muted-foreground hover:text-foreground">
@@ -1500,15 +1508,16 @@ function FamilyGraphPanel({
                         </div>
                         {rootFocused && rootDropdownNodes.length > 0 && (
                             <div className="absolute left-0 top-full mt-1.5 w-56 z-50 rounded-lg border border-border bg-card shadow-xl overflow-hidden">
-                                {rootDropdownNodes.map((node) => (
+                                {rootDropdownNodes.map((node, i) => (
                                     <button
                                         key={node.id as string}
                                         onMouseDown={(e) => { e.preventDefault(); handleSetRoot(node.id as string); }}
-                                        className="w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 hover:bg-muted/40 transition-colors"
+                                        onMouseEnter={() => setRootActiveIndex(i)}
+                                        className={`w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 transition-colors ${i === rootActiveIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-muted/40'}`}
                                     >
                                         <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: sexColor(node.sex) }} />
                                         <span className="flex-1 min-w-0 truncate">{node.label}</span>
-                                        {node.birthYear && <span className="text-muted-foreground font-mono shrink-0">b.&nbsp;{node.birthYear}</span>}
+                                        {node.birthYear && <span className="font-mono shrink-0 opacity-60">b.&nbsp;{node.birthYear}</span>}
                                     </button>
                                 ))}
                             </div>
@@ -1519,22 +1528,28 @@ function FamilyGraphPanel({
                 {/* Find person search — force mode only */}
                 {dsState.vizMode === 'force' && !isLoading && !isError && nodeCount > 0 && (
                     <div ref={searchRef} className="relative">
-                        <div className="flex items-center gap-1.5 h-8 rounded-md border border-border bg-muted/30 px-2 focus-within:border-ring/50 focus-within:bg-muted/50 transition-colors">
+                        <div className="flex items-center gap-1 h-8 rounded-md border border-input bg-background px-2 ring-offset-background focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
                             <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                             <input
                                 type="text"
                                 value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onChange={(e) => { setSearchQuery(e.target.value); setSearchActiveIndex(-1); }}
                                 onFocus={() => setSearchFocused(true)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'ArrowDown') { e.preventDefault(); setSearchActiveIndex(i => Math.min(i + 1, dropdownNodes.length - 1)); }
+                                    else if (e.key === 'ArrowUp') { e.preventDefault(); setSearchActiveIndex(i => Math.max(i - 1, 0)); }
+                                    else if (e.key === 'Enter' && searchActiveIndex >= 0) { e.preventDefault(); focusNode(dropdownNodes[searchActiveIndex]); }
+                                    else if (e.key === 'Escape') { setSearchFocused(false); setSearchActiveIndex(-1); }
+                                }}
                                 placeholder="Find person…"
-                                className="w-36 bg-transparent text-xs outline-none placeholder:text-muted-foreground/50"
+                                className="w-36 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
                             />
                             {searchQuery && (
                                 <>
                                     {matchingIds && (
                                         <span className="text-[10px] font-mono text-muted-foreground">{matchCount}</span>
                                     )}
-                                    <button onClick={() => { setSearchQuery(''); setSearchFocused(false); }}
+                                    <button onClick={() => { setSearchQuery(''); setSearchFocused(false); setSearchActiveIndex(-1); }}
                                         className="text-muted-foreground hover:text-foreground">
                                         <X className="h-3 w-3" />
                                     </button>
@@ -1543,11 +1558,12 @@ function FamilyGraphPanel({
                         </div>
                         {searchFocused && dropdownNodes.length > 0 && (
                             <div className="absolute right-0 top-full mt-1.5 w-56 z-50 rounded-lg border border-border bg-card shadow-xl overflow-hidden">
-                                {dropdownNodes.map((node) => (
+                                {dropdownNodes.map((node, i) => (
                                     <button
                                         key={node.id as string}
                                         onMouseDown={(e) => { e.preventDefault(); focusNode(node); }}
-                                        className="w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 hover:bg-muted/40 transition-colors"
+                                        onMouseEnter={() => setSearchActiveIndex(i)}
+                                        className={`w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 transition-colors ${i === searchActiveIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-muted/40'}`}
                                     >
                                         <span
                                             className="inline-block w-2 h-2 rounded-full shrink-0"
@@ -1555,7 +1571,7 @@ function FamilyGraphPanel({
                                         />
                                         <span className="flex-1 min-w-0 truncate">{node.label}</span>
                                         {node.birthYear && (
-                                            <span className="text-muted-foreground font-mono shrink-0">b.&nbsp;{node.birthYear}</span>
+                                            <span className="font-mono shrink-0 opacity-60">b.&nbsp;{node.birthYear}</span>
                                         )}
                                     </button>
                                 ))}
