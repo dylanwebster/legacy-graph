@@ -242,7 +242,7 @@ function AssetGallery() {
         <div className="flex flex-col h-full">
             {/* Toolbar */}
             <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0 flex-wrap">
-                <h1 className="text-base font-semibold shrink-0">Assets</h1>
+                <h1 className="text-xl font-bold tracking-tight shrink-0">Assets</h1>
 
                 {/* Search */}
                 <AssetSearchBar
@@ -317,14 +317,17 @@ function AssetGallery() {
                     ))}
                 </div>
 
-                <Button size="sm" variant="outline" className="shrink-0" onClick={() => setUploadOpen(true)}>
-                    <Upload className="h-3.5 w-3.5 mr-1.5" />
+                <span className="ml-auto text-xs text-muted-foreground shrink-0">
+                    {filtered.length}
+                    {filtered.length !== (data?.totalCount ?? 0)
+                        ? ` / ${data?.totalCount ?? 0} assets`
+                        : ' assets'}
+                </span>
+
+                <Button size="sm" className="shrink-0 h-8 gap-1.5" onClick={() => setUploadOpen(true)}>
+                    <Upload className="h-3.5 w-3.5" />
                     Upload
                 </Button>
-
-                <span className="ml-auto text-xs text-muted-foreground shrink-0">
-                    {filtered.length} {filtered.length !== (data?.totalCount ?? 0) ? `/ ${data?.totalCount ?? 0}` : ''}
-                </span>
             </div>
 
             {/* Gallery */}

@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo, useCallback, useEffect } from 'react';
+import { useRef, useState, useMemo, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
 import {
     buildAncestorTree,
@@ -7,6 +7,12 @@ import {
     type FanArc,
 } from '@/utils/genealogyLayout';
 import { Network } from 'lucide-react';
+
+// ─── Handle ───────────────────────────────────────────────────────────────────
+
+export interface FanChartPanelHandle {
+    resetView: () => void;
+}
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -86,18 +92,22 @@ const MIN_LABEL_ARC = 0.22; // ~12.6°
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function FanChartPanel({
+const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(function FanChartPanel({
     nodes,
     links,
     rootPersonId,
     maxGen,
     onMaxGenChange,
     onRootChange,
-}: FanChartPanelProps) {
+}, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [dims, setDims] = useState({ width: 800, height: 600 });
     const [scale, setScale] = useState(1);
     const [pan, setPan] = useState({ x: 0, y: 0 });
+
+    useImperativeHandle(ref, () => ({
+        resetView: () => { setScale(1); setPan({ x: 0, y: 0 }); },
+    }));
     const [isDragging, setIsDragging] = useState(false);
     const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
 
@@ -349,40 +359,6 @@ export default function FanChartPanel({
                     ))}
                 </div>
 
-                {/* Zoom controls */}
-                <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-border bg-card/90 backdrop-blur-sm p-1">
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setScale(s => Math.min(5, s * 1.2));
-                        }}
-                        title="Zoom in"
-                        className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors font-mono text-sm"
-                    >
-                        +
-                    </button>
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setScale(s => Math.max(0.2, s * 0.8));
-                        }}
-                        title="Zoom out"
-                        className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors font-mono text-sm"
-                    >
-                        −
-                    </button>
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setScale(1);
-                            setPan({ x: 0, y: 0 });
-                        }}
-                        title="Reset view"
-                        className="h-6 px-1.5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-[10px] font-mono"
-                    >
-                        1:1
-                    </button>
-                </div>
             </div>
 
             {/* Legend */}
@@ -406,4 +382,6 @@ export default function FanChartPanel({
             </p>
         </div>
     );
-}
+});
+
+export default FanChartPanel;

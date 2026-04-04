@@ -107,6 +107,8 @@ function StoriesFeed() {
         <div className="flex flex-col h-full">
             {/* Toolbar */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0">
+                <h1 className="text-xl font-bold tracking-tight shrink-0">Stories</h1>
+
                 <AssetSearchBar
                     textValue={filter}
                     onTextChange={setFilter}
@@ -117,7 +119,7 @@ function StoriesFeed() {
 
                 {/* Sort */}
                 {!isSearchMode && (
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 shrink-0">
                         {SORT_OPTIONS.map(({ key, label }) => {
                             const isActive = sortKey === key;
                             const SortIcon = isActive
@@ -247,7 +249,7 @@ function StoryFeedList({
     });
 
     return (
-        <div ref={parentRef} className="flex-1 overflow-y-auto">
+        <div ref={parentRef} className="flex-1 overflow-y-auto pt-4">
             <div
                 style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
                 className="max-w-3xl mx-auto px-4 py-4"

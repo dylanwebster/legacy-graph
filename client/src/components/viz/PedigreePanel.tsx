@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo, useCallback, useEffect } from 'react';
+import { useRef, useState, useMemo, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { ArrowRight, ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, MoreHorizontal, X, User, Focus } from 'lucide-react';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
@@ -7,6 +7,12 @@ import {
     computeAdaptiveTreeLayout,
     type PositionedTreeNode,
 } from '@/utils/genealogyLayout';
+
+// ─── Handle ───────────────────────────────────────────────────────────────────
+
+export interface PedigreePanelHandle {
+    resetView: () => void;
+}
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -220,19 +226,23 @@ function PersonPreview({
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function PedigreePanel({
+const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(function PedigreePanel({
     nodes,
     links,
     rootPersonId,
     orientation,
     onOrientationChange,
     onRootChange,
-}: PedigreePanelProps) {
+}, ref) {
     const navigate = useNavigate();
     const containerRef = useRef<HTMLDivElement>(null);
     const [dims, setDims] = useState({ width: 800, height: 600 });
     const [scale, setScale] = useState(1);
     const [pan, setPan] = useState({ x: 0, y: 0 });
+
+    useImperativeHandle(ref, () => ({
+        resetView: () => { setScale(1); setPan({ x: 0, y: 0 }); },
+    }));
     const [isDragging, setIsDragging] = useState(false);
     const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
 
@@ -636,38 +646,6 @@ export default function PedigreePanel({
                 >
                     <ArrowUp className="h-3.5 w-3.5" />
                 </button>
-                <div className="w-px h-5 bg-border mx-0.5" />
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setScale(s => Math.min(4, s * 1.2));
-                    }}
-                    title="Zoom in"
-                    className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors font-mono text-sm"
-                >
-                    +
-                </button>
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setScale(s => Math.max(0.15, s * 0.8));
-                    }}
-                    title="Zoom out"
-                    className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors font-mono text-sm"
-                >
-                    −
-                </button>
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setScale(1);
-                        setPan({ x: 0, y: 0 });
-                    }}
-                    title="Reset view"
-                    className="h-7 px-1.5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-[10px] font-mono"
-                >
-                    1:1
-                </button>
             </div>
 
             {/* Hint */}
@@ -692,4 +670,6 @@ export default function PedigreePanel({
             )}
         </div>
     );
-}
+});
+
+export default PedigreePanel;

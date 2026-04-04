@@ -97,17 +97,26 @@ function PeopleBrowse() {
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between p-4 lg:p-6 pb-0">
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight">People</h1>
-                    <p className="text-sm text-muted-foreground mt-1">
-                        {isSearchMode
-                            ? `${totalCount} result${totalCount === 1 ? '' : 's'} for "${debouncedFilter}"`
-                            : totalCount > 0 ? `${totalCount} people in the graph` : 'Browse all people'
-                        }
-                    </p>
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0 flex-wrap">
+                <h1 className="text-xl font-bold tracking-tight shrink-0">People</h1>
+
+                <div className="relative flex-1 min-w-[180px]">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Search all people..."
+                        value={filter}
+                        onChange={(e) => setFilter(e.target.value)}
+                        className="pl-9 bg-muted/30 h-8"
+                    />
                 </div>
-                <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
+
+                <span className="ml-auto text-xs text-muted-foreground shrink-0">
+                    {isSearchMode
+                        ? `${totalCount} result${totalCount === 1 ? '' : 's'}`
+                        : `${totalCount} people`}
+                </span>
+
+                <Button size="sm" className="gap-1.5 shrink-0" onClick={() => setCreateOpen(true)}>
                     <UserPlus className="h-4 w-4" /> New Person
                 </Button>
             </div>
@@ -118,19 +127,7 @@ function PeopleBrowse() {
                 onCreated={(id) => navigate({ to: '/people/$id', params: { id } })}
             />
 
-            <div className="px-4 lg:px-6 pt-4">
-                <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="Search all people..."
-                        value={filter}
-                        onChange={(e) => setFilter(e.target.value)}
-                        className="pl-9 bg-muted/30"
-                    />
-                </div>
-            </div>
-
-            <div className="px-4 lg:px-6 pt-4">
+            <div className="px-4 lg:px-6 pt-2">
                 <div className="grid grid-cols-[48px_1fr_100px_100px_1fr_60px] gap-3 px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider border-b border-border">
                     <div></div>
                     <div>Name</div>

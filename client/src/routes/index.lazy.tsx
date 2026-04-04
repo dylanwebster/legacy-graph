@@ -11,7 +11,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { GitBranch, RefreshCw, Scan, Maximize2, Minimize2, Network, Search, X, CircleDot } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
 import FanChartPanel from '@/components/viz/FanChartPanel';
+import type { FanChartPanelHandle } from '@/components/viz/FanChartPanel';
 import PedigreePanel from '@/components/viz/PedigreePanel';
+import type { PedigreePanelHandle } from '@/components/viz/PedigreePanel';
 
 export const Route = createLazyFileRoute('/')({
     component: Dashboard,
@@ -415,15 +417,8 @@ function Dashboard() {
         setVizModeStore(dsState.vizMode);
     }, [dsState.vizMode, setVizModeStore]);
 
-    const { data: graphData } = useGraphData();
-    const peopleCount = graphData?.nodes.length ?? 0;
-
     return (
-        <div className="h-full overflow-auto p-6 space-y-4">
-            <div>
-                <h1 className="text-2xl font-bold tracking-tight">Graph</h1>
-                <p className="text-sm text-muted-foreground mt-1">{peopleCount > 0 ? `${peopleCount} people in the graph` : 'Browse the family graph'}</p>
-            </div>
+        <div className="flex flex-col h-full">
             <FamilyGraphPanel dsState={dsState} updateDs={updateDs} />
         </div>
     );
@@ -443,6 +438,8 @@ function FamilyGraphPanel({
     const theme = useUIStore((s) => s.theme);
 
     const fgRef = useRef<ForceGraphMethods | null>(null);
+    const fanRef = useRef<FanChartPanelHandle | null>(null);
+    const pedigreeRef = useRef<PedigreePanelHandle | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
     const [dims, setDims] = useState({ width: 800, height: 600 });
@@ -1436,7 +1433,11 @@ function FamilyGraphPanel({
         refetch();
     }, [refetch, updateDs]);
 
-    const handleResetView = () => fgRef.current?.zoomToFit(400, 60);
+    const handleUnifiedResetView = useCallback(() => {
+        if (dsState.vizMode === 'force') fgRef.current?.zoomToFit(400, 60);
+        else if (dsState.vizMode === 'fan') fanRef.current?.resetView();
+        else pedigreeRef.current?.resetView();
+    }, [dsState.vizMode]);
 
     // ── Render ─────────────────────────────────────────────────────────────
     const isEmpty = !isLoading && !isError && (stableGraphData?.nodes.length ?? 0) === 0;
@@ -1450,11 +1451,13 @@ function FamilyGraphPanel({
     }, [rootPersonId, stableGraphData]);
 
     return (
-        <div ref={panelRef} className={`border border-border bg-card overflow-visible ${isFullscreen ? 'rounded-none' : 'rounded-xl'}`}>
-            {/* Header */}
-            <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
-                {/* Visualization mode toggle */}
-                <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5 bg-muted/30">
+        <div ref={panelRef} className="flex flex-col h-full">
+            {/* Toolbar */}
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0 flex-wrap">
+                <h1 className="text-xl font-bold tracking-tight shrink-0">Graph</h1>
+
+                {/* Visualization mode toggle — icons + text labels */}
+                <div className="flex gap-1">
                     {(
                         [
                             ['force', GitBranch, 'Force Graph'],
@@ -1465,37 +1468,29 @@ function FamilyGraphPanel({
                         <button
                             key={mode}
                             onClick={() => updateDs({ vizMode: mode })}
-                            title={label}
-                            className={`h-6 w-6 rounded flex items-center justify-center transition-colors ${
+                            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${
                                 dsState.vizMode === mode
-                                    ? 'bg-background shadow-sm text-foreground'
-                                    : 'text-muted-foreground hover:text-foreground'
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
                             }`}
                         >
-                            <Icon className="h-3.5 w-3.5" />
+                            <Icon className="h-3 w-3" />{label}
                         </button>
                     ))}
                 </div>
 
-                {/* Node/link count — only in force mode */}
-                {dsState.vizMode === 'force' && !isLoading && !isError && nodeCount > 0 && (
-                    <span className="text-xs text-muted-foreground font-mono">
-                        {nodeCount} people · {linkCount} connections
-                    </span>
-                )}
-
-                {/* Root person picker — ml-auto anchors the right-side controls */}
+                {/* Focal person picker */}
                 {!isLoading && !isError && nodeCount > 0 && (
-                    <div ref={rootPickerRef} className="relative ml-auto">
-                        <div className="flex items-center gap-1.5 h-7 rounded-md border border-border bg-muted/30 px-2 focus-within:border-ring/50 focus-within:bg-muted/50 transition-colors">
-                            <span className="text-[10px] text-muted-foreground font-mono shrink-0 uppercase tracking-wider">Focal</span>
+                    <div ref={rootPickerRef} className="relative">
+                        <div className="flex items-center gap-1.5 h-8 rounded-md border border-border bg-muted/30 px-2 focus-within:border-ring/50 focus-within:bg-muted/50 transition-colors">
+                            <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                             <input
                                 type="text"
                                 value={rootFocused ? rootSearch : (rootPersonId ? rootNodeLabel : '')}
                                 onChange={(e) => setRootSearch(e.target.value)}
                                 onFocus={() => { setRootFocused(true); setRootSearch(''); }}
-                                placeholder="none"
-                                className="w-32 bg-transparent text-xs outline-none placeholder:text-muted-foreground/40"
+                                placeholder="Focal person…"
+                                className="w-36 bg-transparent text-xs outline-none placeholder:text-muted-foreground/50"
                             />
                             {rootPersonId && !rootFocused && (
                                 <button onClick={() => handleSetRoot(null)} className="text-muted-foreground hover:text-foreground">
@@ -1521,10 +1516,10 @@ function FamilyGraphPanel({
                     </div>
                 )}
 
-                {/* Search — force mode only */}
+                {/* Find person search — force mode only */}
                 {dsState.vizMode === 'force' && !isLoading && !isError && nodeCount > 0 && (
                     <div ref={searchRef} className="relative">
-                        <div className="flex items-center gap-1.5 h-7 rounded-md border border-border bg-muted/30 px-2 focus-within:border-ring/50 focus-within:bg-muted/50 transition-colors">
+                        <div className="flex items-center gap-1.5 h-8 rounded-md border border-border bg-muted/30 px-2 focus-within:border-ring/50 focus-within:bg-muted/50 transition-colors">
                             <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                             <input
                                 type="text"
@@ -1546,8 +1541,6 @@ function FamilyGraphPanel({
                                 </>
                             )}
                         </div>
-
-                        {/* Dropdown */}
                         {searchFocused && dropdownNodes.length > 0 && (
                             <div className="absolute right-0 top-full mt-1.5 w-56 z-50 rounded-lg border border-border bg-card shadow-xl overflow-hidden">
                                 {dropdownNodes.map((node) => (
@@ -1576,20 +1569,31 @@ function FamilyGraphPanel({
                     </div>
                 )}
 
-                {/* Controls */}
+                {/* Stats — right-aligned, all modes */}
+                {!isLoading && !isError && nodeCount > 0 && (
+                    <span className="ml-auto text-xs text-muted-foreground shrink-0 font-mono">
+                        {nodeCount} people · {linkCount} connections
+                    </span>
+                )}
+
+                {/* Icon controls */}
                 <div className={`flex items-center gap-1 ${nodeCount > 0 ? '' : 'ml-auto'}`}>
-                    <button onClick={handleRefresh}
-                        className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                        title="Reload graph (resets layout)">
-                        <RefreshCw className="h-3.5 w-3.5" />
-                    </button>
-                    <button onClick={handleResetView}
-                        className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                        title="Reset zoom and center">
+                    {/* Reset graph — force mode only */}
+                    {dsState.vizMode === 'force' && (
+                        <button onClick={handleRefresh}
+                            className="h-8 w-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                            title="Reload graph (resets layout)">
+                            <RefreshCw className="h-3.5 w-3.5" />
+                        </button>
+                    )}
+                    {/* Reset view — all modes */}
+                    <button onClick={handleUnifiedResetView}
+                        className="h-8 w-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                        title="Reset view">
                         <Scan className="h-3.5 w-3.5" />
                     </button>
                     <button onClick={toggleFullscreen}
-                        className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                        className="h-8 w-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
                         title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
                         {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
                     </button>
@@ -1597,7 +1601,7 @@ function FamilyGraphPanel({
             </div>
 
             {/* Canvas */}
-            <div ref={containerRef} className={`relative w-full overflow-hidden ${isFullscreen ? '' : 'rounded-b-xl'}`} style={{ height: isFullscreen ? 'calc(100dvh - 44px)' : 600 }}>
+            <div ref={containerRef} className="relative flex-1 overflow-hidden min-h-0">
                 {isLoading && (
                     <div className="absolute inset-0 flex items-center justify-center p-16">
                         <div className="w-full space-y-3">
@@ -1634,6 +1638,7 @@ function FamilyGraphPanel({
                 {/* Fan Chart */}
                 {dsState.vizMode === 'fan' && !isLoading && !isError && (
                     <FanChartPanel
+                        ref={fanRef}
                         nodes={graphData?.nodes ?? []}
                         links={graphData?.links ?? []}
                         rootPersonId={rootPersonId}
@@ -1646,6 +1651,7 @@ function FamilyGraphPanel({
                 {/* Pedigree Chart */}
                 {dsState.vizMode === 'pedigree' && !isLoading && !isError && (
                     <PedigreePanel
+                        ref={pedigreeRef}
                         nodes={graphData?.nodes ?? []}
                         links={graphData?.links ?? []}
                         rootPersonId={rootPersonId}
