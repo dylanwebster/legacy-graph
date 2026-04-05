@@ -1,4 +1,5 @@
 import { useRef, useState, useMemo, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
 import {
     buildAncestorTree,
@@ -8,6 +9,7 @@ import {
 } from '@/utils/genealogyLayout';
 import { sexColor } from '@/utils/sexColors';
 import { Network } from 'lucide-react';
+import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from './PersonPreviewCard';
 
 // ─── Handle ───────────────────────────────────────────────────────────────────
 
@@ -80,6 +82,8 @@ function shortName(label: string, maxChars = 14): string {
 /** Minimum arc angular width (radians) to show a label. */
 const MIN_LABEL_ARC = 0.22; // ~12.6°
 
+const MOBILE_BREAKPOINT = 640;
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(function FanChartPanel({
@@ -90,6 +94,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     onMaxGenChange,
     onRootChange,
 }, ref) {
+    const navigate = useNavigate();
     const containerRef = useRef<HTMLDivElement>(null);
     const [dims, setDims] = useState({ width: 800, height: 600 });
     const [scale, setScale] = useState(1);
@@ -100,6 +105,11 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     }));
     const [isDragging, setIsDragging] = useState(false);
     const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
+
+    // Selected arc for preview popover
+    const [selectedArc, setSelectedArc] = useState<FanArc | null>(null);
+
+    const isMobile = dims.width < MOBILE_BREAKPOINT;
 
     // Observe container size
     useEffect(() => {
@@ -186,12 +196,31 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
         return { rootNode: root, arcs: computed };
     }, [rootPersonId, nodes, links, maxGen, dims.width, dims.height]);
 
-    const handleArcClick = useCallback(
-        (slot: AncestorSlot) => {
-            if (slot.id) onRootChange(slot.id);
-        },
-        [onRootChange],
+    const graphNodeMap = useMemo(
+        () => new Map(nodes.map(n => [n.id, n])),
+        [nodes],
     );
+
+    const handleArcClick = useCallback(
+        (arc: FanArc) => {
+            if (!arc.slot.id) return;
+            setSelectedArc(prev => prev?.slot.id === arc.slot.id ? null : arc);
+        },
+        [],
+    );
+
+    const handleMakeFocal = useCallback((id: string) => {
+        setSelectedArc(null);
+        onRootChange(id);
+    }, [onRootChange]);
+
+    const handleViewProfile = useCallback((id: string) => {
+        void navigate({ to: '/people/$id', params: { id } });
+    }, [navigate]);
+
+    const handleBackgroundClick = useCallback(() => {
+        if (selectedArc) setSelectedArc(null);
+    }, [selectedArc]);
 
     // Fan center: center of viewport
     const cx = dims.width / 2;
@@ -223,6 +252,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
+            onClick={handleBackgroundClick}
         >
             <svg
                 width={dims.width}
@@ -249,29 +279,31 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                             labelRotDeg += 180;
                         }
 
+                        const isSelected = !!arc.slot.id && arc.slot.id === selectedArc?.slot.id;
+
                         return (
                             <g key={`${arc.slot.generation}-${arc.slot.slotIndex}`}>
                                 <path
                                     d={arcPathStr(arc, 0, 0)}
                                     fill={isEmpty ? 'var(--muted)' : lineageColor(arc.slot, isDark)}
-                                    stroke="var(--background)"
-                                    strokeWidth={1.5}
-                                    opacity={isEmpty ? 0.18 : 1}
+                                    stroke={isSelected ? 'var(--primary)' : 'var(--background)'}
+                                    strokeWidth={isSelected ? 2.5 : 1.5}
+                                    opacity={isEmpty ? 0.18 : isSelected ? 0.85 : 1}
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        handleArcClick(arc.slot);
+                                        handleArcClick(arc);
                                     }}
                                     className={isEmpty ? 'cursor-default' : 'cursor-pointer'}
-                                    style={!isEmpty ? { transition: 'opacity 0.15s' } : undefined}
+                                    style={!isEmpty ? { transition: 'opacity 0.15s, stroke 0.15s' } : undefined}
                                     onMouseEnter={
-                                        !isEmpty
+                                        !isEmpty && !isSelected
                                             ? (e) => {
                                                   (e.currentTarget as SVGPathElement).style.opacity = '0.75';
                                               }
                                             : undefined
                                     }
                                     onMouseLeave={
-                                        !isEmpty
+                                        !isEmpty && !isSelected
                                             ? (e) => {
                                                   (e.currentTarget as SVGPathElement).style.opacity = '1';
                                               }
@@ -368,8 +400,37 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
 
             {/* Hint */}
             <p className="absolute bottom-3 left-3 text-[10px] text-muted-foreground/50 pointer-events-none">
-                Scroll to zoom · drag to pan · click arc to re-root
+                Scroll to zoom · drag to pan · click arc for options
             </p>
+
+            {/* Arc preview popover/sheet */}
+            {selectedArc && selectedArc.slot.id && (() => {
+                const { slot } = selectedArc;
+                const midA = arcMidAngle(selectedArc);
+                const offsetR = selectedArc.outerR + 16;
+                const screenX = cx + pan.x + offsetR * Math.cos(midA) * scale;
+                const screenY = cy + pan.y + offsetR * Math.sin(midA) * scale;
+                const gNode = graphNodeMap.get(slot.id!);
+                return (
+                    <PersonPreviewCard
+                        personId={slot.id!}
+                        label={slot.label}
+                        sex={slot.sex}
+                        primaryAsset={gNode?.primaryAsset ?? null}
+                        birthLine={lifeLine('b. ', gNode?.birthYear ?? null, gNode?.birthPlace ?? null)}
+                        deathLine={lifeLine('d. ', gNode?.deathYear ?? null, gNode?.deathPlace ?? null)}
+                        spouseLabel={resolveSpouseLabel(slot.id!, links, graphNodeMap)}
+                        screenX={screenX}
+                        screenY={screenY}
+                        containerWidth={dims.width}
+                        containerHeight={dims.height}
+                        isMobile={isMobile}
+                        onClose={() => setSelectedArc(null)}
+                        onMakeFocal={handleMakeFocal}
+                        onViewProfile={handleViewProfile}
+                    />
+                );
+            })()}
         </div>
     );
 });

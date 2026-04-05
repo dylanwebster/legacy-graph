@@ -1,14 +1,13 @@
 import { useRef, useState, useMemo, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { ArrowRight, ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, MoreHorizontal, X, Focus } from 'lucide-react';
+import { ArrowRight, ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, MoreHorizontal } from 'lucide-react';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
-import { CustomAvatar } from '@/components/CustomAvatar';
 import {
     buildFamilyTree,
     computeAdaptiveTreeLayout,
-    type PositionedTreeNode,
 } from '@/utils/genealogyLayout';
 import { sexColor as sexStroke } from '@/utils/sexColors';
+import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from './PersonPreviewCard';
 
 // ─── Handle ───────────────────────────────────────────────────────────────────
 
@@ -50,180 +49,6 @@ function splitNameLines(label: string): [string, string | null] {
     const surname = parts[parts.length - 1];
     const given = parts.slice(0, -1).join(' ');
     return [cap(given), cap(surname)];
-}
-
-// ─── PersonPreview (popover on desktop, bottom sheet on mobile) ──────────────
-
-interface PersonPreviewProps {
-    node: PositionedTreeNode;
-    graphNode: GraphNodeData | undefined;
-    nodeMap: Map<string, GraphNodeData>;
-    links: GraphLinkData[];
-    isMobile: boolean;
-    scale: number;
-    pan: { x: number; y: number };
-    originX: number;
-    originY: number;
-    onClose: () => void;
-    onMakeFocal: (id: string) => void;
-    onViewProfile: (id: string) => void;
-}
-
-function PersonPreview({
-    node,
-    graphNode,
-    nodeMap,
-    links,
-    isMobile,
-    scale,
-    pan,
-    originX,
-    originY,
-    onClose,
-    onMakeFocal,
-    onViewProfile,
-}: PersonPreviewProps) {
-    const personId = node.node.id!;
-    const label = node.node.label;
-    const sex = node.node.sex;
-    const birthYear = graphNode?.birthYear ?? null;
-    const deathYear = graphNode?.deathYear ?? null;
-    const birthPlace = graphNode?.birthPlace ?? null;
-    const deathPlace = graphNode?.deathPlace ?? null;
-    const primaryAsset = graphNode?.primaryAsset ?? null;
-
-    // Resolve current spouse name from links
-    const spouseLabel: string | null = (() => {
-        const spouseLink = links.find(
-            l => l.type === 'spouse' &&
-                (l.source === personId || l.target === personId) &&
-                l.status !== 'divorced'
-        );
-        if (!spouseLink) return null;
-        const spouseId = spouseLink.source === personId ? spouseLink.target : spouseLink.source;
-        return nodeMap.get(spouseId)?.label ?? null;
-    })();
-
-    // Format birth/death lines
-    function lifeLine(prefix: string, year: number | null, place: string | null): string | null {
-        if (!year && !place) return null;
-        let line = prefix;
-        if (year) line += year;
-        if (place) line += year ? `, ${place}` : place;
-        return line;
-    }
-    const birthLine = lifeLine('b. ', birthYear, birthPlace);
-    const deathLine = lifeLine('d. ', deathYear, deathPlace);
-
-    if (isMobile) {
-        // Bottom sheet
-        return (
-            <>
-                {/* Backdrop */}
-                <div
-                    className="absolute inset-0 z-20 bg-black/20"
-                    onClick={onClose}
-                />
-                {/* Sheet */}
-                <div
-                    className="absolute bottom-0 left-0 right-0 z-30 rounded-t-2xl border-t border-border bg-card p-4 shadow-lg animate-in slide-in-from-bottom duration-200"
-                    data-testid="person-preview-sheet"
-                >
-                    <div className="flex items-start gap-3">
-                        <CustomAvatar
-                            firstName={label.split(' ')[0]}
-                            lastName={label.split(' ').slice(1).join(' ')}
-                            photoFilename={primaryAsset ?? undefined}
-                            className="h-12 w-12 flex-shrink-0 text-base"
-                            sex={sex}
-                        />
-                        <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm truncate">{label}</p>
-                            {birthLine && <p className="text-xs text-muted-foreground truncate">{birthLine}</p>}
-                            {deathLine && <p className="text-xs text-muted-foreground truncate">{deathLine}</p>}
-                            {spouseLabel && (
-                                <p className="text-xs text-muted-foreground truncate">m. {spouseLabel}</p>
-                            )}
-                        </div>
-                        <button
-                            onClick={onClose}
-                            className="p-1 rounded hover:bg-muted/40 text-muted-foreground"
-                        >
-                            <X className="h-4 w-4" />
-                        </button>
-                    </div>
-                    <div className="flex gap-2 mt-3">
-                        <button
-                            onClick={() => onMakeFocal(personId)}
-                            className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-                            data-testid="make-focal-btn"
-                        >
-                            <Focus className="h-3.5 w-3.5" />
-                            Make focal person
-                        </button>
-                        <button
-                            onClick={() => onViewProfile(personId)}
-                            className="flex-1 h-9 rounded-lg border border-border text-sm font-medium hover:bg-muted/40 transition-colors"
-                        >
-                            View profile
-                        </button>
-                    </div>
-                </div>
-            </>
-        );
-    }
-
-    // Desktop popover — position near the card in SVG space
-    const screenX = originX + pan.x + (node.x + CARD_W / 2) * scale;
-    const screenY = originY + pan.y + (node.y + CARD_H) * scale + 8;
-
-    return (
-        <>
-            <div className="fixed inset-0 z-20" onClick={onClose} />
-            <div
-                className="absolute z-30 w-60 rounded-xl border border-border bg-card shadow-lg p-3 animate-in fade-in zoom-in-95 duration-150"
-                style={{
-                    left: Math.max(8, Math.min(screenX - 120, window.innerWidth - 248)),
-                    top: screenY,
-                }}
-                data-testid="person-preview-popover"
-            >
-                <div className="flex items-start gap-2.5">
-                    <CustomAvatar
-                        firstName={label.split(' ')[0]}
-                        lastName={label.split(' ').slice(1).join(' ')}
-                        photoFilename={primaryAsset ?? undefined}
-                        className="h-10 w-10 flex-shrink-0 text-sm"
-                        sex={sex}
-                    />
-                    <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{label}</p>
-                        {birthLine && <p className="text-xs text-muted-foreground truncate">{birthLine}</p>}
-                        {deathLine && <p className="text-xs text-muted-foreground truncate">{deathLine}</p>}
-                        {spouseLabel && (
-                            <p className="text-xs text-muted-foreground truncate">m. {spouseLabel}</p>
-                        )}
-                    </div>
-                </div>
-                <div className="flex gap-2 mt-2.5">
-                    <button
-                        onClick={() => onMakeFocal(personId)}
-                        className="flex-1 flex items-center justify-center gap-1 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
-                        data-testid="make-focal-btn"
-                    >
-                        <Focus className="h-3 w-3" />
-                        Focal
-                    </button>
-                    <button
-                        onClick={() => onViewProfile(personId)}
-                        className="flex-1 h-7 rounded-md border border-border text-xs font-medium hover:bg-muted/40 transition-colors"
-                    >
-                        Profile
-                    </button>
-                </div>
-            </div>
-        </>
-    );
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -675,22 +500,30 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
             </p>
 
             {/* Person preview popover/sheet */}
-            {selectedNode && selectedNode.node.id && (
-                <PersonPreview
-                    node={selectedNode}
-                    graphNode={graphNodeMap.get(selectedNode.node.id)}
-                    nodeMap={graphNodeMap}
-                    links={links}
-                    isMobile={isMobile}
-                    scale={scale}
-                    pan={pan}
-                    originX={originX}
-                    originY={originY}
-                    onClose={() => setSelectedNodeId(null)}
-                    onMakeFocal={handleMakeFocal}
-                    onViewProfile={handleViewProfile}
-                />
-            )}
+            {selectedNode && selectedNode.node.id && (() => {
+                const gNode = graphNodeMap.get(selectedNode.node.id!);
+                const screenX = originX + pan.x + (selectedNode.x + CARD_W / 2) * scale;
+                const screenY = originY + pan.y + (selectedNode.y + CARD_H) * scale + 8;
+                return (
+                    <PersonPreviewCard
+                        personId={selectedNode.node.id!}
+                        label={selectedNode.node.label}
+                        sex={selectedNode.node.sex}
+                        primaryAsset={gNode?.primaryAsset ?? null}
+                        birthLine={lifeLine('b. ', gNode?.birthYear ?? null, gNode?.birthPlace ?? null)}
+                        deathLine={lifeLine('d. ', gNode?.deathYear ?? null, gNode?.deathPlace ?? null)}
+                        spouseLabel={resolveSpouseLabel(selectedNode.node.id!, links, graphNodeMap)}
+                        screenX={screenX}
+                        screenY={screenY}
+                        containerWidth={dims.width}
+                        containerHeight={dims.height}
+                        isMobile={isMobile}
+                        onClose={() => setSelectedNodeId(null)}
+                        onMakeFocal={handleMakeFocal}
+                        onViewProfile={handleViewProfile}
+                    />
+                );
+            })()}
         </div>
     );
 });
