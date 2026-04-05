@@ -33,20 +33,23 @@ const DEFAULT_ANCESTOR_DEPTH = 3;
 const DEFAULT_DESCENDANT_DEPTH = 3;
 const MOBILE_BREAKPOINT = 640;
 
-const CARD_W = 160;
-const CARD_H = 56;
+const CARD_W = 192;
+const CARD_H = 64;
+const NAME_MAX = 24; // max chars per name line before truncation
 
-function shortName(label: string, maxChars = 20): string {
-    if (label.length <= maxChars) return label;
+/**
+ * Split a full name into [line1, line2|null].
+ * Short names stay on one line. Long names split given-name(s) / surname.
+ * Each line is capped at NAME_MAX chars.
+ */
+function splitNameLines(label: string): [string, string | null] {
+    const cap = (s: string) => s.length > NAME_MAX ? s.slice(0, NAME_MAX - 1) + '…' : s;
+    if (label.length <= NAME_MAX) return [label, null];
     const parts = label.split(' ');
-    if (parts.length >= 2) {
-        const first = parts[0];
-        const lastInitial = parts[parts.length - 1][0] + '.';
-        const candidate = `${first} ${lastInitial}`;
-        if (candidate.length <= maxChars) return candidate;
-        return first.slice(0, maxChars);
-    }
-    return label.slice(0, maxChars);
+    if (parts.length === 1) return [cap(label), null];
+    const surname = parts[parts.length - 1];
+    const given = parts.slice(0, -1).join(' ');
+    return [cap(given), cap(surname)];
 }
 
 // ─── PersonPreview (popover on desktop, bottom sheet on mobile) ──────────────
@@ -54,6 +57,8 @@ function shortName(label: string, maxChars = 20): string {
 interface PersonPreviewProps {
     node: PositionedTreeNode;
     graphNode: GraphNodeData | undefined;
+    nodeMap: Map<string, GraphNodeData>;
+    links: GraphLinkData[];
     isMobile: boolean;
     scale: number;
     pan: { x: number; y: number };
@@ -67,6 +72,8 @@ interface PersonPreviewProps {
 function PersonPreview({
     node,
     graphNode,
+    nodeMap,
+    links,
     isMobile,
     scale,
     pan,
@@ -80,7 +87,33 @@ function PersonPreview({
     const label = node.node.label;
     const sex = node.node.sex;
     const birthYear = graphNode?.birthYear ?? null;
+    const deathYear = graphNode?.deathYear ?? null;
+    const birthPlace = graphNode?.birthPlace ?? null;
+    const deathPlace = graphNode?.deathPlace ?? null;
     const primaryAsset = graphNode?.primaryAsset ?? null;
+
+    // Resolve current spouse name from links
+    const spouseLabel: string | null = (() => {
+        const spouseLink = links.find(
+            l => l.type === 'spouse' &&
+                (l.source === personId || l.target === personId) &&
+                l.status !== 'divorced'
+        );
+        if (!spouseLink) return null;
+        const spouseId = spouseLink.source === personId ? spouseLink.target : spouseLink.source;
+        return nodeMap.get(spouseId)?.label ?? null;
+    })();
+
+    // Format birth/death lines
+    function lifeLine(prefix: string, year: number | null, place: string | null): string | null {
+        if (!year && !place) return null;
+        let line = prefix;
+        if (year) line += year;
+        if (place) line += year ? `, ${place}` : place;
+        return line;
+    }
+    const birthLine = lifeLine('b. ', birthYear, birthPlace);
+    const deathLine = lifeLine('d. ', deathYear, deathPlace);
 
     if (isMobile) {
         // Bottom sheet
@@ -106,15 +139,11 @@ function PersonPreview({
                         />
                         <div className="flex-1 min-w-0">
                             <p className="font-medium text-sm truncate">{label}</p>
-                            {birthYear && (
-                                <p className="text-xs text-muted-foreground">b. {birthYear}</p>
+                            {birthLine && <p className="text-xs text-muted-foreground truncate">{birthLine}</p>}
+                            {deathLine && <p className="text-xs text-muted-foreground truncate">{deathLine}</p>}
+                            {spouseLabel && (
+                                <p className="text-xs text-muted-foreground truncate">m. {spouseLabel}</p>
                             )}
-                            <span
-                                className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono"
-                                style={{ backgroundColor: sexStroke(sex) + '22', color: sexStroke(sex) }}
-                            >
-                                {sex}
-                            </span>
                         </div>
                         <button
                             onClick={onClose}
@@ -152,9 +181,9 @@ function PersonPreview({
         <>
             <div className="fixed inset-0 z-20" onClick={onClose} />
             <div
-                className="absolute z-30 w-56 rounded-xl border border-border bg-card shadow-lg p-3 animate-in fade-in zoom-in-95 duration-150"
+                className="absolute z-30 w-60 rounded-xl border border-border bg-card shadow-lg p-3 animate-in fade-in zoom-in-95 duration-150"
                 style={{
-                    left: Math.max(8, Math.min(screenX - 112, window.innerWidth - 240)),
+                    left: Math.max(8, Math.min(screenX - 120, window.innerWidth - 248)),
                     top: screenY,
                 }}
                 data-testid="person-preview-popover"
@@ -169,15 +198,11 @@ function PersonPreview({
                     />
                     <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm truncate">{label}</p>
-                        {birthYear && (
-                            <p className="text-xs text-muted-foreground">b. {birthYear}</p>
+                        {birthLine && <p className="text-xs text-muted-foreground truncate">{birthLine}</p>}
+                        {deathLine && <p className="text-xs text-muted-foreground truncate">{deathLine}</p>}
+                        {spouseLabel && (
+                            <p className="text-xs text-muted-foreground truncate">m. {spouseLabel}</p>
                         )}
-                        <span
-                            className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono"
-                            style={{ backgroundColor: sexStroke(sex) + '22', color: sexStroke(sex) }}
-                        >
-                            {sex}
-                        </span>
                     </div>
                 </div>
                 <div className="flex gap-2 mt-2.5">
@@ -462,30 +487,49 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                     />
                                 )}
 
-                                {/* Name */}
-                                <text
-                                    x={isRoot ? 12 : 8}
-                                    y={20}
-                                    fontSize={11}
-                                    fontWeight={isRoot ? 600 : 500}
-                                    fill="var(--card-foreground)"
-                                    style={{ pointerEvents: 'none' }}
-                                >
-                                    {shortName(n.node.label)}
-                                </text>
-
-                                {/* Birth year */}
-                                {!!birthYear && (
-                                    <text
-                                        x={isRoot ? 12 : 8}
-                                        y={36}
-                                        fontSize={9}
-                                        fill="var(--muted-foreground)"
-                                        style={{ pointerEvents: 'none' }}
-                                    >
-                                        b. {birthYear}
-                                    </text>
-                                )}
+                                {/* Name (1 or 2 lines) */}
+                                {(() => {
+                                    const [line1, line2] = splitNameLines(n.node.label);
+                                    const tx = isRoot ? 12 : 8;
+                                    const y1 = line2 ? 17 : 21;
+                                    return (
+                                        <>
+                                            <text
+                                                x={tx}
+                                                y={y1}
+                                                fontSize={11}
+                                                fontWeight={isRoot ? 600 : 500}
+                                                fill="var(--card-foreground)"
+                                                style={{ pointerEvents: 'none' }}
+                                            >
+                                                {line1}
+                                            </text>
+                                            {line2 && (
+                                                <text
+                                                    x={tx}
+                                                    y={31}
+                                                    fontSize={11}
+                                                    fontWeight={isRoot ? 600 : 500}
+                                                    fill="var(--card-foreground)"
+                                                    style={{ pointerEvents: 'none' }}
+                                                >
+                                                    {line2}
+                                                </text>
+                                            )}
+                                            {!!birthYear && (
+                                                <text
+                                                    x={tx}
+                                                    y={line2 ? 47 : 36}
+                                                    fontSize={9}
+                                                    fill="var(--muted-foreground)"
+                                                    style={{ pointerEvents: 'none' }}
+                                                >
+                                                    b. {birthYear}
+                                                </text>
+                                            )}
+                                        </>
+                                    );
+                                })()}
 
                                 {/* Generation badge */}
                                 {n.node.generation !== 0 && (
@@ -635,6 +679,8 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                 <PersonPreview
                     node={selectedNode}
                     graphNode={graphNodeMap.get(selectedNode.node.id)}
+                    nodeMap={graphNodeMap}
+                    links={links}
                     isMobile={isMobile}
                     scale={scale}
                     pan={pan}

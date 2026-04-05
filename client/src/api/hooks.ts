@@ -45,6 +45,9 @@ export interface GraphNodeData {
     label: string;
     sex: string;
     birthYear: number | null;
+    deathYear: number | null;
+    birthPlace: string | null;
+    deathPlace: string | null;
     primaryAsset: string | null;
 }
 

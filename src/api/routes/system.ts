@@ -126,9 +126,23 @@ export async function systemRoutes(server: FastifyInstance) {
 
     server.get('/api/graph', async () => {
         const graph = graphEngine.getGraph();
-        const nodes: Array<{ id: string; label: string; sex: string; birthYear: number | null; primaryAsset: string | null }> = [];
+        const nodes: Array<{ id: string; label: string; sex: string; birthYear: number | null; deathYear: number | null; birthPlace: string | null; deathPlace: string | null; primaryAsset: string | null }> = [];
         const edgeSet = new Set<string>();
         const edges: Array<{ source: string; target: string; type: 'parent_child' | 'spouse'; status?: string }> = [];
+
+        function extractYear(dateStr: string): number | null {
+            const match = dateStr.match(/\b(\d{4})\b/);
+            if (!match) return null;
+            const yr = parseInt(match[1], 10);
+            return yr > 999 && yr < 2200 ? yr : null;
+        }
+
+        function extractPlace(event: any): string | null {
+            const loc = event?.location;
+            if (!loc) return null;
+            if (typeof loc === 'string') return loc || null;
+            return (loc.historicalName ?? loc.name) || null;
+        }
 
         graph.forEachNode((nodeId, attributes) => {
             if (attributes.type !== 'person') return;
@@ -136,22 +150,23 @@ export async function systemRoutes(server: FastifyInstance) {
             const name = p.names?.[0];
             const label = name ? `${name.first ?? ''} ${name.last ?? ''}`.trim() : nodeId;
             const birthEvent = p.events?.find((e: any) => e.type === 'birth');
-            let birthYear: number | null = null;
-            if (birthEvent) {
-                // Prefer sort_date (always ISO YYYY-MM-DD) over display date
-                // which may be in GEDCOM format ("15 JAN 1920" → slice(0,4) = "15 J" → 15).
-                const dateStr: string = birthEvent.sort_date || birthEvent.date || '';
-                const match = dateStr.match(/\b(\d{4})\b/);
-                if (match) {
-                    const yr = parseInt(match[1], 10);
-                    if (yr > 999 && yr < 2200) birthYear = yr;
-                }
-            }
+            const deathEvent = p.events?.find((e: any) => e.type === 'death');
+
+            // Prefer sort_date (always ISO YYYY-MM-DD) over display date
+            // which may be in GEDCOM format ("15 JAN 1920" → slice(0,4) = "15 J" → 15).
+            const birthYear = birthEvent ? extractYear(birthEvent.sort_date || birthEvent.date || '') : null;
+            const deathYear = deathEvent ? extractYear(deathEvent.sort_date || deathEvent.date || '') : null;
+            const birthPlace = birthEvent ? extractPlace(birthEvent) : null;
+            const deathPlace = deathEvent ? extractPlace(deathEvent) : null;
+
             nodes.push({
                 id: nodeId,
                 label,
                 sex: p.sex ?? 'U',
                 birthYear,
+                deathYear,
+                birthPlace,
+                deathPlace,
                 primaryAsset: p.assets?.[0] ?? null
             });
 

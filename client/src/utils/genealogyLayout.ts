@@ -531,8 +531,8 @@ export interface TreeConnector {
     path: string; // SVG path "d" attribute
 }
 
-const BASE_CARD_W = 160;
-const BASE_CARD_H = 56;
+const BASE_CARD_W = 192;
+const BASE_CARD_H = 64;
 const TREE_GEN_GAP = 56;
 const TREE_NODE_GAP = 12;
 
