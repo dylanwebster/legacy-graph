@@ -1652,68 +1652,94 @@ function FamilyGraphPanel({
                     </div>
                 )}
 
-                {/* Fan Chart */}
-                {dsState.vizMode === 'fan' && !isLoading && !isError && (
-                    <FanChartPanel
-                        ref={fanRef}
-                        nodes={graphData?.nodes ?? []}
-                        links={graphData?.links ?? []}
-                        rootPersonId={rootPersonId}
-                        maxGen={dsState.fanMaxGen}
-                        onMaxGenChange={(g) => updateDs({ fanMaxGen: g })}
-                        onRootChange={(id) => handleSetRoot(id)}
-                    />
+                {/* Fan Chart — kept mounted once data is ready to preserve zoom/pan state */}
+                {!isLoading && !isError && (
+                    <div
+                        className="absolute inset-0"
+                        style={{
+                            visibility: dsState.vizMode === 'fan' ? 'visible' : 'hidden',
+                            pointerEvents: dsState.vizMode === 'fan' ? 'auto' : 'none',
+                        }}
+                    >
+                        <FanChartPanel
+                            ref={fanRef}
+                            nodes={graphData?.nodes ?? []}
+                            links={graphData?.links ?? []}
+                            rootPersonId={rootPersonId}
+                            maxGen={dsState.fanMaxGen}
+                            onMaxGenChange={(g) => updateDs({ fanMaxGen: g })}
+                            onRootChange={(id) => handleSetRoot(id)}
+                        />
+                    </div>
                 )}
 
-                {/* Pedigree Chart */}
-                {dsState.vizMode === 'pedigree' && !isLoading && !isError && (
-                    <PedigreePanel
-                        ref={pedigreeRef}
-                        nodes={graphData?.nodes ?? []}
-                        links={graphData?.links ?? []}
-                        rootPersonId={rootPersonId}
-                        orientation={dsState.pedigreeOrientation}
-                        onOrientationChange={(o) => updateDs({ pedigreeOrientation: o })}
-                        onRootChange={(id) => handleSetRoot(id)}
-                    />
+                {/* Pedigree Chart — kept mounted once data is ready to preserve zoom/pan state */}
+                {!isLoading && !isError && (
+                    <div
+                        className="absolute inset-0"
+                        style={{
+                            visibility: dsState.vizMode === 'pedigree' ? 'visible' : 'hidden',
+                            pointerEvents: dsState.vizMode === 'pedigree' ? 'auto' : 'none',
+                        }}
+                    >
+                        <PedigreePanel
+                            ref={pedigreeRef}
+                            nodes={graphData?.nodes ?? []}
+                            links={graphData?.links ?? []}
+                            rootPersonId={rootPersonId}
+                            orientation={dsState.pedigreeOrientation}
+                            onOrientationChange={(o) => updateDs({ pedigreeOrientation: o })}
+                            onRootChange={(id) => handleSetRoot(id)}
+                        />
+                    </div>
                 )}
 
-                {/* Force Graph */}
-                {dsState.vizMode === 'force' && !isLoading && !isError && nodeCount > 0 && (
-                    <ForceGraph2D
-                        ref={fgRef as React.RefObject<ForceGraphMethods>}
-                        width={dims.width}
-                        height={dims.height}
-                        backgroundColor="transparent"
-                        graphData={stableGraphData as unknown as { nodes: NodeObject[]; links: LinkObject[] }}
-                        nodeId="id"
-                        nodeLabel="label"
-                        nodeRelSize={NODE_R}
-                        nodeCanvasObject={drawNode}
-                        nodeCanvasObjectMode={() => 'replace'}
-                        linkColor={getParentChildLinkColor}
-                        linkWidth={() => 0}
-                        linkDirectionalArrowLength={() => 0}
-                        linkDirectionalArrowRelPos={1}
-                        linkDirectionalArrowColor={getParentChildArrowColor}
-                        linkCanvasObject={drawLink}
-                        linkCanvasObjectMode={(link: LinkObject) => ((link as SimLink).type === 'spouse' || (link as SimLink).type === 'parent_child') ? 'replace' : undefined}
-                        onNodeClick={handleNodeClick}
-                        onNodeDragEnd={handleNodeDragEnd}
-                        onNodeHover={handleNodeHover}
-                        onZoom={handleZoom}
-                        onRenderFramePre={drawBackground}
-                        onRenderFramePost={handleRenderFramePost as (ctx: CanvasRenderingContext2D, globalScale: number) => void}
-                        onEngineStop={handleEngineStop}
-                        cooldownTicks={150}
-                        d3AlphaDecay={0.022}
-                        d3VelocityDecay={0.3}
-                        minZoom={0.1}
-                        maxZoom={10}
-                        enableNodeDrag
-                        enableZoomInteraction
-                        enablePanInteraction
-                    />
+                {/* Force Graph — kept mounted once data is ready to preserve zoom/pan state.
+                     Hidden via CSS (not unmounted) when switching to fan/pedigree so the
+                     D3 zoom transform is not lost on mode toggle. */}
+                {!isLoading && !isError && nodeCount > 0 && (
+                    <div
+                        className="absolute inset-0"
+                        style={{
+                            visibility: dsState.vizMode === 'force' ? 'visible' : 'hidden',
+                            pointerEvents: dsState.vizMode === 'force' ? 'auto' : 'none',
+                        }}
+                    >
+                        <ForceGraph2D
+                            ref={fgRef as React.RefObject<ForceGraphMethods>}
+                            width={dims.width}
+                            height={dims.height}
+                            backgroundColor="transparent"
+                            graphData={stableGraphData as unknown as { nodes: NodeObject[]; links: LinkObject[] }}
+                            nodeId="id"
+                            nodeLabel="label"
+                            nodeRelSize={NODE_R}
+                            nodeCanvasObject={drawNode}
+                            nodeCanvasObjectMode={() => 'replace'}
+                            linkColor={getParentChildLinkColor}
+                            linkWidth={() => 0}
+                            linkDirectionalArrowLength={() => 0}
+                            linkDirectionalArrowRelPos={1}
+                            linkDirectionalArrowColor={getParentChildArrowColor}
+                            linkCanvasObject={drawLink}
+                            linkCanvasObjectMode={(link: LinkObject) => ((link as SimLink).type === 'spouse' || (link as SimLink).type === 'parent_child') ? 'replace' : undefined}
+                            onNodeClick={handleNodeClick}
+                            onNodeDragEnd={handleNodeDragEnd}
+                            onNodeHover={handleNodeHover}
+                            onZoom={handleZoom}
+                            onRenderFramePre={drawBackground}
+                            onRenderFramePost={handleRenderFramePost as (ctx: CanvasRenderingContext2D, globalScale: number) => void}
+                            onEngineStop={handleEngineStop}
+                            cooldownTicks={150}
+                            d3AlphaDecay={0.022}
+                            d3VelocityDecay={0.3}
+                            minZoom={0.1}
+                            maxZoom={10}
+                            enableNodeDrag
+                            enableZoomInteraction
+                            enablePanInteraction
+                        />
+                    </div>
                 )}
 
                 {/* Hover tooltip — force mode only */}
