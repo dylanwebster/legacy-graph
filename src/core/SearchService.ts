@@ -252,7 +252,9 @@ export class SearchService {
         let peopleMap: Map<string, SearchResult> | null = null;
 
         for (const word of words) {
-            const wordResults = await this.personIndex.searchAsync(word, { enrich: true });
+            // Use a high per-word limit so large trees with many same-surname entries
+            // are not silently truncated before the intersection step.
+            const wordResults = await this.personIndex.searchAsync(word, { enrich: true, limit: 10000 });
 
             const wordMap = new Map<string, SearchResult>();
             wordResults.forEach(fieldResult => {
@@ -285,7 +287,7 @@ export class SearchService {
         let storyMap: Map<string, SearchResult> | null = null;
 
         for (const word of words) {
-            const wordResults = await this.storyIndex.searchAsync(word, { enrich: true });
+            const wordResults = await this.storyIndex.searchAsync(word, { enrich: true, limit: 10000 });
 
             const wordMap = new Map<string, SearchResult>();
             wordResults.forEach(fieldResult => {

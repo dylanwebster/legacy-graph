@@ -204,12 +204,22 @@ export async function storiesRoutes(server: FastifyInstance) {
             );
         }
 
-        const searchQ = q?.trim().toLowerCase();
+        const searchQ = q?.trim();
         if (searchQ) {
+            // Split query into words so "gene webster" matches "Gene E Webster" (word-based, not
+            // contiguous-substring matching). Every word must appear somewhere in the matched field.
+            const words = searchQ.toLowerCase().split(/\s+/).filter(Boolean);
+            const allWordsIn = (text: string) => words.every(w => text.toLowerCase().includes(w));
+
+            // Also resolve people whose names match the query (to find stories by tagged person)
+            const searchResult = await graphEngine.searchService.search(searchQ, { limit: 1000 });
+            const matchingPersonIds = new Set(searchResult.people.map(p => p.id));
+
             feedItems = feedItems.filter(s =>
-                s.title.toLowerCase().includes(searchQ) ||
-                (s.place?.toLowerCase().includes(searchQ) ?? false) ||
-                s.excerpt.toLowerCase().includes(searchQ)
+                allWordsIn(s.title) ||
+                (s.place != null && allWordsIn(s.place)) ||
+                allWordsIn(s.excerpt) ||
+                (matchingPersonIds.size > 0 && s.people.some(pid => matchingPersonIds.has(pid)))
             );
         }
 

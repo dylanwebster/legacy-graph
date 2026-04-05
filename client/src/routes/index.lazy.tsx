@@ -811,16 +811,26 @@ function FamilyGraphPanel({
         if (!rootFocused || !stableGraphData) return [];
         const q = rootSearch.trim().toLowerCase();
         const all = stableGraphData.nodes as SimNode[];
-        return (q ? all.filter(n => n.label.toLowerCase().includes(q)) : all).slice(0, 8);
+        if (!q) return all.slice(0, 8);
+        // Word-based matching: every query word must appear in the label.
+        // "gene webster" matches "Gene E Webster" because both "gene" and "webster" are substrings.
+        const words = q.split(/\s+/).filter(Boolean);
+        return all.filter(n => {
+            const label = (n as SimNode).label.toLowerCase();
+            return words.every(w => label.includes(w));
+        }).slice(0, 8);
     }, [rootFocused, rootSearch, stableGraphData]);
 
     // ── Search derived state ───────────────────────────────────────────────
     const matchingIds = useMemo<Set<string> | null>(() => {
         const q = searchQuery.trim().toLowerCase();
         if (!q || !stableGraphData) return null;
+        // Word-based matching: every query word must appear in the label.
+        const words = q.split(/\s+/).filter(Boolean);
         const ids = new Set<string>();
         for (const n of stableGraphData.nodes) {
-            if ((n as SimNode).label.toLowerCase().includes(q)) ids.add(n.id as string);
+            const label = (n as SimNode).label.toLowerCase();
+            if (words.every(w => label.includes(w))) ids.add(n.id as string);
         }
         return ids;
     }, [searchQuery, stableGraphData]);

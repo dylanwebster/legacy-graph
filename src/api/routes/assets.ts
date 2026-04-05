@@ -162,20 +162,25 @@ export async function assetsRoutes(server: FastifyInstance) {
 
         // Apply search filter (q)
         if (searchQ) {
+            // Word-based matching: every query word must appear somewhere in the field.
+            // This lets "gene webster" match "Gene E Webster" (middle initial between words).
+            const words = searchQ.split(/\s+/).filter(Boolean);
+            const allWordsIn = (text: string) => words.every(w => text.toLowerCase().includes(w));
+
             assets = assets.filter(a => {
-                if (a.filename.toLowerCase().includes(searchQ)) return true;
-                if (a.metadata.name?.toLowerCase().includes(searchQ)) return true;
-                if (a.metadata.description?.toLowerCase().includes(searchQ)) return true;
-                if (a.metadata.date?.toLowerCase().includes(searchQ)) return true;
-                if (a.metadata.location?.name?.toLowerCase().includes(searchQ)) return true;
+                if (allWordsIn(a.filename)) return true;
+                if (a.metadata.name != null && allWordsIn(a.metadata.name)) return true;
+                if (a.metadata.description != null && allWordsIn(a.metadata.description)) return true;
+                if (a.metadata.date != null && allWordsIn(a.metadata.date)) return true;
+                if (a.metadata.location?.name != null && allWordsIn(a.metadata.location.name)) return true;
                 // Match person names
                 for (const pid of a.referencedBy.people) {
                     const name = personNames.get(pid) ?? '';
-                    if (name.toLowerCase().includes(searchQ)) return true;
+                    if (allWordsIn(name)) return true;
                 }
                 // Match story titles
                 for (const s of a.referencedBy.stories) {
-                    if (s.title.toLowerCase().includes(searchQ)) return true;
+                    if (allWordsIn(s.title)) return true;
                 }
                 return false;
             });

@@ -377,6 +377,55 @@ describe('Stories API', () => {
         });
     });
 
+    // ── q search (text + person-name) ───────────────────────────────────────
+
+    describe('GET /api/stories with q= text search', () => {
+        it('finds stories where all search words appear in title (words separated by middle initial)', async () => {
+            const created = await request.post('/api/stories').send({
+                title: 'Test Gene E Webster Memorial Story',
+                content: 'Some content here.',
+            });
+            expect(created.status).toBe(201);
+
+            // "gene webster" — both words in title but "E" (middle initial) separates them
+            const res = await request.get('/api/stories?q=gene+webster');
+            expect(res.status).toBe(200);
+            const ids = res.body.stories.map((s: any) => s.id);
+            expect(ids).toContain(created.body.id);
+        });
+
+        it('finds stories by tagged person name when person has middle initial', async () => {
+            const PEOPLE_DIR = path.join(TEST_DATA_DIR, 'people');
+            fs.mkdirSync(PEOPLE_DIR, { recursive: true });
+            let personId: string | undefined;
+            try {
+                const personRes = await request.post('/api/people').send({
+                    names: [{ first: 'StorySearch E', last: 'PersonName' }],
+                    sex: 'M',
+                });
+                expect(personRes.status).toBe(201);
+                personId = personRes.body.id;
+
+                const storyRes = await request.post('/api/stories').send({
+                    title: 'Test Tagged Person Search Story',
+                    people: [personId],
+                    content: 'A story about a tagged person.',
+                });
+                expect(storyRes.status).toBe(201);
+
+                // Search by first+last (skipping middle initial "E")
+                const res = await request.get('/api/stories?q=StorySearch+PersonName');
+                expect(res.status).toBe(200);
+                const ids = res.body.stories.map((s: any) => s.id);
+                expect(ids).toContain(storyRes.body.id);
+            } finally {
+                if (personId) {
+                    try { fs.unlinkSync(path.join(PEOPLE_DIR, `${personId}.yaml`)); } catch { /* ignore */ }
+                }
+            }
+        });
+    });
+
     // ── Timestamps ──────────────────────────────────────────────────────────
 
     it('POST /api/stories sets created_at and modified_at in frontmatter', async () => {
