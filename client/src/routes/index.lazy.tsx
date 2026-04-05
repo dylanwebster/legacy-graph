@@ -10,6 +10,7 @@ import { PersonHoverContent } from '@/components/PersonChip';
 import { Skeleton } from '@/components/ui/skeleton';
 import { GitBranch, RefreshCw, Scan, Maximize2, Minimize2, Network, Search, X, CircleDot } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
+import { sexColor } from '@/utils/sexColors';
 import { TopBarActions } from '@/components/TopBarSlotContext';
 import FanChartPanel from '@/components/viz/FanChartPanel';
 import type { FanChartPanelHandle } from '@/components/viz/FanChartPanel';
@@ -36,17 +37,6 @@ type SimLink = LinkObject & GraphLinkData;
 
 const NODE_R = 6;
 const LS_KEY = 'fg-state-v5';  // bumped — fixed-X birth-year layout
-
-const SEX_COLOR: Record<string, string> = {
-    M: '#60a5fa',
-    F: '#f472b6',
-    I: '#a78bfa',
-    U: '#94a3b8',
-};
-
-function sexColor(sex: string): string {
-    return SEX_COLOR[sex] ?? SEX_COLOR['U'];
-}
 
 // Fixed scale: 1 year = 14 canvas units (decade = 140 units wide — gives better temporal spread)
 const PIXELS_PER_YEAR = 14;
@@ -1789,7 +1779,7 @@ function FamilyGraphPanel({
                         <p className="text-muted-foreground font-mono text-[10px] uppercase tracking-wider mb-1.5">Legend</p>
                         <LegendRow color="#60a5fa" label="Male" />
                         <LegendRow color="#f472b6" label="Female" />
-                        <LegendRow color="#a78bfa" label="Other" />
+                        <LegendRow color="#94a3b8" label="Unknown / Other" />
                         <div className="border-t border-border pt-1.5 space-y-1.5">
                             <div className="flex items-center gap-2">
                                 <svg width="20" height="6" className="shrink-0">
@@ -1813,6 +1803,12 @@ function FamilyGraphPanel({
                                     <line x1="0" y1="3" x2="20" y2="3" stroke="rgba(251,146,60,0.75)" strokeWidth="1.5" strokeDasharray="4 3" />
                                 </svg>
                                 <span className="text-muted-foreground">Divorced / widowed</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <svg width="20" height="6" className="shrink-0">
+                                    <line x1="0" y1="3" x2="20" y2="3" stroke="rgba(139,92,246,0.85)" strokeWidth="2" />
+                                </svg>
+                                <span className="text-muted-foreground">Lineage highlight</span>
                             </div>
                         </div>
                     </div>

@@ -1,4 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { SEX_COLOR } from '@/utils/sexColors';
 
 export interface AvatarCropArea {
     x: number;
@@ -6,13 +7,6 @@ export interface AvatarCropArea {
     width: number;
     height: number;
 }
-
-const SEX_COLORS: Record<string, string> = {
-    M: '#60a5fa',
-    F: '#f472b6',
-    I: '#a78bfa',
-    U: '#94a3b8',
-};
 
 interface CustomAvatarProps {
     photoFilename?: string;
@@ -27,7 +21,7 @@ interface CustomAvatarProps {
 export function CustomAvatar({ photoFilename, firstName, lastName, className, onClick, cropData, sex }: CustomAvatarProps) {
     const initials = `${firstName?.[0] || ""}${lastName?.[0] || ""}`.toUpperCase() || "?";
     const imageUrl = photoFilename ? `/assets/${photoFilename}` : undefined;
-    const sexColor = sex ? (SEX_COLORS[sex] ?? SEX_COLORS['U']) : null;
+    const sexColor = sex ? (SEX_COLOR[sex] ?? SEX_COLOR['U']) : null;
 
     const cropStyle: React.CSSProperties | undefined =
         imageUrl && cropData

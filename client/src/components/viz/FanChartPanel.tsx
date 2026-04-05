@@ -6,6 +6,7 @@ import {
     type AncestorSlot,
     type FanArc,
 } from '@/utils/genealogyLayout';
+import { sexColor } from '@/utils/sexColors';
 import { Network } from 'lucide-react';
 
 // ─── Handle ───────────────────────────────────────────────────────────────────
@@ -28,17 +29,6 @@ interface FanChartPanelProps {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const BASE_R = 52;
-const SEX_COLOR: Record<string, string> = {
-    M: '#60a5fa',
-    F: '#f472b6',
-    I: '#a78bfa',
-    U: '#94a3b8',
-};
-
-function sexColor(sex: string): string {
-    return SEX_COLOR[sex] ?? SEX_COLOR['U'];
-}
-
 /** Interpolate hue between blue (paternal, slot 0) and rose (maternal, last slot). */
 function lineageColor(slot: AncestorSlot, isDark: boolean): string {
     if (slot.generation === 0) return sexColor(slot.sex);

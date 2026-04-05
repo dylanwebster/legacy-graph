@@ -8,6 +8,7 @@ import {
     computeAdaptiveTreeLayout,
     type PositionedTreeNode,
 } from '@/utils/genealogyLayout';
+import { sexColor as sexStroke } from '@/utils/sexColors';
 
 // ─── Handle ───────────────────────────────────────────────────────────────────
 
@@ -34,17 +35,6 @@ const MOBILE_BREAKPOINT = 640;
 
 const CARD_W = 160;
 const CARD_H = 56;
-
-const SEX_STROKE: Record<string, string> = {
-    M: '#60a5fa',
-    F: '#f472b6',
-    I: '#a78bfa',
-    U: '#94a3b8',
-};
-
-function sexStroke(sex: string): string {
-    return SEX_STROKE[sex] ?? SEX_STROKE['U'];
-}
 
 function shortName(label: string, maxChars = 20): string {
     if (label.length <= maxChars) return label;
