@@ -353,6 +353,30 @@ describe('buildFamilyTree', () => {
         expect(tree.hasHiddenDescendants).toBe(false);
         expect(tree.hasHiddenSiblings).toBe(false);
     });
+
+    it('ancestor-side nodes do NOT have hasHiddenDescendants', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 2, 0, new Set(), new Set(), new Set());
+        const father = tree.parents.find(p => p.id === 'FATHER')!;
+        expect(father.hasHiddenDescendants).toBe(false);
+        // Grandparents too
+        const gpF = father.parents.find(p => p.id === 'GP_F')!;
+        expect(gpF.hasHiddenDescendants).toBe(false);
+    });
+
+    it('descendant-side nodes do NOT have hasHiddenAncestors', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 0, 2, new Set(), new Set(), new Set());
+        const child1 = tree.children.find(c => c.id === 'CHILD1')!;
+        expect(child1.hasHiddenAncestors).toBe(false);
+        const gc1 = child1.children.find(c => c.id === 'GRANDCHILD1')!;
+        expect(gc1.hasHiddenAncestors).toBe(false);
+    });
+
+    it('expanded sibling leaf nodes do not have hasHiddenAncestors or hasHiddenDescendants', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 1, 1, new Set(), new Set(), new Set(['ROOT']));
+        const sibling = tree.siblings.find(s => s.id === 'SIBLING')!;
+        expect(sibling.hasHiddenAncestors).toBe(false);
+        expect(sibling.hasHiddenDescendants).toBe(false);
+    });
 });
 
 // ─── computeAdaptiveTreeLayout ───────────────────────────────────────────────
@@ -366,28 +390,28 @@ describe('computeAdaptiveTreeLayout', () => {
         expect(rootNode!.x).toBe(0);
     });
 
-    it('places ancestors to the left of root in horizontal layout', () => {
+    it('places ancestors to the right of root in horizontal layout', () => {
         const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 2, 0, new Set(), new Set(), new Set());
         const layout = computeAdaptiveTreeLayout(tree, 'horizontal');
         const rootNode = layout.nodes.find(n => n.node.id === 'ROOT')!;
         const fatherNode = layout.nodes.find(n => n.node.id === 'FATHER')!;
-        expect(fatherNode.x).toBeLessThan(rootNode.x);
+        expect(fatherNode.x).toBeGreaterThan(rootNode.x);
     });
 
-    it('places descendants to the right of root in horizontal layout', () => {
+    it('places descendants to the left of root in horizontal layout', () => {
         const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 0, 2, new Set(), new Set(), new Set());
         const layout = computeAdaptiveTreeLayout(tree, 'horizontal');
         const rootNode = layout.nodes.find(n => n.node.id === 'ROOT')!;
         const child1Node = layout.nodes.find(n => n.node.id === 'CHILD1')!;
-        expect(child1Node.x).toBeGreaterThan(rootNode.x);
+        expect(child1Node.x).toBeLessThan(rootNode.x);
     });
 
-    it('places ancestors above root in vertical layout', () => {
+    it('places ancestors below root in vertical layout', () => {
         const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 2, 0, new Set(), new Set(), new Set());
         const layout = computeAdaptiveTreeLayout(tree, 'vertical');
         const rootNode = layout.nodes.find(n => n.node.id === 'ROOT')!;
         const fatherNode = layout.nodes.find(n => n.node.id === 'FATHER')!;
-        expect(fatherNode.y).toBeLessThan(rootNode.y);
+        expect(fatherNode.y).toBeGreaterThan(rootNode.y);
     });
 
     it('generates connectors between parent and child nodes', () => {
@@ -417,5 +441,53 @@ describe('computeAdaptiveTreeLayout', () => {
         expect(layout.nodes).toHaveLength(1);
         expect(layout.nodes[0].x).toBe(0);
         expect(layout.connectors).toHaveLength(0);
+    });
+
+    it('places siblings at the same X column as their node in horizontal layout', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 1, 1, new Set(), new Set(), new Set(['ROOT']));
+        const layout = computeAdaptiveTreeLayout(tree, 'horizontal');
+        const rootNode = layout.nodes.find(n => n.node.id === 'ROOT')!;
+        const siblingNode = layout.nodes.find(n => n.node.id === 'SIBLING')!;
+        expect(siblingNode.x).toBe(rootNode.x);
+    });
+
+    it('places siblings below their node (greater Y)', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 1, 1, new Set(), new Set(), new Set(['ROOT']));
+        const layout = computeAdaptiveTreeLayout(tree, 'horizontal');
+        const rootNode = layout.nodes.find(n => n.node.id === 'ROOT')!;
+        const siblingNode = layout.nodes.find(n => n.node.id === 'SIBLING')!;
+        expect(siblingNode.y).toBeGreaterThan(rootNode.y);
+    });
+
+    it('siblings do not overlap with their parent node vertically', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 0, 0, new Set(), new Set(), new Set(['ROOT']));
+        const layout = computeAdaptiveTreeLayout(tree, 'horizontal');
+        const rootNode = layout.nodes.find(n => n.node.id === 'ROOT')!;
+        const siblingNode = layout.nodes.find(n => n.node.id === 'SIBLING')!;
+        expect(siblingNode.y).toBeGreaterThanOrEqual(rootNode.y + rootNode.height);
+    });
+
+    it('siblings are NOT at the next generation column (different X from children)', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 1, 1, new Set(), new Set(), new Set(['ROOT']));
+        const layout = computeAdaptiveTreeLayout(tree, 'horizontal');
+        const child1Node = layout.nodes.find(n => n.node.id === 'CHILD1');
+        const siblingNode = layout.nodes.find(n => n.node.id === 'SIBLING')!;
+        if (child1Node) {
+            expect(siblingNode.x).not.toBe(child1Node.x);
+        }
+    });
+
+    it('generates sibling connectors with kind "sibling"', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 1, 1, new Set(), new Set(), new Set(['ROOT']));
+        const layout = computeAdaptiveTreeLayout(tree, 'horizontal');
+        const siblingConnectors = layout.connectors.filter(c => c.kind === 'sibling');
+        expect(siblingConnectors.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('generates parent-child connectors with kind "parent-child"', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 1, 1, new Set(), new Set(), new Set());
+        const layout = computeAdaptiveTreeLayout(tree, 'horizontal');
+        const pcConnectors = layout.connectors.filter(c => c.kind === 'parent-child');
+        expect(pcConnectors.length).toBeGreaterThanOrEqual(4);
     });
 });

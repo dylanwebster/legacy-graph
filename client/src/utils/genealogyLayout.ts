@@ -345,7 +345,6 @@ export function buildFamilyTree(
     function buildUp(personId: string, generation: number, depthRemaining: number): FamilyTreeNode {
         const node = nodeMap.get(personId);
         const allParents = parentMap.get(personId) ?? [];
-        const allChildren = childMap.get(personId) ?? [];
         const allSiblings = getSiblings(personId);
 
         const effectiveDepth = expandedAncestors.has(personId) ? Math.max(depthRemaining, 1) : depthRemaining;
@@ -376,8 +375,8 @@ export function buildFamilyTree(
                         parents: [],
                         children: [],
                         siblings: [],
-                        hasHiddenAncestors: (parentMap.get(sid) ?? []).length > 0,
-                        hasHiddenDescendants: (childMap.get(sid) ?? []).length > 0,
+                        hasHiddenAncestors: false,
+                        hasHiddenDescendants: false,
                         hasHiddenSiblings: false,
                     });
                 }
@@ -385,7 +384,7 @@ export function buildFamilyTree(
         }
 
         const hasHiddenAncestors = allParents.length > 0 && parents.length === 0;
-        const hasHiddenDescendants = allChildren.length > 0;
+        const hasHiddenDescendants = false; // ancestor-side nodes don't support descendant expansion
         const hasHiddenSiblings = allSiblings.length > 0 && siblings.length === 0;
 
         return {
@@ -405,7 +404,6 @@ export function buildFamilyTree(
 
     function buildDown(personId: string, generation: number, depthRemaining: number): FamilyTreeNode {
         const node = nodeMap.get(personId);
-        const allParents = parentMap.get(personId) ?? [];
         const allChildren = childMap.get(personId) ?? [];
         const allSiblings = getSiblings(personId);
 
@@ -437,15 +435,15 @@ export function buildFamilyTree(
                         parents: [],
                         children: [],
                         siblings: [],
-                        hasHiddenAncestors: (parentMap.get(sid) ?? []).length > 0,
-                        hasHiddenDescendants: (childMap.get(sid) ?? []).length > 0,
+                        hasHiddenAncestors: false,
+                        hasHiddenDescendants: false,
                         hasHiddenSiblings: false,
                     });
                 }
             }
         }
 
-        const hasHiddenAncestors = allParents.length > 0;
+        const hasHiddenAncestors = false; // descendant-side nodes don't support ancestor expansion
         const hasHiddenDescendants = allChildren.length > 0 && children.length === 0;
         const hasHiddenSiblings = allSiblings.length > 0 && siblings.length === 0;
 
@@ -529,6 +527,7 @@ export interface PositionedTreeNode {
 export interface TreeConnector {
     id: string;
     path: string; // SVG path "d" attribute
+    kind: 'parent-child' | 'sibling';
 }
 
 const BASE_CARD_W = 192;
@@ -540,7 +539,8 @@ const TREE_NODE_GAP = 12;
  * Compute positions for all nodes in a bidirectional family tree.
  * Uses a simplified tidy-tree algorithm that adapts spacing to actual subtree sizes.
  *
- * Horizontal: ancestors LEFT, descendants RIGHT. Vertical: ancestors ABOVE, descendants BELOW.
+ * Horizontal: descendants LEFT, root center, ancestors RIGHT.
+ * Vertical: descendants ABOVE, root center, ancestors BELOW.
  * Root is at (0, 0). Caller applies pan/zoom transform.
  */
 export function computeAdaptiveTreeLayout(
@@ -553,25 +553,31 @@ export function computeAdaptiveTreeLayout(
     const connectors: TreeConnector[] = [];
     const added = new Set<FamilyTreeNode>();
 
+    /** Height of a node including its siblings stacked below */
+    function nodeWithSiblingsH(node: FamilyTreeNode): number {
+        return cardH + node.siblings.length * (cardH + TREE_NODE_GAP);
+    }
+
     function ancestorSubtreeHeight(node: FamilyTreeNode): number {
-        if (node.parents.length === 0) return cardH;
+        const selfH = nodeWithSiblingsH(node);
+        if (node.parents.length === 0) return selfH;
         let total = 0;
         for (let i = 0; i < node.parents.length; i++) {
             if (i > 0) total += TREE_NODE_GAP;
             total += ancestorSubtreeHeight(node.parents[i]);
         }
-        return Math.max(cardH, total);
+        return Math.max(selfH, total);
     }
 
     function descendantSubtreeHeight(node: FamilyTreeNode): number {
-        const kids = [...node.children, ...node.siblings];
-        if (kids.length === 0) return cardH;
+        const selfH = nodeWithSiblingsH(node);
+        if (node.children.length === 0) return selfH;
         let total = 0;
-        for (let i = 0; i < kids.length; i++) {
+        for (let i = 0; i < node.children.length; i++) {
             if (i > 0) total += TREE_NODE_GAP;
-            total += descendantSubtreeHeight(kids[i]);
+            total += descendantSubtreeHeight(node.children[i]);
         }
-        return Math.max(cardH, total);
+        return Math.max(selfH, total);
     }
 
     function emit(node: FamilyTreeNode, x: number, y: number) {
@@ -596,15 +602,49 @@ export function computeAdaptiveTreeLayout(
         const id = `${fid}-${tid}-${dir}`;
 
         if (orientation === 'horizontal') {
-            const x1 = dir === 'ancestor' ? fromX : fromX + cardW;
-            const x2 = dir === 'ancestor' ? toX + cardW : toX;
+            // Ancestors are RIGHT, descendants are LEFT
+            const x1 = dir === 'ancestor' ? fromX + cardW : fromX;
+            const x2 = dir === 'ancestor' ? toX : toX + cardW;
             const mx = (x1 + x2) / 2;
-            connectors.push({ id, path: `M ${x1} ${fromCY} L ${mx} ${fromCY} L ${mx} ${toCY} L ${x2} ${toCY}` });
+            connectors.push({ id, kind: 'parent-child', path: `M ${x1} ${fromCY} L ${mx} ${fromCY} L ${mx} ${toCY} L ${x2} ${toCY}` });
         } else {
-            const y1 = dir === 'ancestor' ? fromX : fromX + cardH;
-            const y2 = dir === 'ancestor' ? toX + cardH : toX;
+            // Ancestors are BELOW, descendants are ABOVE
+            const y1 = dir === 'ancestor' ? fromX + cardH : fromX;
+            const y2 = dir === 'ancestor' ? toX : toX + cardH;
             const my = (y1 + y2) / 2;
-            connectors.push({ id, path: `M ${fromCY} ${y1} L ${fromCY} ${my} L ${toCY} ${my} L ${toCY} ${y2}` });
+            connectors.push({ id, kind: 'parent-child', path: `M ${fromCY} ${y1} L ${fromCY} ${my} L ${toCY} ${my} L ${toCY} ${y2}` });
+        }
+    }
+
+    /** Place siblings at the same genX, stacked below the node, with dashed connectors */
+    function emitSiblings(node: FamilyTreeNode, genX: number, nodeY: number) {
+        if (node.siblings.length === 0) return;
+        const nodeCY = nodeY + cardH / 2;
+        let currentY = nodeY + cardH + TREE_NODE_GAP;
+        for (const sib of node.siblings) {
+            emit(sib, genX, currentY);
+            const sibCY = currentY + cardH / 2;
+            const fid = node.id ?? `g${node.generation}`;
+            const sid = sib.id ?? `sib${sib.generation}`;
+
+            if (orientation === 'horizontal') {
+                // Vertical bracket on the left edge of the cards
+                const bx = genX - 10;
+                connectors.push({
+                    id: `${fid}-${sid}-sib`,
+                    kind: 'sibling',
+                    path: `M ${genX} ${nodeCY} L ${bx} ${nodeCY} L ${bx} ${sibCY} L ${genX} ${sibCY}`,
+                });
+            } else {
+                // Horizontal bracket above the cards (swap x/y)
+                const by = genX - 10;
+                connectors.push({
+                    id: `${fid}-${sid}-sib`,
+                    kind: 'sibling',
+                    path: `M ${nodeCY} ${genX} L ${nodeCY} ${by} L ${sibCY} ${by} L ${sibCY} ${genX}`,
+                });
+            }
+            currentY += cardH + TREE_NODE_GAP;
         }
     }
 
@@ -612,9 +652,11 @@ export function computeAdaptiveTreeLayout(
         if (node.parents.length === 0) {
             const cy = yStart + cardH / 2;
             emit(node, genX, yStart);
+            emitSiblings(node, genX, yStart);
             return cy;
         }
-        const parentGenX = genX - (cardW + TREE_GEN_GAP);
+        // Ancestors branch RIGHT
+        const parentGenX = genX + (cardW + TREE_GEN_GAP);
         let currentY = yStart;
         const parentCenters: number[] = [];
         for (let i = 0; i < node.parents.length; i++) {
@@ -625,7 +667,9 @@ export function computeAdaptiveTreeLayout(
             currentY += h;
         }
         const myCY = (Math.min(...parentCenters) + Math.max(...parentCenters)) / 2;
-        emit(node, genX, myCY - cardH / 2);
+        const nodeY = myCY - cardH / 2;
+        emit(node, genX, nodeY);
+        emitSiblings(node, genX, nodeY);
         for (let i = 0; i < node.parents.length; i++) {
             emitConnector(genX, myCY, parentGenX, parentCenters[i], 'ancestor', node, node.parents[i]);
         }
@@ -633,38 +677,40 @@ export function computeAdaptiveTreeLayout(
     }
 
     function layoutDescendants(node: FamilyTreeNode, genX: number, yStart: number): number {
-        const kids = [...node.children, ...node.siblings];
-        if (kids.length === 0) {
+        if (node.children.length === 0) {
             const cy = yStart + cardH / 2;
             emit(node, genX, yStart);
+            emitSiblings(node, genX, yStart);
             return cy;
         }
-        const childGenX = genX + (cardW + TREE_GEN_GAP);
+        // Descendants branch LEFT
+        const childGenX = genX - (cardW + TREE_GEN_GAP);
         let currentY = yStart;
         const childCenters: number[] = [];
-        for (let i = 0; i < kids.length; i++) {
+        for (let i = 0; i < node.children.length; i++) {
             if (i > 0) currentY += TREE_NODE_GAP;
-            const h = descendantSubtreeHeight(kids[i]);
-            const cy = layoutDescendants(kids[i], childGenX, currentY);
+            const h = descendantSubtreeHeight(node.children[i]);
+            const cy = layoutDescendants(node.children[i], childGenX, currentY);
             childCenters.push(cy);
             currentY += h;
         }
         const myCY = (Math.min(...childCenters) + Math.max(...childCenters)) / 2;
-        emit(node, genX, myCY - cardH / 2);
-        for (let i = 0; i < kids.length; i++) {
-            emitConnector(genX, myCY, childGenX, childCenters[i], 'descendant', node, kids[i]);
+        const nodeY = myCY - cardH / 2;
+        emit(node, genX, nodeY);
+        emitSiblings(node, genX, nodeY);
+        for (let i = 0; i < node.children.length; i++) {
+            emitConnector(genX, myCY, childGenX, childCenters[i], 'descendant', node, node.children[i]);
         }
         return myCY;
     }
 
-    // Layout ancestor side
+    // Layout ancestor side (RIGHT of root)
     const ancestorH = root.parents.length > 0 ? ancestorSubtreeHeight(root) : cardH;
-    const descH = (root.children.length + root.siblings.length) > 0
-        ? descendantSubtreeHeight(root) : cardH;
+    const descH = root.children.length > 0 ? descendantSubtreeHeight(root) : cardH;
 
     if (root.parents.length > 0) {
         const aStart = -ancestorH / 2;
-        const parentGenX = -(cardW + TREE_GEN_GAP);
+        const parentGenX = cardW + TREE_GEN_GAP;
         let currentY = aStart;
         const parentCenters: number[] = [];
         for (let i = 0; i < root.parents.length; i++) {
@@ -679,27 +725,27 @@ export function computeAdaptiveTreeLayout(
         }
     }
 
-    // Layout descendant side
-    const allRootKids = [...root.children, ...root.siblings];
-    if (allRootKids.length > 0) {
+    // Layout descendant side (LEFT of root)
+    if (root.children.length > 0) {
         const dStart = -descH / 2;
-        const childGenX = cardW + TREE_GEN_GAP;
+        const childGenX = -(cardW + TREE_GEN_GAP);
         let currentY = dStart;
         const childCenters: number[] = [];
-        for (let i = 0; i < allRootKids.length; i++) {
+        for (let i = 0; i < root.children.length; i++) {
             if (i > 0) currentY += TREE_NODE_GAP;
-            const h = descendantSubtreeHeight(allRootKids[i]);
-            const cy = layoutDescendants(allRootKids[i], childGenX, currentY);
+            const h = descendantSubtreeHeight(root.children[i]);
+            const cy = layoutDescendants(root.children[i], childGenX, currentY);
             childCenters.push(cy);
             currentY += h;
         }
-        for (let i = 0; i < allRootKids.length; i++) {
-            emitConnector(0, 0, childGenX, childCenters[i], 'descendant', root, allRootKids[i]);
+        for (let i = 0; i < root.children.length; i++) {
+            emitConnector(0, 0, childGenX, childCenters[i], 'descendant', root, root.children[i]);
         }
     }
 
-    // Add root at origin
+    // Add root at origin, then siblings below
     emit(root, 0, -cardH / 2);
+    emitSiblings(root, 0, -cardH / 2);
 
     return { nodes: positioned, connectors };
 }

@@ -235,9 +235,9 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
     const originY = dims.height / 2;
     const transform = `translate(${originX + pan.x}, ${originY + pan.y}) scale(${scale})`;
 
-    // Determine expand icon positions based on orientation
-    const ExpandAncestorIcon = orientation === 'horizontal' ? ChevronLeft : ChevronUp;
-    const ExpandDescendantIcon = orientation === 'horizontal' ? ChevronRight : ChevronDown;
+    // Ancestors branch RIGHT, descendants branch LEFT
+    const ExpandAncestorIcon = orientation === 'horizontal' ? ChevronRight : ChevronDown;
+    const ExpandDescendantIcon = orientation === 'horizontal' ? ChevronLeft : ChevronUp;
 
     const selectedNode = selectedNodeId
         ? treeNodes.find(n => n.node.id === selectedNodeId) ?? null
@@ -267,8 +267,10 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                             key={c.id}
                             d={c.path}
                             fill="none"
-                            stroke="var(--border)"
-                            strokeWidth={1.5}
+                            stroke={c.kind === 'sibling' ? 'var(--muted-foreground)' : 'var(--border)'}
+                            strokeWidth={c.kind === 'sibling' ? 1 : 1.5}
+                            strokeDasharray={c.kind === 'sibling' ? '4 3' : undefined}
+                            opacity={c.kind === 'sibling' ? 0.5 : undefined}
                         />
                     ))}
 
@@ -279,6 +281,14 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                         const isSelected = n.node.id === selectedNodeId;
                         const graphNode = graphNodeMap.get(n.node.id);
                         const birthYear = graphNode?.birthYear ?? null;
+                        const deathYear = graphNode?.deathYear ?? null;
+                        const lifespan = birthYear && deathYear
+                            ? `${birthYear} – ${deathYear}`
+                            : birthYear
+                                ? `b. ${birthYear}`
+                                : deathYear
+                                    ? `d. ${deathYear}`
+                                    : null;
 
                         return (
                             <g
@@ -312,7 +322,16 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                     />
                                 )}
 
-                                {/* Name (1 or 2 lines) */}
+                                {/* Sex-color dot */}
+                                <circle
+                                    cx={CARD_W - 10}
+                                    cy={10}
+                                    r={3}
+                                    fill={sexStroke(n.node.sex)}
+                                    style={{ pointerEvents: 'none' }}
+                                />
+
+                                {/* Name (1 or 2 lines) + lifespan */}
                                 {(() => {
                                     const [line1, line2] = splitNameLines(n.node.label);
                                     const tx = isRoot ? 12 : 8;
@@ -341,7 +360,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                                     {line2}
                                                 </text>
                                             )}
-                                            {!!birthYear && (
+                                            {!!lifespan && (
                                                 <text
                                                     x={tx}
                                                     y={line2 ? 47 : 36}
@@ -349,29 +368,14 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                                     fill="var(--muted-foreground)"
                                                     style={{ pointerEvents: 'none' }}
                                                 >
-                                                    b. {birthYear}
+                                                    {lifespan}
                                                 </text>
                                             )}
                                         </>
                                     );
                                 })()}
 
-                                {/* Generation badge */}
-                                {n.node.generation !== 0 && (
-                                    <text
-                                        x={CARD_W - 6}
-                                        y={CARD_H - 6}
-                                        fontSize={8}
-                                        textAnchor="end"
-                                        fill="var(--muted-foreground)"
-                                        opacity={0.5}
-                                        style={{ pointerEvents: 'none' }}
-                                    >
-                                        {n.node.generation > 0 ? `+${n.node.generation}` : n.node.generation}
-                                    </text>
-                                )}
-
-                                {/* Expand ancestors button */}
+                                {/* Expand ancestors button (RIGHT side — ancestors branch right) */}
                                 {n.node.hasHiddenAncestors && (
                                     <g
                                         onClick={(e) => {
@@ -382,16 +386,16 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                         data-testid="expand-ancestors"
                                     >
                                         <circle
-                                            cx={orientation === 'horizontal' ? -10 : CARD_W / 2}
-                                            cy={orientation === 'horizontal' ? CARD_H / 2 : -10}
+                                            cx={orientation === 'horizontal' ? CARD_W + 10 : CARD_W / 2}
+                                            cy={orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 10}
                                             r={8}
                                             fill="var(--muted)"
                                             stroke="var(--border)"
                                             strokeWidth={1}
                                         />
                                         <ExpandAncestorIcon
-                                            x={(orientation === 'horizontal' ? -10 : CARD_W / 2) - 5}
-                                            y={(orientation === 'horizontal' ? CARD_H / 2 : -10) - 5}
+                                            x={(orientation === 'horizontal' ? CARD_W + 10 : CARD_W / 2) - 5}
+                                            y={(orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 10) - 5}
                                             width={10}
                                             height={10}
                                             className="text-muted-foreground"
@@ -399,7 +403,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                     </g>
                                 )}
 
-                                {/* Expand descendants button */}
+                                {/* Expand descendants button (LEFT side — descendants branch left) */}
                                 {n.node.hasHiddenDescendants && (
                                     <g
                                         onClick={(e) => {
@@ -410,16 +414,16 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                         data-testid="expand-descendants"
                                     >
                                         <circle
-                                            cx={orientation === 'horizontal' ? CARD_W + 10 : CARD_W / 2}
-                                            cy={orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 10}
+                                            cx={orientation === 'horizontal' ? -10 : CARD_W / 2}
+                                            cy={orientation === 'horizontal' ? CARD_H / 2 : -10}
                                             r={8}
                                             fill="var(--muted)"
                                             stroke="var(--border)"
                                             strokeWidth={1}
                                         />
                                         <ExpandDescendantIcon
-                                            x={(orientation === 'horizontal' ? CARD_W + 10 : CARD_W / 2) - 5}
-                                            y={(orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 10) - 5}
+                                            x={(orientation === 'horizontal' ? -10 : CARD_W / 2) - 5}
+                                            y={(orientation === 'horizontal' ? CARD_H / 2 : -10) - 5}
                                             width={10}
                                             height={10}
                                             className="text-muted-foreground"
