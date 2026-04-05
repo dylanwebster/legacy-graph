@@ -3,9 +3,9 @@ import { Link } from '@tanstack/react-router';
 import { usePerson } from '@/api/hooks';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
-import { Sunrise, Sunset } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { loadAvatarCrop } from '@/lib/avatarCrop';
+import { PersonHoverCard } from '@/components/PersonHoverCard';
 
 interface PersonChipProps {
     id: string;
@@ -57,68 +57,9 @@ export function PersonChip({ id, name, photoFilename, className }: PersonChipPro
                 </Link>
             </HoverCardTrigger>
             <HoverCardContent className="w-64" side="right">
-                {open && <PersonHoverContent id={id} person={person} />}
+                {open && <PersonHoverCard id={id} />}
             </HoverCardContent>
         </HoverCard>
     );
 }
 
-export function PersonHoverContent({
-    id,
-    person,
-}: {
-    id: string;
-    person: ReturnType<typeof usePerson>['data'];
-}) {
-    if (!person) {
-        return <div className="text-xs text-muted-foreground">Loading...</div>;
-    }
-
-    const displayName = deriveName(person);
-    const events = (person.events ?? []) as Array<Record<string, string>>;
-    const birthDate = events.find((e) => e.type === 'birth')?.date;
-    const deathDate = events.find((e) => e.type === 'death')?.date;
-    const spouse = person._computed?.currentSpouse;
-    const cropData = loadAvatarCrop(id);
-
-    return (
-        <div className="space-y-2">
-            <div className="flex items-center gap-2">
-                <CustomAvatar
-                    firstName={person.names?.[0]?.first || person.names?.[0]?.given || ''}
-                    lastName={person.names?.[0]?.last || person.names?.[0]?.surname || ''}
-                    photoFilename={person.assets?.[0]}
-                    className="h-10 w-10 text-sm"
-                    cropData={cropData}
-                    sex={person.sex}
-                />
-                <div>
-                    <p className="font-semibold text-sm">{displayName}</p>
-                    <p className="text-xs text-muted-foreground font-mono">{id}</p>
-                </div>
-            </div>
-            {(birthDate || deathDate) && (
-                <div className="space-y-1">
-                    {birthDate && (
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <Sunrise className="h-3 w-3" />
-                            <span>b. {birthDate}</span>
-                        </div>
-                    )}
-                    {deathDate && (
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <Sunset className="h-3 w-3" />
-                            <span>d. {deathDate}</span>
-                        </div>
-                    )}
-                </div>
-            )}
-            {spouse && (
-                <div className="text-xs text-muted-foreground">
-                    <span className="capitalize">{spouse.status}</span> to{' '}
-                    <span className="font-mono">{spouse.id}</span>
-                </div>
-            )}
-        </div>
-    );
-}

@@ -27,7 +27,72 @@ export function resolveSpouseLabel(
     return nodeMap.get(spouseId)?.label ?? null;
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── PersonCardBody — compact card content (shared by hover and click previews) ──
+
+export interface PersonCardBodyProps {
+    personId: string;
+    label: string;
+    sex: string;
+    primaryAsset?: string | null;
+    birthLine?: string | null;
+    deathLine?: string | null;
+    spouseLabel?: string | null;
+    onMakeFocal?: (id: string) => void;
+    onViewProfile?: (id: string) => void;
+}
+
+export function PersonCardBody({
+    personId,
+    label,
+    sex,
+    primaryAsset,
+    birthLine,
+    deathLine,
+    spouseLabel,
+    onMakeFocal,
+    onViewProfile,
+}: PersonCardBodyProps) {
+    const showActions = !!(onMakeFocal && onViewProfile);
+    return (
+        <>
+            <div className="flex items-start gap-2.5">
+                <CustomAvatar
+                    firstName={label.split(' ')[0]}
+                    lastName={label.split(' ').slice(1).join(' ')}
+                    photoFilename={primaryAsset ?? undefined}
+                    className="h-10 w-10 flex-shrink-0 text-sm"
+                    sex={sex}
+                />
+                <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm truncate">{label}</p>
+                    {birthLine && <p className="text-xs text-muted-foreground truncate">{birthLine}</p>}
+                    {deathLine && <p className="text-xs text-muted-foreground truncate">{deathLine}</p>}
+                    {spouseLabel && <p className="text-xs text-muted-foreground truncate">m. {spouseLabel}</p>}
+                </div>
+            </div>
+            {showActions && (
+                <div className="flex gap-2 mt-2.5">
+                    <button
+                        onClick={() => onMakeFocal!(personId)}
+                        className="flex-1 flex items-center justify-center gap-1 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+                        data-testid="make-focal-btn"
+                    >
+                        <Focus className="h-3 w-3" />
+                        Focal
+                    </button>
+                    <button
+                        onClick={() => onViewProfile!(personId)}
+                        className="flex-1 h-7 rounded-md border border-border text-xs font-medium hover:bg-muted/40 transition-colors"
+                    >
+                        Profile
+                    </button>
+                </div>
+            )}
+        </>
+    );
+}
+
+// ─── PersonPreviewCard — positioned overlay with mobile/desktop modes ──────────
 
 export interface PersonPreviewCardProps {
     personId: string;
@@ -115,8 +180,9 @@ export function PersonPreviewCard({
     }
 
     // Desktop popover — positioned at the given screen coordinates, clamped to container
+    const cardHeight = 140;
     const left = Math.max(8, Math.min(screenX - 120, containerWidth - 248));
-    const top = Math.max(8, Math.min(screenY, containerHeight - 140));
+    const top = Math.max(8, Math.min(screenY, containerHeight - cardHeight));
 
     return (
         <>
@@ -126,37 +192,17 @@ export function PersonPreviewCard({
                 style={{ left, top }}
                 data-testid="person-preview-popover"
             >
-                <div className="flex items-start gap-2.5">
-                    <CustomAvatar
-                        firstName={label.split(' ')[0]}
-                        lastName={label.split(' ').slice(1).join(' ')}
-                        photoFilename={primaryAsset ?? undefined}
-                        className="h-10 w-10 flex-shrink-0 text-sm"
-                        sex={sex}
-                    />
-                    <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{label}</p>
-                        {birthLine && <p className="text-xs text-muted-foreground truncate">{birthLine}</p>}
-                        {deathLine && <p className="text-xs text-muted-foreground truncate">{deathLine}</p>}
-                        {spouseLabel && <p className="text-xs text-muted-foreground truncate">m. {spouseLabel}</p>}
-                    </div>
-                </div>
-                <div className="flex gap-2 mt-2.5">
-                    <button
-                        onClick={() => onMakeFocal(personId)}
-                        className="flex-1 flex items-center justify-center gap-1 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
-                        data-testid="make-focal-btn"
-                    >
-                        <Focus className="h-3 w-3" />
-                        Focal
-                    </button>
-                    <button
-                        onClick={() => onViewProfile(personId)}
-                        className="flex-1 h-7 rounded-md border border-border text-xs font-medium hover:bg-muted/40 transition-colors"
-                    >
-                        Profile
-                    </button>
-                </div>
+                <PersonCardBody
+                    personId={personId}
+                    label={label}
+                    sex={sex}
+                    primaryAsset={primaryAsset}
+                    birthLine={birthLine}
+                    deathLine={deathLine}
+                    spouseLabel={spouseLabel}
+                    onMakeFocal={onMakeFocal}
+                    onViewProfile={onViewProfile}
+                />
             </div>
         </>
     );

@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { usePerson } from '@/api/hooks';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
-import { PersonHoverContent, deriveName } from '@/components/PersonChip';
+import { deriveName } from '@/components/PersonChip';
+import { PersonHoverCard } from '@/components/PersonHoverCard';
 
 interface InlinePersonMentionProps {
     id: string;
@@ -31,7 +32,7 @@ export function InlinePersonMention({ id }: InlinePersonMentionProps) {
                 </Link>
             </HoverCardTrigger>
             <HoverCardContent className="w-64" side="top">
-                {open && <PersonHoverContent id={id} person={person} />}
+                {open && <PersonHoverCard id={id} />}
             </HoverCardContent>
         </HoverCard>
     );

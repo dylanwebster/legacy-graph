@@ -4,9 +4,10 @@ import ForceGraph2D from 'react-force-graph-2d';
 import type { ForceGraphMethods, NodeObject, LinkObject } from 'react-force-graph-2d';
 import { forceCollide } from 'd3-force-3d';
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { useGraphData, usePerson } from '@/api/hooks';
+import { useGraphData } from '@/api/hooks';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
-import { PersonHoverContent } from '@/components/PersonChip';
+import { PersonHoverCard } from '@/components/PersonHoverCard';
+import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from '@/components/viz/PersonPreviewCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { GitBranch, RefreshCw, Scan, Maximize2, Minimize2, Network, Search, X, CircleDot } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
@@ -382,13 +383,6 @@ function makeCenteringYForce() {
     return force;
 }
 
-// ─── Hover Card ───────────────────────────────────────────────────────────────
-
-function GraphNodeHoverCard({ id }: { id: string }) {
-    const { data: person } = usePerson(id);
-    return <PersonHoverContent id={id} person={person} />;
-}
-
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 function Dashboard() {
@@ -452,6 +446,10 @@ function FamilyGraphPanel({
     const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
     const hoveredNodeIdRef = useRef<string | null>(null);
     const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+
+    // ── Click preview state ────────────────────────────────────────────────
+    const [clickedNode, setClickedNode] = useState<SimNode | null>(null);
+    const [clickedNodeScreenPos, setClickedNodeScreenPos] = useState<{ x: number; y: number } | null>(null);
 
     // ── Position + zoom persistence (read initial values from dsState) ────
     // Capture mount-time snapshot so zoom restore / guard comparisons are stable
@@ -549,6 +547,11 @@ function FamilyGraphPanel({
     // Keep a ref to stableGraphData so stable callbacks can read it
     const stableGraphDataRef = useRef(stableGraphData);
     stableGraphDataRef.current = stableGraphData;
+
+    const graphNodeMap = useMemo(
+        () => new Map((stableGraphData?.nodes ?? []).map(n => [String(n.id), n as GraphNodeData])),
+        [stableGraphData],
+    );
 
     const genLevels = useMemo<Map<string, number> | null>(() => {
         if (!rootPersonId || !stableGraphData) return null;
@@ -1394,8 +1397,13 @@ function FamilyGraphPanel({
     }, [matchingIds, genLevels, isDark]);
 
     const handleNodeClick = useCallback(
-        (node: NodeObject) => navigate({ to: '/people/$id', params: { id: String(node.id) } }),
-        [navigate],
+        (node: NodeObject) => {
+            const simNode = node as SimNode;
+            const screen = fgRef.current?.graph2ScreenCoords(simNode.x ?? 0, simNode.y ?? 0);
+            setClickedNode(simNode);
+            setClickedNodeScreenPos(screen ? { x: screen.x, y: screen.y } : { x: dims.width / 2, y: dims.height / 2 });
+        },
+        [dims],
     );
 
     // ── Fullscreen ─────────────────────────────────────────────────────────
@@ -1757,8 +1765,8 @@ function FamilyGraphPanel({
                     </div>
                 )}
 
-                {/* Hover tooltip — force mode only */}
-                {dsState.vizMode === 'force' && hoveredNodeId && (
+                {/* Hover tooltip — force mode only, hidden when click card is open */}
+                {dsState.vizMode === 'force' && hoveredNodeId && !clickedNode && (
                     <div
                         className="pointer-events-none absolute z-50"
                         style={{
@@ -1767,10 +1775,31 @@ function FamilyGraphPanel({
                             transform: tooltipPos.x > dims.width - 280 ? 'translateX(calc(-100% - 32px))' : undefined,
                         }}
                     >
-                        <div className="w-64 rounded-md border border-border bg-popover p-4 shadow-md text-popover-foreground">
-                            <GraphNodeHoverCard id={hoveredNodeId} />
+                        <div className="w-60 rounded-xl border border-border bg-card p-3 shadow-lg text-card-foreground">
+                            <PersonHoverCard id={hoveredNodeId} />
                         </div>
                     </div>
+                )}
+
+                {/* Click preview card — force mode only */}
+                {dsState.vizMode === 'force' && clickedNode && clickedNodeScreenPos && (
+                    <PersonPreviewCard
+                        personId={String(clickedNode.id)}
+                        label={clickedNode.label}
+                        sex={clickedNode.sex}
+                        primaryAsset={clickedNode.primaryAsset ?? null}
+                        birthLine={lifeLine('b. ', clickedNode.birthYear, clickedNode.birthPlace)}
+                        deathLine={lifeLine('d. ', clickedNode.deathYear, clickedNode.deathPlace)}
+                        spouseLabel={resolveSpouseLabel(String(clickedNode.id), graphData?.links ?? [], graphNodeMap)}
+                        screenX={clickedNodeScreenPos.x}
+                        screenY={clickedNodeScreenPos.y}
+                        containerWidth={dims.width}
+                        containerHeight={dims.height}
+                        isMobile={dims.width < 640}
+                        onClose={() => setClickedNode(null)}
+                        onMakeFocal={(id) => { handleSetRoot(id); setClickedNode(null); }}
+                        onViewProfile={(id) => navigate({ to: '/people/$id', params: { id } })}
+                    />
                 )}
 
                 {/* Legend — force mode only */}
