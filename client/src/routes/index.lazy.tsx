@@ -486,6 +486,10 @@ function FamilyGraphPanel({
     const rootPersonIdRef = useRef<string | null>(initialState.rootPersonId);
     // Set to true when root changes or reset fires; forces useEffect re-layouts
     const shouldReheatRef = useRef(false);
+    // Tracks whether simulation is actively running (reheated and not yet stopped)
+    const isSimulatingRef = useRef(false);
+    // When set, onEngineStop will center the view on this node ID once simulation settles
+    const pendingFocalCenterRef = useRef<string | null>(null);
 
     // ── saveForceState — persist force-graph state via updateDs ────────────
     const saveForceState = useCallback((overrideRootId?: string | null) => {
@@ -566,8 +570,21 @@ function FamilyGraphPanel({
     }, [rootPersonId, stableGraphData]);
 
     const handleEngineStop = useCallback(() => {
+        isSimulatingRef.current = false;
         const gd = stableGraphDataRef.current;
         if (!gd) return;
+
+        // Center on pending focal node now that positions have settled
+        const pendingId = pendingFocalCenterRef.current;
+        if (pendingId && fgRef.current) {
+            pendingFocalCenterRef.current = null;
+            const node = (gd.nodes as SimNode[]).find(n => n.id === pendingId);
+            if (node && typeof node.x === 'number' && typeof node.y === 'number') {
+                fgRef.current.centerAt(node.x, node.y, 600);
+                fgRef.current.zoom(1.4, 600);
+            }
+        }
+
         saveForceState();
     }, [saveForceState]);
 
@@ -638,20 +655,12 @@ function FamilyGraphPanel({
                 n.vx = 0;
                 n.vy = 0;
             }
+            isSimulatingRef.current = true;
             fg.d3ReheatSimulation();
 
-            // Center view on focal node after simulation settles
+            // Defer centering to onEngineStop once positions have settled
             if (rootId) {
-                setTimeout(() => {
-                    const rootNode = (stableGraphDataRef.current?.nodes as SimNode[] | undefined)
-                        ?.find((nd) => nd.id === rootId);
-                    if (rootNode && typeof rootNode.x === 'number' && typeof rootNode.y === 'number') {
-                        fgRef.current?.centerAt(rootNode.x, rootNode.y, 600);
-                        fgRef.current?.zoom(1.4, 600);
-                    } else {
-                        fgRef.current?.zoomToFit(600, 80);
-                    }
-                }, 900);
+                pendingFocalCenterRef.current = rootId;
             }
         } else {
             // First mount / API reload: ensure fx is set to birth year, restore saved fy
@@ -778,15 +787,26 @@ function FamilyGraphPanel({
         setRootFocused(false);
         saveForceState(id);
 
-        const gd = stableGraphDataRef.current;
-        if (gd) {
-            // Focus camera on the new focal node immediately
-            if (id && fgRef.current) {
-                const node = (gd.nodes as SimNode[]).find(n => n.id === id);
-                if (node && typeof node.x === 'number' && typeof node.y === 'number') {
-                    fgRef.current.centerAt(node.x, node.y, 600);
-                    fgRef.current.zoom(1.4, 600);
+        // Always freeze simulation synchronously — this runs before the next rAF tick,
+        // so nodes stop immediately instead of drifting until the forces effect fires.
+        if (isSimulatingRef.current) {
+            const gd = stableGraphDataRef.current;
+            if (gd) {
+                for (const node of gd.nodes) {
+                    const n = node as SimNode & { fy?: number };
+                    if (typeof n.y === 'number') n.fy = n.y;
                 }
+            }
+            isSimulatingRef.current = false;
+            pendingFocalCenterRef.current = null;
+        }
+
+        if (id && fgRef.current) {
+            const gd = stableGraphDataRef.current;
+            const node = gd && (gd.nodes as SimNode[]).find(n => n.id === id);
+            if (node && typeof node.x === 'number' && typeof node.y === 'number') {
+                fgRef.current.centerAt(node.x, node.y, 600);
+                fgRef.current.zoom(1.4, 600);
             }
         }
     }, [saveForceState]);
@@ -1431,8 +1451,13 @@ function FamilyGraphPanel({
                 n.vy = 0;
                 delete n.fy;  // Free Y for simulation
             }
+            isSimulatingRef.current = true;
             fgRef.current.d3ReheatSimulation();
             fgRef.current.zoomToFit(600, 80);
+            // Queue focal center for when simulation settles
+            if (rootPersonIdRef.current) {
+                pendingFocalCenterRef.current = rootPersonIdRef.current;
+            }
         }
         refetch();
     }, [refetch, updateDs]);
