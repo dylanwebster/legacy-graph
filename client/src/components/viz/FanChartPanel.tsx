@@ -129,7 +129,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
         if (!el) return;
         const handleWheel = (e: WheelEvent) => {
             e.preventDefault();
-            const factor = e.deltaY < 0 ? 1.1 : 0.9;
+            const factor = e.deltaY < 0 ? 1.05 : 1 / 1.05;
             const newScale = Math.max(0.2, Math.min(5, scale * factor));
             // Zoom toward cursor position
             const rect = el.getBoundingClientRect();
