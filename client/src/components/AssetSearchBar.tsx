@@ -21,6 +21,7 @@ type PersonResult = {
     id: string;
     names?: Array<{ first?: string; given?: string; last?: string; surname?: string }>;
     birthDate?: string;
+    sex?: string;
 };
 
 function getDisplayName(p: PersonResult): string {
@@ -167,6 +168,7 @@ export function AssetSearchBar({
                                     firstName={firstName}
                                     lastName={lastName}
                                     className="h-6 w-6 text-[10px] shrink-0"
+                                    sex={p.sex}
                                 />
                                 <span className="flex-1 truncate">{name}</span>
                                 {year && (

@@ -51,7 +51,7 @@ function PersonSearchCombobox({
     }, [query]);
 
     const { data: searchResults } = useSearch(debouncedQuery, { limit: 8 });
-    const people = (searchResults?.people ?? []) as Array<{ id: string; names?: Array<{ first?: string; given?: string; last?: string; surname?: string }>; birthDate?: string }>;
+    const people = (searchResults?.people ?? []) as Array<{ id: string; names?: Array<{ first?: string; given?: string; last?: string; surname?: string }>; birthDate?: string; sex?: string }>;
 
     const handleSelect = (id: string, displayName?: string) => {
         onChange(id);
@@ -83,7 +83,7 @@ function PersonSearchCombobox({
                                 className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 text-left"
                                 onMouseDown={() => handleSelect(p.id, displayName)}
                             >
-                                <CustomAvatar firstName={first} lastName={last} className="h-5 w-5 text-[9px]" />
+                                <CustomAvatar firstName={first} lastName={last} className="h-5 w-5 text-[9px]" sex={p.sex} />
                                 <span className="truncate flex-1">{displayName}</span>
                                 {!!p.birthDate && (
                                     <span className="text-xs text-muted-foreground shrink-0">b. {p.birthDate}</span>

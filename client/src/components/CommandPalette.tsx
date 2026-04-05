@@ -119,6 +119,7 @@ export function CommandPalette() {
                                         firstName={firstName}
                                         lastName={lastName}
                                         className="h-8 w-8"
+                                        sex={person.sex}
                                     />
                                     <div className="flex flex-col min-w-0">
                                         <span className="font-medium truncate">{displayName}</span>

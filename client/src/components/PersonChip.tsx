@@ -49,6 +49,7 @@ export function PersonChip({ id, name, photoFilename, className }: PersonChipPro
                         photoFilename={firstAsset}
                         className="h-6 w-6 text-[10px]"
                         cropData={loadAvatarCrop(id)}
+                        sex={person?.sex}
                     />
                     <span className="truncate">
                         {displayName ?? <span className="font-mono text-xs text-muted-foreground">{id}</span>}
@@ -89,6 +90,7 @@ export function PersonHoverContent({
                     photoFilename={person.assets?.[0]}
                     className="h-10 w-10 text-sm"
                     cropData={cropData}
+                    sex={person.sex}
                 />
                 <div>
                     <p className="font-semibold text-sm">{displayName}</p>

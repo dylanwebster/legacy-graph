@@ -7,6 +7,13 @@ export interface AvatarCropArea {
     height: number;
 }
 
+const SEX_COLORS: Record<string, string> = {
+    M: '#60a5fa',
+    F: '#f472b6',
+    I: '#a78bfa',
+    U: '#94a3b8',
+};
+
 interface CustomAvatarProps {
     photoFilename?: string;
     firstName?: string;
@@ -14,11 +21,13 @@ interface CustomAvatarProps {
     className?: string;
     onClick?: () => void;
     cropData?: AvatarCropArea | null;
+    sex?: string;
 }
 
-export function CustomAvatar({ photoFilename, firstName, lastName, className, onClick, cropData }: CustomAvatarProps) {
+export function CustomAvatar({ photoFilename, firstName, lastName, className, onClick, cropData, sex }: CustomAvatarProps) {
     const initials = `${firstName?.[0] || ""}${lastName?.[0] || ""}`.toUpperCase() || "?";
     const imageUrl = photoFilename ? `/assets/${photoFilename}` : undefined;
+    const sexColor = sex ? (SEX_COLORS[sex] ?? SEX_COLORS['U']) : null;
 
     const cropStyle: React.CSSProperties | undefined =
         imageUrl && cropData
@@ -35,9 +44,14 @@ export function CustomAvatar({ photoFilename, firstName, lastName, className, on
             : undefined;
 
     return (
-        <Avatar key={imageUrl ?? '__fallback__'} className={`${className ?? ''} ${onClick ? 'cursor-pointer' : ''}`} onClick={onClick}>
+        <Avatar
+            key={imageUrl ?? '__fallback__'}
+            className={`${className ?? ''} ${onClick ? 'cursor-pointer' : ''}`}
+            onClick={onClick}
+            style={sexColor ? { boxShadow: `0 0 0 2px ${sexColor}70` } : undefined}
+        >
             {imageUrl && <AvatarImage src={imageUrl} alt={`${firstName} ${lastName}`} style={cropStyle} />}
-            <AvatarFallback>{initials}</AvatarFallback>
+            <AvatarFallback style={sexColor ? { backgroundColor: `${sexColor}22` } : undefined}>{initials}</AvatarFallback>
         </Avatar>
     );
 }

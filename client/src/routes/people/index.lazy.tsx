@@ -189,6 +189,7 @@ function PeopleBrowse() {
                                         photoFilename={person.primaryAsset}
                                         className="h-8 w-8"
                                         cropData={loadAvatarCrop(person.id)}
+                                        sex={person.sex}
                                     />
                                     <span className="font-medium text-sm truncate">{displayName}</span>
                                     <span className="text-sm text-muted-foreground font-mono truncate">

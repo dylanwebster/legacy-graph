@@ -1,7 +1,8 @@
 import { useRef, useState, useMemo, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { ArrowRight, ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, MoreHorizontal, X, User, Focus } from 'lucide-react';
+import { ArrowRight, ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, MoreHorizontal, X, Focus } from 'lucide-react';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
+import { CustomAvatar } from '@/components/CustomAvatar';
 import {
     buildFamilyTree,
     computeAdaptiveTreeLayout,
@@ -106,20 +107,13 @@ function PersonPreview({
                     data-testid="person-preview-sheet"
                 >
                     <div className="flex items-start gap-3">
-                        {primaryAsset ? (
-                            <img
-                                src={`/api/assets/${primaryAsset}`}
-                                alt={label}
-                                className="h-12 w-12 rounded-full object-cover flex-shrink-0"
-                            />
-                        ) : (
-                            <div
-                                className="h-12 w-12 rounded-full flex-shrink-0 flex items-center justify-center"
-                                style={{ backgroundColor: sexStroke(sex) + '33' }}
-                            >
-                                <User className="h-5 w-5" style={{ color: sexStroke(sex) }} />
-                            </div>
-                        )}
+                        <CustomAvatar
+                            firstName={label.split(' ')[0]}
+                            lastName={label.split(' ').slice(1).join(' ')}
+                            photoFilename={primaryAsset ?? undefined}
+                            className="h-12 w-12 flex-shrink-0 text-base"
+                            sex={sex}
+                        />
                         <div className="flex-1 min-w-0">
                             <p className="font-medium text-sm truncate">{label}</p>
                             {birthYear && (
@@ -176,20 +170,13 @@ function PersonPreview({
                 data-testid="person-preview-popover"
             >
                 <div className="flex items-start gap-2.5">
-                    {primaryAsset ? (
-                        <img
-                            src={`/api/assets/${primaryAsset}`}
-                            alt={label}
-                            className="h-10 w-10 rounded-full object-cover flex-shrink-0"
-                        />
-                    ) : (
-                        <div
-                            className="h-10 w-10 rounded-full flex-shrink-0 flex items-center justify-center"
-                            style={{ backgroundColor: sexStroke(sex) + '33' }}
-                        >
-                            <User className="h-4 w-4" style={{ color: sexStroke(sex) }} />
-                        </div>
-                    )}
+                    <CustomAvatar
+                        firstName={label.split(' ')[0]}
+                        lastName={label.split(' ').slice(1).join(' ')}
+                        photoFilename={primaryAsset ?? undefined}
+                        className="h-10 w-10 flex-shrink-0 text-sm"
+                        sex={sex}
+                    />
                     <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm truncate">{label}</p>
                         {birthYear && (

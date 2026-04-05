@@ -73,6 +73,7 @@ function SearchPage() {
                                         firstName={firstName}
                                         lastName={lastName}
                                         className="h-10 w-10"
+                                        sex={person.sex}
                                     />
                                     <div className="text-left min-w-0">
                                         <div className="font-medium">{displayName}</div>
