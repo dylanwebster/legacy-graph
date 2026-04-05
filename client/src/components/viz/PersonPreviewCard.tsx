@@ -179,10 +179,10 @@ export function PersonPreviewCard({
         );
     }
 
-    // Desktop popover — positioned at the given screen coordinates, clamped to container
+    // Desktop popover — positioned at cursor offset, matching hover card placement, clamped to container
     const cardHeight = 140;
-    const left = Math.max(8, Math.min(screenX - 120, containerWidth - 248));
-    const top = Math.max(8, Math.min(screenY, containerHeight - cardHeight));
+    const left = Math.max(8, Math.min(screenX + 16, containerWidth - 248));
+    const top = Math.max(8, Math.min(screenY + 16, containerHeight - cardHeight));
 
     return (
         <>

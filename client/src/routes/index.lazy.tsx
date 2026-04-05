@@ -446,6 +446,7 @@ function FamilyGraphPanel({
     const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
     const hoveredNodeIdRef = useRef<string | null>(null);
     const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+    const tooltipPosRef = useRef({ x: 0, y: 0 });
 
     // ── Click preview state ────────────────────────────────────────────────
     const [clickedNode, setClickedNode] = useState<SimNode | null>(null);
@@ -764,7 +765,9 @@ function FamilyGraphPanel({
         if (!container) return;
         const onMove = (e: MouseEvent) => {
             const rect = container.getBoundingClientRect();
-            setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+            const pos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+            tooltipPosRef.current = pos;
+            setTooltipPos(pos);
         };
         container.addEventListener('mousemove', onMove);
         return () => container.removeEventListener('mousemove', onMove);
@@ -1399,11 +1402,12 @@ function FamilyGraphPanel({
     const handleNodeClick = useCallback(
         (node: NodeObject) => {
             const simNode = node as SimNode;
-            const screen = fgRef.current?.graph2ScreenCoords(simNode.x ?? 0, simNode.y ?? 0);
+            // Use the current mouse position so the click card appears at the same spot
+            // as the hover card, making the transition look like an expansion.
             setClickedNode(simNode);
-            setClickedNodeScreenPos(screen ? { x: screen.x, y: screen.y } : { x: dims.width / 2, y: dims.height / 2 });
+            setClickedNodeScreenPos({ x: tooltipPosRef.current.x, y: tooltipPosRef.current.y });
         },
-        [dims],
+        [],
     );
 
     // ── Fullscreen ─────────────────────────────────────────────────────────
@@ -1796,7 +1800,7 @@ function FamilyGraphPanel({
                         containerWidth={dims.width}
                         containerHeight={dims.height}
                         isMobile={dims.width < 640}
-                        onClose={() => setClickedNode(null)}
+                        onClose={() => { setClickedNode(null); hoveredNodeIdRef.current = null; setHoveredNodeId(null); }}
                         onMakeFocal={(id) => { handleSetRoot(id); setClickedNode(null); }}
                         onViewProfile={(id) => navigate({ to: '/people/$id', params: { id } })}
                     />
