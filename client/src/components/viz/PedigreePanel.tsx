@@ -1,6 +1,6 @@
 import { useRef, useState, useMemo, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { ArrowRight, ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, MoreHorizontal } from 'lucide-react';
+import { ArrowRight, ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, MoreHorizontal, Minus } from 'lucide-react';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
 import {
     buildFamilyTree,
@@ -249,12 +249,24 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
         setExpandedUp(prev => new Set([...prev, id]));
     }, []);
 
+    const handleCollapseAncestors = useCallback((id: string) => {
+        setExpandedUp(prev => { const next = new Set(prev); next.delete(id); return next; });
+    }, []);
+
     const handleExpandDescendants = useCallback((id: string) => {
         setExpandedDown(prev => new Set([...prev, id]));
     }, []);
 
+    const handleCollapseDescendants = useCallback((id: string) => {
+        setExpandedDown(prev => { const next = new Set(prev); next.delete(id); return next; });
+    }, []);
+
     const handleExpandSiblings = useCallback((id: string) => {
         setExpandedSiblings(prev => new Set([...prev, id]));
+    }, []);
+
+    const handleCollapseSiblings = useCallback((id: string) => {
+        setExpandedSiblings(prev => { const next = new Set(prev); next.delete(id); return next; });
     }, []);
 
     const handleCardClick = useCallback((id: string, e: React.MouseEvent) => {
@@ -297,7 +309,9 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
 
     // Ancestors branch RIGHT, descendants branch LEFT
     const ExpandAncestorIcon = orientation === 'horizontal' ? ChevronRight : ChevronUp;
+    const CollapseAncestorIcon = orientation === 'horizontal' ? ChevronLeft : ChevronDown;
     const ExpandDescendantIcon = orientation === 'horizontal' ? ChevronLeft : ChevronDown;
+    const CollapseDescendantIcon = orientation === 'horizontal' ? ChevronRight : ChevronUp;
 
     const selectedNode = selectedNodeId
         ? treeNodes.find(n => n.node.id === selectedNodeId) ?? null
@@ -440,7 +454,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                     );
                                 })()}
 
-                                {/* Expand ancestors button — right of card (horizontal) or above card (vertical) */}
+                                {/* Expand/collapse ancestors button — right of card (horizontal) or above card (vertical) */}
                                 {n.node.hasHiddenAncestors && (
                                     <g
                                         onClick={(e) => {
@@ -468,8 +482,35 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                         />
                                     </g>
                                 )}
+                                {!n.node.hasHiddenAncestors && expandedUp.has(n.node.id!) && (
+                                    <g
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleCollapseAncestors(n.node.id!);
+                                        }}
+                                        className="cursor-pointer"
+                                        data-testid="collapse-ancestors"
+                                    >
+                                        <circle
+                                            cx={orientation === 'horizontal' ? CARD_W + 12 : CARD_W / 2}
+                                            cy={orientation === 'horizontal' ? CARD_H / 2 : -12}
+                                            r={9}
+                                            fill="var(--muted)"
+                                            stroke="var(--muted-foreground)"
+                                            strokeWidth={1.5}
+                                            opacity={0.85}
+                                        />
+                                        <CollapseAncestorIcon
+                                            x={(orientation === 'horizontal' ? CARD_W + 12 : CARD_W / 2) - 5}
+                                            y={(orientation === 'horizontal' ? CARD_H / 2 : -12) - 5}
+                                            width={10}
+                                            height={10}
+                                            className="text-foreground"
+                                        />
+                                    </g>
+                                )}
 
-                                {/* Expand descendants button — left of card (horizontal) or below card (vertical) */}
+                                {/* Expand/collapse descendants button — left of card (horizontal) or below card (vertical) */}
                                 {n.node.hasHiddenDescendants && (
                                     <g
                                         onClick={(e) => {
@@ -497,8 +538,35 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                         />
                                     </g>
                                 )}
+                                {!n.node.hasHiddenDescendants && expandedDown.has(n.node.id!) && (
+                                    <g
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleCollapseDescendants(n.node.id!);
+                                        }}
+                                        className="cursor-pointer"
+                                        data-testid="collapse-descendants"
+                                    >
+                                        <circle
+                                            cx={orientation === 'horizontal' ? -12 : CARD_W / 2}
+                                            cy={orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 12}
+                                            r={9}
+                                            fill="var(--muted)"
+                                            stroke="var(--muted-foreground)"
+                                            strokeWidth={1.5}
+                                            opacity={0.85}
+                                        />
+                                        <CollapseDescendantIcon
+                                            x={(orientation === 'horizontal' ? -12 : CARD_W / 2) - 5}
+                                            y={(orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 12) - 5}
+                                            width={10}
+                                            height={10}
+                                            className="text-foreground"
+                                        />
+                                    </g>
+                                )}
 
-                                {/* Expand siblings button */}
+                                {/* Expand/collapse siblings button */}
                                 {n.node.hasHiddenSiblings && (
                                     <g
                                         onClick={(e) => {
@@ -518,6 +586,33 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                             opacity={0.85}
                                         />
                                         <MoreHorizontal
+                                            x={(orientation === 'horizontal' ? CARD_W / 2 : CARD_W + 12) - 5}
+                                            y={(orientation === 'horizontal' ? CARD_H + 12 : CARD_H / 2) - 5}
+                                            width={10}
+                                            height={10}
+                                            className="text-foreground"
+                                        />
+                                    </g>
+                                )}
+                                {!n.node.hasHiddenSiblings && expandedSiblings.has(n.node.id!) && (
+                                    <g
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleCollapseSiblings(n.node.id!);
+                                        }}
+                                        className="cursor-pointer"
+                                        data-testid="collapse-siblings"
+                                    >
+                                        <circle
+                                            cx={orientation === 'horizontal' ? CARD_W / 2 : CARD_W + 12}
+                                            cy={orientation === 'horizontal' ? CARD_H + 12 : CARD_H / 2}
+                                            r={9}
+                                            fill="var(--muted)"
+                                            stroke="var(--muted-foreground)"
+                                            strokeWidth={1.5}
+                                            opacity={0.85}
+                                        />
+                                        <Minus
                                             x={(orientation === 'horizontal' ? CARD_W / 2 : CARD_W + 12) - 5}
                                             y={(orientation === 'horizontal' ? CARD_H + 12 : CARD_H / 2) - 5}
                                             width={10}
