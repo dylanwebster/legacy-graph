@@ -1,5 +1,5 @@
-# Generate test data/caches
-data/
+# Runtime/generated data dirs (never commit these)
+data/assets/
 auth-data/
 e2e-data/
 temp_watch_test/

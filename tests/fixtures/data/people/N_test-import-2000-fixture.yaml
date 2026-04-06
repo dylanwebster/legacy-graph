@@ -1,0 +1,22 @@
+version: '5.0'
+id: N_test-import-2000-fixture
+created: '2026-01-01T00:00:00.000Z'
+last_modified: '2026-01-01T00:00:00.000Z'
+names:
+  - first: Test
+    last: Import
+    primary: true
+events:
+  - id: fixture-birth-event
+    type: birth
+    date: 1 JAN 2000
+    sort_date: '2000-01-01'
+    assets: []
+assets: []
+relationships:
+  parents: []
+sex: M
+tags:
+  - gedcom
+scrapbook_md: ''
+_gedcom: {}

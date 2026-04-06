@@ -3,7 +3,7 @@ dist
 coverage
 .DS_Store
 .env
-data/
+/data/
 temp_data
 temp_repo
 test-results/

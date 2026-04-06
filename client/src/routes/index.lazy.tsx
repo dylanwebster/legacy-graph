@@ -210,7 +210,9 @@ function loadDashboardState(): DashboardState {
         const old = localStorage.getItem(LS_KEY);
         if (old) {
             const p = JSON.parse(old) as { positions?: Record<string, { x: number; y: number }>; zoom?: { k: number; cx: number; cy: number } | null; rootPersonId?: string | null };
-            return { ...DS_DEFAULTS, positions: p.positions ?? {}, zoom: p.zoom ?? null, rootPersonId: p.rootPersonId ?? null };
+            const migrated = { ...DS_DEFAULTS, positions: p.positions ?? {}, zoom: p.zoom ?? null, rootPersonId: p.rootPersonId ?? null };
+            saveDashboardState(migrated); // persist so future loads use DS_KEY
+            return migrated;
         }
     } catch { /* ignore */ }
     return { ...DS_DEFAULTS };
@@ -1508,6 +1510,7 @@ function FamilyGraphPanel({
                         <button
                             key={mode}
                             onClick={() => updateDs({ vizMode: mode })}
+                            title={label}
                             className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${
                                 dsState.vizMode === mode
                                     ? 'bg-primary text-primary-foreground'

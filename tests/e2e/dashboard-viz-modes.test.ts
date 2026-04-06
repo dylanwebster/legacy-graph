@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
+import { waitForDashboard } from './helpers';
 
-const ROOT_PERSON_ID = 'N_graph-child-v39avow0'; // has parent: N_graph-parent-s68g5bmf
-const _PARENT_PERSON_ID = 'N_graph-parent-s68g5bmf';
+const ROOT_PERSON_ID = 'N_graph-child-1r1szt1i'; // has parent: N_graph-parent-bgp58m84
+const _PARENT_PERSON_ID = 'N_graph-parent-bgp58m84';
 
 const DS_KEY = 'dashboard-state-v1';
 
@@ -19,7 +20,7 @@ async function setRootPerson(page: import('@playwright/test').Page, rootId: stri
 test.describe('Dashboard Visualization Modes', () => {
     test.beforeEach(async ({ page }) => {
         await page.goto('/');
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
     });
 
     // ── Mode toggle UI ────────────────────────────────────────────────────────
@@ -43,16 +44,17 @@ test.describe('Dashboard Visualization Modes', () => {
             localStorage.removeItem(key);
         }, DS_KEY);
         await page.goto('/');
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Fan Chart').click();
-        await expect(page.getByText('Select a focal person')).toBeVisible({ timeout: 5_000 });
+        // Both Fan and Pedigree panels are mounted simultaneously (visibility toggled); use first()
+        await expect(page.getByText('Select a focal person').first()).toBeVisible({ timeout: 5_000 });
     });
 
     test('Fan Chart switches to mode and shows SVG with root person', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Fan Chart').click();
 
@@ -63,7 +65,7 @@ test.describe('Dashboard Visualization Modes', () => {
     test('Fan Chart renders arcs when root person is set', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Fan Chart').click();
 
@@ -75,7 +77,7 @@ test.describe('Dashboard Visualization Modes', () => {
     test('Fan Chart click arc re-roots the chart', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Fan Chart').click();
 
@@ -95,7 +97,7 @@ test.describe('Dashboard Visualization Modes', () => {
     test('Fan Chart generation depth selector buttons are visible', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Fan Chart').click();
         await expect(page.locator('[data-testid="fan-chart-svg"]')).toBeVisible({ timeout: 5_000 });
@@ -107,13 +109,12 @@ test.describe('Dashboard Visualization Modes', () => {
     test('Fan Chart has zoom controls', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Fan Chart').click();
         await expect(page.locator('[data-testid="fan-chart-svg"]')).toBeVisible({ timeout: 5_000 });
 
-        await expect(page.getByTitle('Zoom in')).toBeVisible({ timeout: 5_000 });
-        await expect(page.getByTitle('Zoom out')).toBeVisible({ timeout: 5_000 });
+        // Fan Chart uses wheel/drag zoom; the toolbar has a shared Reset view button
         await expect(page.getByTitle('Reset view')).toBeVisible({ timeout: 5_000 });
     });
 
@@ -124,16 +125,17 @@ test.describe('Dashboard Visualization Modes', () => {
             localStorage.removeItem(key);
         }, DS_KEY);
         await page.goto('/');
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Pedigree').click();
-        await expect(page.getByText('Select a focal person')).toBeVisible({ timeout: 5_000 });
+        // Fan Chart is first in DOM (hidden), Pedigree is second (visible); use last()
+        await expect(page.getByText('Select a focal person').last()).toBeVisible({ timeout: 5_000 });
     });
 
     test('Pedigree switches to mode and shows SVG with root person', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Pedigree').click();
 
@@ -144,21 +146,21 @@ test.describe('Dashboard Visualization Modes', () => {
     test('Pedigree shows layout toggle and zoom buttons', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Pedigree').click();
         await expect(page.locator('[data-testid="pedigree-svg"]')).toBeVisible({ timeout: 5_000 });
 
         await expect(page.getByTitle('Horizontal layout')).toBeVisible({ timeout: 5_000 });
         await expect(page.getByTitle('Vertical layout')).toBeVisible({ timeout: 5_000 });
-        await expect(page.getByTitle('Zoom in')).toBeVisible({ timeout: 5_000 });
-        await expect(page.getByTitle('Zoom out')).toBeVisible({ timeout: 5_000 });
+        // Pedigree uses wheel/drag zoom; the toolbar has a shared Reset view button
+        await expect(page.getByTitle('Reset view')).toBeVisible({ timeout: 5_000 });
     });
 
     test('Pedigree renders cards when root person is set', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Pedigree').click();
 
@@ -170,7 +172,7 @@ test.describe('Dashboard Visualization Modes', () => {
     test('clicking a Pedigree card shows person preview popover', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Pedigree').click();
 
@@ -188,7 +190,7 @@ test.describe('Dashboard Visualization Modes', () => {
     test('Pedigree "View profile" navigates to person detail', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Pedigree').click();
 
@@ -206,7 +208,7 @@ test.describe('Dashboard Visualization Modes', () => {
     test('Pedigree layout toggle switches between horizontal and vertical', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Pedigree').click();
         await expect(page.locator('[data-testid="pedigree-svg"]')).toBeVisible({ timeout: 5_000 });
@@ -218,7 +220,7 @@ test.describe('Dashboard Visualization Modes', () => {
     test('Pedigree shows expand buttons on boundary nodes', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Pedigree').click();
 
@@ -237,7 +239,7 @@ test.describe('Dashboard Visualization Modes', () => {
     test('persists viz mode to localStorage and restores on page refresh', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         // Switch to Fan Chart
         await page.getByTitle('Fan Chart').click();
@@ -251,14 +253,14 @@ test.describe('Dashboard Visualization Modes', () => {
 
         // Reload page — mode should be restored
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
         await expect(page.locator('[data-testid="fan-chart-svg"]')).toBeVisible({ timeout: 5_000 });
     });
 
     test('persists Fan Chart generation depth to localStorage', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Fan Chart').click();
         await expect(page.locator('[data-testid="fan-chart-svg"]')).toBeVisible({ timeout: 5_000 });
@@ -275,7 +277,7 @@ test.describe('Dashboard Visualization Modes', () => {
     test('persists Pedigree orientation to localStorage', async ({ page }) => {
         await setRootPerson(page, ROOT_PERSON_ID);
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         await page.getByTitle('Pedigree').click();
         await expect(page.locator('[data-testid="pedigree-svg"]')).toBeVisible({ timeout: 5_000 });
@@ -295,16 +297,16 @@ test.describe('Dashboard Visualization Modes', () => {
             localStorage.setItem('fg-state-v5', JSON.stringify({
                 positions: {},
                 zoom: null,
-                rootPersonId: 'N_graph-parent-s68g5bmf',
+                rootPersonId: 'N_graph-parent-bgp58m84',
             }));
         });
         await page.reload();
-        await page.waitForTimeout(2_000);
+        await waitForDashboard(page);
 
         const stored = await page.evaluate((key) => {
             const raw = localStorage.getItem(key);
             return raw ? JSON.parse(raw) : null;
         }, DS_KEY);
-        expect(stored?.rootPersonId).toBe('N_graph-parent-s68g5bmf');
+        expect(stored?.rootPersonId).toBe('N_graph-parent-bgp58m84');
     });
 });
