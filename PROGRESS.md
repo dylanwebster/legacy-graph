@@ -120,20 +120,15 @@ Full spec in SPECIFICATION.md Sections 6.12, 7.1, and 7.2.
 
 ---
 
-### Dependency Maintenance — TypeScript 6 Upgrade
+### Dependency Maintenance — TypeScript 6 Upgrade — COMPLETE
 
-TypeScript 6.0.0 shipped 2026-03-23. Dependabot PRs #61 and #62 were closed because `typescript-eslint@8` has a hard peer dep of `typescript@">=4.8.4 <6.0.0"`. TS6 support is in an approved-but-unmerged PR: **typescript-eslint/typescript-eslint#12124**.
+Shipped 2026-04-06 on branch `chore/typescript-6-upgrade`. `typescript-eslint@8.58.0` (merged PR #12124, 2026-03-29) relaxed the peer dep to `>=4.8.4 <6.1.0`, unblocking the upgrade.
 
-**Gate:** Do not start until typescript-eslint publishes a release with no `<6.0.0` upper bound on its TypeScript peer dep.
-
-**When the gate opens — single branch `chore/typescript-6-upgrade`:**
-
-1. **Root `package.json`:** bump `typescript` to `^6.0.2`, `typescript-eslint` to the first TS6-compatible version; remove dead `ts-node` dep (unused — all scripts use `tsx`).
-2. **`client/package.json`:** bump `typescript` to `~6.0.2` (keep tilde for conservative patch-only pinning), `typescript-eslint` to match.
-3. **`client/tsconfig.json` + `client/tsconfig.app.json`:** remove `"baseUrl": "."` (deprecated in TS6; `paths` now works standalone). Root `tsconfig.json` needs no changes.
-4. **Lint rule audit:** diff `npm run lint` and `cd client && npm run lint` output before/after — fix any new errors from updated `tseslint.configs.recommended`; do not suppress.
-5. **Full test pass in order:** `npm run build` → `npm run lint` → `npm test -- --run` → `cd client && npm run build` → `cd client && npm run lint` → `npm run test:e2e`.
-6. **Dependabot:** no ignore entries needed — tilde `~6.0.2` self-limits client to 6.0.x patches; root `^6.0.2` allows all 6.x; separate follow-up to remove `eslint >=10` client ignore once `eslint-plugin-react-hooks` supports ESLint 10.
+**Changes made:**
+- Root `package.json`: `typescript` → `^6.0.2`, `typescript-eslint` → `^8.58.0`, removed dead `ts-node` dep.
+- `client/package.json`: `typescript` → `~6.0.2`, `typescript-eslint` → `^8.58.0`.
+- `client/tsconfig.json` + `client/tsconfig.app.json`: removed `"baseUrl": "."` (deprecated in TS6; `paths` works standalone).
+- No new lint errors introduced by the updated `tseslint.configs.recommended`.
 
 ---
 
