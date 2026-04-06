@@ -1,6 +1,6 @@
 import { useRef, useState, useMemo, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { ArrowRight, ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, MoreHorizontal, Minus } from 'lucide-react';
+import { ArrowRight, ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
 import {
     buildFamilyTree,
@@ -245,6 +245,61 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
         [nodes],
     );
 
+    // Build sibling lookup from graph links so we can detect when siblings are
+    // already shown as direct ancestors/descendants (and suppress the button).
+    const graphSiblingMap = useMemo(() => {
+        const parentMap = new Map<string, string[]>(); // child → parents
+        const childMap = new Map<string, string[]>();  // parent → children
+        for (const l of links) {
+            if (l.type !== 'parent_child') continue;
+            const src = typeof l.source === 'object' ? (l.source as { id: string }).id : l.source as string;
+            const tgt = typeof l.target === 'object' ? (l.target as { id: string }).id : l.target as string;
+            if (!parentMap.has(src)) parentMap.set(src, []);
+            parentMap.get(src)!.push(tgt);
+            if (!childMap.has(tgt)) childMap.set(tgt, []);
+            childMap.get(tgt)!.push(src);
+        }
+        const map = new Map<string, string[]>();
+        for (const [childId] of parentMap) {
+            const parents = parentMap.get(childId) ?? [];
+            const sibs = new Set<string>();
+            for (const pid of parents) {
+                for (const cid of childMap.get(pid) ?? []) {
+                    if (cid !== childId) sibs.add(cid);
+                }
+            }
+            map.set(childId, [...sibs]);
+        }
+        return map;
+    }, [links]);
+
+    // IDs of nodes currently visible in the tree
+    const visibleNodeIds = useMemo(
+        () => new Set(treeNodes.map(n => n.node.id).filter((id): id is string => id !== null)),
+        [treeNodes],
+    );
+
+    // IDs of nodes shown in a *sibling role* (via another node's siblings[] array).
+    // These are NOT "direct line" nodes — they were explicitly expanded via the siblings button.
+    const siblingRoleIds = useMemo(() => {
+        const set = new Set<string>();
+        for (const n of treeNodes) {
+            for (const sib of n.node.siblings) {
+                if (sib.id) set.add(sib.id);
+            }
+        }
+        return set;
+    }, [treeNodes]);
+
+    // Returns true if ALL of a node's siblings are already visible as direct-line nodes
+    // (ancestor or descendant, NOT as expanded sibling nodes).
+    // When true, the expand/collapse siblings button is redundant and should be hidden.
+    const allSiblingsInDirectLine = useCallback((nodeId: string): boolean => {
+        const sibs = graphSiblingMap.get(nodeId) ?? [];
+        if (sibs.length === 0) return false;
+        return sibs.every(sid => visibleNodeIds.has(sid) && !siblingRoleIds.has(sid));
+    }, [graphSiblingMap, visibleNodeIds, siblingRoleIds]);
+
     const handleExpandAncestors = useCallback((id: string) => {
         setExpandedUp(prev => new Set([...prev, id]));
     }, []);
@@ -312,6 +367,9 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
     const CollapseAncestorIcon = orientation === 'horizontal' ? ChevronLeft : ChevronDown;
     const ExpandDescendantIcon = orientation === 'horizontal' ? ChevronLeft : ChevronDown;
     const CollapseDescendantIcon = orientation === 'horizontal' ? ChevronRight : ChevronUp;
+    // Siblings are stacked perpendicular to the main axis
+    const ExpandSiblingIcon = orientation === 'horizontal' ? ChevronDown : ChevronRight;
+    const CollapseSiblingIcon = orientation === 'horizontal' ? ChevronUp : ChevronLeft;
 
     const selectedNode = selectedNodeId
         ? treeNodes.find(n => n.node.id === selectedNodeId) ?? null
@@ -566,8 +624,9 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                     </g>
                                 )}
 
-                                {/* Expand/collapse siblings button */}
-                                {n.node.hasHiddenSiblings && (
+                                {/* Expand/collapse siblings button — hidden when all siblings are
+                                    already visible in the direct ancestor/descendant line */}
+                                {n.node.hasHiddenSiblings && !allSiblingsInDirectLine(n.node.id!) && (
                                     <g
                                         onClick={(e) => {
                                             e.stopPropagation();
@@ -585,7 +644,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                             strokeWidth={1.5}
                                             opacity={0.85}
                                         />
-                                        <MoreHorizontal
+                                        <ExpandSiblingIcon
                                             x={(orientation === 'horizontal' ? CARD_W / 2 : CARD_W + 12) - 5}
                                             y={(orientation === 'horizontal' ? CARD_H + 12 : CARD_H / 2) - 5}
                                             width={10}
@@ -594,7 +653,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                         />
                                     </g>
                                 )}
-                                {!n.node.hasHiddenSiblings && expandedSiblings.has(n.node.id!) && (
+                                {!n.node.hasHiddenSiblings && expandedSiblings.has(n.node.id!) && !allSiblingsInDirectLine(n.node.id!) && (
                                     <g
                                         onClick={(e) => {
                                             e.stopPropagation();
@@ -612,7 +671,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                             strokeWidth={1.5}
                                             opacity={0.85}
                                         />
-                                        <Minus
+                                        <CollapseSiblingIcon
                                             x={(orientation === 'horizontal' ? CARD_W / 2 : CARD_W + 12) - 5}
                                             y={(orientation === 'horizontal' ? CARD_H + 12 : CARD_H / 2) - 5}
                                             width={10}
