@@ -17,6 +17,17 @@ export interface PedigreePanelHandle {
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
+interface ViewState {
+    scale: number;
+    pan: { x: number; y: number };
+}
+
+interface ExpandedState {
+    up: string[];
+    down: string[];
+    siblings: string[];
+}
+
 interface PedigreePanelProps {
     nodes: GraphNodeData[];
     links: GraphLinkData[];
@@ -24,6 +35,10 @@ interface PedigreePanelProps {
     orientation: 'horizontal' | 'vertical';
     onOrientationChange: (o: 'horizontal' | 'vertical') => void;
     onRootChange: (id: string) => void;
+    initialView?: ViewState | null;
+    onViewChange?: (view: ViewState) => void;
+    initialExpanded?: ExpandedState | null;
+    onExpandChange?: (expanded: ExpandedState) => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -60,12 +75,18 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
     orientation,
     onOrientationChange,
     onRootChange,
+    initialView,
+    onViewChange,
+    initialExpanded,
+    onExpandChange,
 }, ref) {
     const navigate = useNavigate();
     const containerRef = useRef<HTMLDivElement>(null);
     const [dims, setDims] = useState({ width: 800, height: 600 });
-    const [scale, setScale] = useState(1);
-    const [pan, setPan] = useState({ x: 0, y: 0 });
+    const [scale, setScale] = useState(initialView?.scale ?? 1);
+    const [pan, setPan] = useState(initialView?.pan ?? { x: 0, y: 0 });
+    const viewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const expandSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useImperativeHandle(ref, () => ({
         resetView: () => { setScale(1); setPan({ x: 0, y: 0 }); },
@@ -73,10 +94,16 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
     const [isDragging, setIsDragging] = useState(false);
     const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
 
-    // Expansion state
-    const [expandedUp, setExpandedUp] = useState<Set<string>>(new Set());
-    const [expandedDown, setExpandedDown] = useState<Set<string>>(new Set());
-    const [expandedSiblings, setExpandedSiblings] = useState<Set<string>>(new Set());
+    // Expansion state — restored from persisted state (reset on root change, see effect below)
+    const [expandedUp, setExpandedUp] = useState<Set<string>>(
+        () => new Set(initialExpanded?.up ?? [])
+    );
+    const [expandedDown, setExpandedDown] = useState<Set<string>>(
+        () => new Set(initialExpanded?.down ?? [])
+    );
+    const [expandedSiblings, setExpandedSiblings] = useState<Set<string>>(
+        () => new Set(initialExpanded?.siblings ?? [])
+    );
 
     // Person preview
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -85,8 +112,13 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
     const ancestorDepth = isMobile ? 2 : DEFAULT_ANCESTOR_DEPTH;
     const descendantDepth = isMobile ? 2 : DEFAULT_DESCENDANT_DEPTH;
 
-    // Reset expansion + selection when root changes
+    // Reset expansion + view when root actually changes (not on initial mount).
+    // Comparing against a ref avoids firing on mount when rootPersonId is already set,
+    // which would overwrite the persisted state restored via initialView/initialExpanded.
+    const prevRootPersonId = useRef<string | null>(rootPersonId);
     useEffect(() => {
+        if (prevRootPersonId.current === rootPersonId) return;
+        prevRootPersonId.current = rootPersonId;
         setExpandedUp(new Set());
         setExpandedDown(new Set());
         setExpandedSiblings(new Set());
@@ -94,6 +126,34 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
         setScale(1);
         setPan({ x: 0, y: 0 });
     }, [rootPersonId]);
+
+    // Debounced view state persistence
+    useEffect(() => {
+        if (!onViewChange) return;
+        if (viewSaveTimerRef.current) clearTimeout(viewSaveTimerRef.current);
+        viewSaveTimerRef.current = setTimeout(() => {
+            onViewChange({ scale, pan });
+        }, 300);
+        return () => {
+            if (viewSaveTimerRef.current) clearTimeout(viewSaveTimerRef.current);
+        };
+    }, [scale, pan, onViewChange]);
+
+    // Debounced expansion state persistence
+    useEffect(() => {
+        if (!onExpandChange) return;
+        if (expandSaveTimerRef.current) clearTimeout(expandSaveTimerRef.current);
+        expandSaveTimerRef.current = setTimeout(() => {
+            onExpandChange({
+                up: Array.from(expandedUp),
+                down: Array.from(expandedDown),
+                siblings: Array.from(expandedSiblings),
+            });
+        }, 300);
+        return () => {
+            if (expandSaveTimerRef.current) clearTimeout(expandSaveTimerRef.current);
+        };
+    }, [expandedUp, expandedDown, expandedSiblings, onExpandChange]);
 
     // Observe container size
     useEffect(() => {

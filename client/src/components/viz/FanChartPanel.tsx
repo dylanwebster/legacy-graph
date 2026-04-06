@@ -19,6 +19,11 @@ export interface FanChartPanelHandle {
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
+interface ViewState {
+    scale: number;
+    pan: { x: number; y: number };
+}
+
 interface FanChartPanelProps {
     nodes: GraphNodeData[];
     links: GraphLinkData[];
@@ -26,6 +31,8 @@ interface FanChartPanelProps {
     maxGen: number;
     onMaxGenChange: (gen: number) => void;
     onRootChange: (id: string) => void;
+    initialView?: ViewState | null;
+    onViewChange?: (view: ViewState) => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -93,16 +100,31 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     maxGen,
     onMaxGenChange,
     onRootChange,
+    initialView,
+    onViewChange,
 }, ref) {
     const navigate = useNavigate();
     const containerRef = useRef<HTMLDivElement>(null);
     const [dims, setDims] = useState({ width: 800, height: 600 });
-    const [scale, setScale] = useState(1);
-    const [pan, setPan] = useState({ x: 0, y: 0 });
+    const [scale, setScale] = useState(initialView?.scale ?? 1);
+    const [pan, setPan] = useState(initialView?.pan ?? { x: 0, y: 0 });
+    const viewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useImperativeHandle(ref, () => ({
         resetView: () => { setScale(1); setPan({ x: 0, y: 0 }); },
     }));
+
+    // Debounced view state persistence
+    useEffect(() => {
+        if (!onViewChange) return;
+        if (viewSaveTimerRef.current) clearTimeout(viewSaveTimerRef.current);
+        viewSaveTimerRef.current = setTimeout(() => {
+            onViewChange({ scale, pan });
+        }, 300);
+        return () => {
+            if (viewSaveTimerRef.current) clearTimeout(viewSaveTimerRef.current);
+        };
+    }, [scale, pan, onViewChange]);
     const [isDragging, setIsDragging] = useState(false);
     const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
 
