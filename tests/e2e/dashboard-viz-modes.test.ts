@@ -227,11 +227,10 @@ test.describe('Dashboard Visualization Modes', () => {
         const svg = page.locator('[data-testid="pedigree-svg"]');
         await expect(svg).toBeVisible({ timeout: 5_000 });
 
-        // Expand buttons should be visible on cards that have hidden relatives
+        // With 2 fixtures (parent + child, no further relatives), no expand buttons
+        // should appear — all known relatives are already visible.
         const expandBtns = svg.locator('[data-testid^="expand-"]');
-        const count = await expandBtns.count();
-        // May or may not have expand buttons depending on test data depth
-        expect(count).toBeGreaterThanOrEqual(0);
+        expect(await expandBtns.count()).toBe(0);
     });
 
     // ── LocalStorage persistence ──────────────────────────────────────────────

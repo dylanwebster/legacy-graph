@@ -1,15 +1,22 @@
-import { usePerson, useGraphData } from '@/api/hooks';
-import type { GraphNodeData } from '@/api/hooks';
+import { usePerson } from '@/api/hooks';
+import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
+import { useQueryClient } from '@tanstack/react-query';
 import { PersonCardBody, lifeLine, resolveSpouseLabel } from '@/components/viz/PersonPreviewCard';
 import { deriveName } from '@/components/PersonChip';
 
 /**
  * Fetches person data and renders a compact PersonCardBody (no action buttons).
  * Used as the shared hover card content throughout the app.
+ *
+ * Graph data (for spouse resolution) is read from the TanStack Query cache only —
+ * opening a hover card never triggers a /api/graph network request.
  */
 export function PersonHoverCard({ id }: { id: string }) {
     const { data: person } = usePerson(id);
-    const { data: graphData } = useGraphData();
+    const queryClient = useQueryClient();
+    // Read graph data from cache without scheduling a fetch. If not yet loaded,
+    // spouse resolution is skipped gracefully.
+    const graphData = queryClient.getQueryData<{ nodes: GraphNodeData[]; links: GraphLinkData[] }>(['graphData']);
 
     if (!person) {
         return <div className="text-xs text-muted-foreground">Loading...</div>;

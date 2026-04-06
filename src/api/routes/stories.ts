@@ -211,9 +211,9 @@ export async function storiesRoutes(server: FastifyInstance) {
             const words = searchQ.toLowerCase().split(/\s+/).filter(Boolean);
             const allWordsIn = (text: string) => words.every(w => text.toLowerCase().includes(w));
 
-            // Also resolve people whose names match the query (to find stories by tagged person)
-            const searchResult = await graphEngine.searchService.search(searchQ, { limit: 1000 });
-            const matchingPersonIds = new Set(searchResult.people.map(p => p.id));
+            // Also resolve people whose names match the query (to find stories by tagged person).
+            // Use searchPeopleIds to avoid the overhead of searching stories + places indexes.
+            const matchingPersonIds = await graphEngine.searchService.searchPeopleIds(searchQ, 1000);
 
             feedItems = feedItems.filter(s =>
                 allWordsIn(s.title) ||

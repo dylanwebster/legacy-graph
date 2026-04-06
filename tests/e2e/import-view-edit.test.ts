@@ -5,9 +5,9 @@ const GEDCOM_PATH = path.resolve('./tests/e2e/fixtures/sample.ged');
 
 test.describe('CUJ 1: Import → View → Edit → Persist', () => {
     test('imports a GEDCOM, views a person, edits name, and persists after reload', async ({ page }) => {
-        // 1. Navigate to /import
-        await page.goto('/import');
-        await expect(page).toHaveURL(/\/import/);
+        // 1. Navigate to /settings — GEDCOM import lives here (moved from /import)
+        await page.goto('/settings');
+        await page.waitForURL(/\/settings/, { timeout: 10_000 });
         await expect(page.getByRole('heading', { name: 'Import GEDCOM' })).toBeVisible();
 
         // 2. Upload the sample .ged file
@@ -27,7 +27,7 @@ test.describe('CUJ 1: Import → View → Edit → Persist', () => {
 
         // 6. Navigate to /people
         await page.goto('/people');
-        await expect(page).toHaveURL(/\/people/);
+        await page.waitForURL(/\/people/, { timeout: 10_000 });
 
         // Wait for the first virtualized row to appear (people table uses divs, not anchors)
         const firstRow = page.locator('[data-index="0"]').first();
