@@ -406,12 +406,50 @@ describe('computeAdaptiveTreeLayout', () => {
         expect(child1Node.x).toBeLessThan(rootNode.x);
     });
 
-    it('places ancestors below root in vertical layout', () => {
+    it('places ancestors ABOVE root in vertical layout (negative y = up)', () => {
         const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 2, 0, new Set(), new Set(), new Set());
         const layout = computeAdaptiveTreeLayout(tree, 'vertical');
         const rootNode = layout.nodes.find(n => n.node.id === 'ROOT')!;
         const fatherNode = layout.nodes.find(n => n.node.id === 'FATHER')!;
-        expect(fatherNode.y).toBeGreaterThan(rootNode.y);
+        expect(fatherNode.y).toBeLessThan(rootNode.y);
+    });
+
+    it('places descendants BELOW root in vertical layout (positive y = down)', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 0, 2, new Set(), new Set(), new Set());
+        const layout = computeAdaptiveTreeLayout(tree, 'vertical');
+        const rootNode = layout.nodes.find(n => n.node.id === 'ROOT')!;
+        const child1Node = layout.nodes.find(n => n.node.id === 'CHILD1')!;
+        expect(child1Node.y).toBeGreaterThan(rootNode.y);
+    });
+
+    it('does not overlap sibling nodes horizontally in vertical layout', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 0, 2, new Set(), new Set(), new Set());
+        const layout = computeAdaptiveTreeLayout(tree, 'vertical');
+        // Children (same generation) should not overlap in x
+        const childNodes = layout.nodes.filter(n => n.node.generation === 1);
+        if (childNodes.length >= 2) {
+            childNodes.sort((a, b) => a.x - b.x);
+            for (let i = 1; i < childNodes.length; i++) {
+                expect(childNodes[i].x).toBeGreaterThanOrEqual(childNodes[i - 1].x + childNodes[i - 1].width);
+            }
+        }
+    });
+
+    it('places siblings to the right in vertical layout (greater X)', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 1, 1, new Set(), new Set(), new Set(['ROOT']));
+        const layout = computeAdaptiveTreeLayout(tree, 'vertical');
+        const rootNode = layout.nodes.find(n => n.node.id === 'ROOT')!;
+        const siblingNode = layout.nodes.find(n => n.node.id === 'SIBLING')!;
+        expect(siblingNode.x).toBeGreaterThan(rootNode.x);
+    });
+
+    it('places ancestors at the same Y column (screen) in vertical layout', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 2, 0, new Set(), new Set(), new Set());
+        const layout = computeAdaptiveTreeLayout(tree, 'vertical');
+        const fatherNode = layout.nodes.find(n => n.node.id === 'FATHER')!;
+        const motherNode = layout.nodes.find(n => n.node.id === 'MOTHER')!;
+        // Both parents are at the same generation → same Y in vertical mode
+        expect(fatherNode.y).toBe(motherNode.y);
     });
 
     it('generates connectors between parent and child nodes', () => {

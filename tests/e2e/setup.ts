@@ -3,6 +3,7 @@ import path from 'path';
 import { execSync } from 'child_process';
 
 const FIXTURE_SRC = path.resolve('./tests/fixtures/data');
+const E2E_PEOPLE_SRC = path.resolve('./tests/fixtures/e2e-people');
 const E2E_DATA = path.resolve('./tests/fixtures/e2e-data');
 
 export default async function globalSetup() {
@@ -20,6 +21,16 @@ export default async function globalSetup() {
             fs.cpSync(src, dst, { recursive: true });
         } else {
             fs.mkdirSync(dst, { recursive: true });
+        }
+    }
+
+    // Copy e2e-only fixture people (stable IDs referenced by e2e tests, kept
+    // separate from tests/fixtures/data/people/ which unit tests modify at will).
+    if (fs.existsSync(E2E_PEOPLE_SRC)) {
+        const dstPeople = path.join(E2E_DATA, 'people');
+        fs.mkdirSync(dstPeople, { recursive: true });
+        for (const f of fs.readdirSync(E2E_PEOPLE_SRC)) {
+            fs.copyFileSync(path.join(E2E_PEOPLE_SRC, f), path.join(dstPeople, f));
         }
     }
 

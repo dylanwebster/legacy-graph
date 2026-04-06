@@ -236,8 +236,8 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
     const transform = `translate(${originX + pan.x}, ${originY + pan.y}) scale(${scale})`;
 
     // Ancestors branch RIGHT, descendants branch LEFT
-    const ExpandAncestorIcon = orientation === 'horizontal' ? ChevronRight : ChevronDown;
-    const ExpandDescendantIcon = orientation === 'horizontal' ? ChevronLeft : ChevronUp;
+    const ExpandAncestorIcon = orientation === 'horizontal' ? ChevronRight : ChevronUp;
+    const ExpandDescendantIcon = orientation === 'horizontal' ? ChevronLeft : ChevronDown;
 
     const selectedNode = selectedNodeId
         ? treeNodes.find(n => n.node.id === selectedNodeId) ?? null
@@ -375,7 +375,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                     );
                                 })()}
 
-                                {/* Expand ancestors button (RIGHT side — ancestors branch right) */}
+                                {/* Expand ancestors button — right of card (horizontal) or above card (vertical) */}
                                 {n.node.hasHiddenAncestors && (
                                     <g
                                         onClick={(e) => {
@@ -387,7 +387,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                     >
                                         <circle
                                             cx={orientation === 'horizontal' ? CARD_W + 10 : CARD_W / 2}
-                                            cy={orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 10}
+                                            cy={orientation === 'horizontal' ? CARD_H / 2 : -10}
                                             r={8}
                                             fill="var(--muted)"
                                             stroke="var(--border)"
@@ -395,7 +395,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                         />
                                         <ExpandAncestorIcon
                                             x={(orientation === 'horizontal' ? CARD_W + 10 : CARD_W / 2) - 5}
-                                            y={(orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 10) - 5}
+                                            y={(orientation === 'horizontal' ? CARD_H / 2 : -10) - 5}
                                             width={10}
                                             height={10}
                                             className="text-muted-foreground"
@@ -403,7 +403,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                     </g>
                                 )}
 
-                                {/* Expand descendants button (LEFT side — descendants branch left) */}
+                                {/* Expand descendants button — left of card (horizontal) or below card (vertical) */}
                                 {n.node.hasHiddenDescendants && (
                                     <g
                                         onClick={(e) => {
@@ -415,7 +415,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                     >
                                         <circle
                                             cx={orientation === 'horizontal' ? -10 : CARD_W / 2}
-                                            cy={orientation === 'horizontal' ? CARD_H / 2 : -10}
+                                            cy={orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 10}
                                             r={8}
                                             fill="var(--muted)"
                                             stroke="var(--border)"
@@ -423,7 +423,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                         />
                                         <ExpandDescendantIcon
                                             x={(orientation === 'horizontal' ? -10 : CARD_W / 2) - 5}
-                                            y={(orientation === 'horizontal' ? CARD_H / 2 : -10) - 5}
+                                            y={(orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 10) - 5}
                                             width={10}
                                             height={10}
                                             className="text-muted-foreground"
