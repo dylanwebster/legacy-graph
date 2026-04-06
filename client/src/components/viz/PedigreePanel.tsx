@@ -320,6 +320,11 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                 data-testid="pedigree-svg"
                 className="select-none"
             >
+                <defs>
+                    <filter id="card-shadow" x="-15%" y="-25%" width="130%" height="150%">
+                        <feDropShadow dx="0" dy="1" stdDeviation="2.5" floodColor="black" floodOpacity="0.18" />
+                    </filter>
+                </defs>
                 <g transform={transform}>
                     {/* Connectors */}
                     {treeConnectors.map((c) => (
@@ -327,10 +332,10 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                             key={c.id}
                             d={c.path}
                             fill="none"
-                            stroke={c.kind === 'sibling' ? 'var(--muted-foreground)' : 'var(--border)'}
+                            stroke="var(--foreground)"
                             strokeWidth={c.kind === 'sibling' ? 1 : 1.5}
-                            strokeDasharray={c.kind === 'sibling' ? '4 3' : undefined}
-                            opacity={c.kind === 'sibling' ? 0.5 : undefined}
+                            strokeDasharray={c.kind === 'sibling' ? '5 4' : undefined}
+                            opacity={c.kind === 'sibling' ? 0.3 : 0.55}
                         />
                     ))}
 
@@ -357,7 +362,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                 data-person-id={n.node.id}
                                 onClick={(e) => handleCardClick(n.node.id!, e)}
                                 className="cursor-pointer"
-                                style={{ pointerEvents: 'all' }}
+                                style={{ pointerEvents: 'all', filter: 'url(#card-shadow)' }}
                             >
                                 {/* Card background */}
                                 <rect
@@ -446,19 +451,20 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                         data-testid="expand-ancestors"
                                     >
                                         <circle
-                                            cx={orientation === 'horizontal' ? CARD_W + 10 : CARD_W / 2}
-                                            cy={orientation === 'horizontal' ? CARD_H / 2 : -10}
-                                            r={8}
-                                            fill="var(--muted)"
-                                            stroke="var(--border)"
-                                            strokeWidth={1}
+                                            cx={orientation === 'horizontal' ? CARD_W + 12 : CARD_W / 2}
+                                            cy={orientation === 'horizontal' ? CARD_H / 2 : -12}
+                                            r={9}
+                                            fill="var(--card)"
+                                            stroke="var(--muted-foreground)"
+                                            strokeWidth={1.5}
+                                            opacity={0.85}
                                         />
                                         <ExpandAncestorIcon
-                                            x={(orientation === 'horizontal' ? CARD_W + 10 : CARD_W / 2) - 5}
-                                            y={(orientation === 'horizontal' ? CARD_H / 2 : -10) - 5}
+                                            x={(orientation === 'horizontal' ? CARD_W + 12 : CARD_W / 2) - 5}
+                                            y={(orientation === 'horizontal' ? CARD_H / 2 : -12) - 5}
                                             width={10}
                                             height={10}
-                                            className="text-muted-foreground"
+                                            className="text-foreground"
                                         />
                                     </g>
                                 )}
@@ -474,19 +480,20 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                         data-testid="expand-descendants"
                                     >
                                         <circle
-                                            cx={orientation === 'horizontal' ? -10 : CARD_W / 2}
-                                            cy={orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 10}
-                                            r={8}
-                                            fill="var(--muted)"
-                                            stroke="var(--border)"
-                                            strokeWidth={1}
+                                            cx={orientation === 'horizontal' ? -12 : CARD_W / 2}
+                                            cy={orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 12}
+                                            r={9}
+                                            fill="var(--card)"
+                                            stroke="var(--muted-foreground)"
+                                            strokeWidth={1.5}
+                                            opacity={0.85}
                                         />
                                         <ExpandDescendantIcon
-                                            x={(orientation === 'horizontal' ? -10 : CARD_W / 2) - 5}
-                                            y={(orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 10) - 5}
+                                            x={(orientation === 'horizontal' ? -12 : CARD_W / 2) - 5}
+                                            y={(orientation === 'horizontal' ? CARD_H / 2 : CARD_H + 12) - 5}
                                             width={10}
                                             height={10}
-                                            className="text-muted-foreground"
+                                            className="text-foreground"
                                         />
                                     </g>
                                 )}
@@ -502,19 +509,20 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                         data-testid="expand-siblings"
                                     >
                                         <circle
-                                            cx={orientation === 'horizontal' ? CARD_W / 2 : CARD_W + 10}
-                                            cy={orientation === 'horizontal' ? CARD_H + 10 : CARD_H / 2}
-                                            r={8}
-                                            fill="var(--muted)"
-                                            stroke="var(--border)"
-                                            strokeWidth={1}
+                                            cx={orientation === 'horizontal' ? CARD_W / 2 : CARD_W + 12}
+                                            cy={orientation === 'horizontal' ? CARD_H + 12 : CARD_H / 2}
+                                            r={9}
+                                            fill="var(--card)"
+                                            stroke="var(--muted-foreground)"
+                                            strokeWidth={1.5}
+                                            opacity={0.85}
                                         />
                                         <MoreHorizontal
-                                            x={(orientation === 'horizontal' ? CARD_W / 2 : CARD_W + 10) - 5}
-                                            y={(orientation === 'horizontal' ? CARD_H + 10 : CARD_H / 2) - 5}
+                                            x={(orientation === 'horizontal' ? CARD_W / 2 : CARD_W + 12) - 5}
+                                            y={(orientation === 'horizontal' ? CARD_H + 12 : CARD_H / 2) - 5}
                                             width={10}
                                             height={10}
-                                            className="text-muted-foreground"
+                                            className="text-foreground"
                                         />
                                     </g>
                                 )}
