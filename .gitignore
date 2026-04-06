@@ -4,11 +4,11 @@ coverage
 .DS_Store
 .env
 /data/
+/scratch/
 temp_data
 temp_repo
 test-results/
 .graph-cache.json
 .search-index.json
 .claude
-SCRATCH.md
 .playwright-cli

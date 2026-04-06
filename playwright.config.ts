@@ -17,10 +17,12 @@ export default defineConfig({
             // against a dev server pointing at real data. If port 3000 is already
             // occupied (e.g. the dev server is running), Playwright will throw a
             // clear error — stop the dev server before running e2e tests.
+            // NOTE: setup.ts is run as a pre-script (via package.json test:e2e) so
+            // the data directory is always ready before this webServer starts.
             command: 'DATA_DIR=./tests/fixtures/e2e-data PORT=3000 npm start',
             url: 'http://localhost:3000/api/system/status',
             reuseExistingServer: false,
-            timeout: 30_000,
+            timeout: 90_000,
         },
         {
             command: 'cd client && npm run dev',
@@ -29,5 +31,4 @@ export default defineConfig({
             timeout: 30_000,
         },
     ],
-    globalSetup: './tests/e2e/setup.ts',
 });

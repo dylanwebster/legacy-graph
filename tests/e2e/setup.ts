@@ -58,3 +58,8 @@ export default async function globalSetup() {
 
     console.log('[e2e setup] e2e-data dir ready:', E2E_DATA);
 }
+
+// Invoked directly via `tsx tests/e2e/setup.ts` (the test:e2e npm script runs
+// this before Playwright starts its webServers, so the data directory is ready
+// before the backend attempts hydration).
+globalSetup().catch(err => { console.error(err); process.exit(1); });
