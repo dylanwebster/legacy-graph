@@ -311,6 +311,46 @@ describe('SearchService', () => {
         expect(tracked.size).toBe(1);
     });
 
+    // --- Multi-word / Middle-initial Search Tests ---
+
+    it('should find a person with middle initial via first+last name query', async () => {
+        const geneE: Person = {
+            version: "5.0", id: "N_GENE_E",
+            created: "2023-01-01T00:00:00Z", last_modified: "2023-01-01T00:00:00Z",
+            names: [{ first: "Gene E", last: "Webster", primary: true }],
+            sex: "M", tags: [], relationships: { parents: [] }, events: [], assets: [], scrapbook_md: ""
+        };
+        const geneLee: Person = {
+            version: "5.0", id: "N_GENE_LEE",
+            created: "2023-01-01T00:00:00Z", last_modified: "2023-01-01T00:00:00Z",
+            names: [{ first: "Gene Lee", last: "Webster", primary: true }],
+            sex: "M", tags: [], relationships: { parents: [] }, events: [], assets: [], scrapbook_md: ""
+        };
+        graph.addNode(geneE.id, { type: 'person', data: geneE });
+        graph.addNode(geneLee.id, { type: 'person', data: geneLee });
+        await searchService.rebuild(graph);
+
+        const results = await searchService.search("gene webster");
+        const ids = results.people.map(p => p.id);
+        expect(ids).toContain("N_GENE_E");
+        expect(ids).toContain("N_GENE_LEE");
+    });
+
+    it('should find a person with middle initial and period via first+last name query', async () => {
+        const geneEPeriod: Person = {
+            version: "5.0", id: "N_GENE_EP",
+            created: "2023-01-01T00:00:00Z", last_modified: "2023-01-01T00:00:00Z",
+            names: [{ first: "Gene E.", last: "Webster", primary: true }],
+            sex: "M", tags: [], relationships: { parents: [] }, events: [], assets: [], scrapbook_md: ""
+        };
+        graph.addNode(geneEPeriod.id, { type: 'person', data: geneEPeriod });
+        await searchService.rebuild(graph);
+
+        const results = await searchService.search("gene webster");
+        const ids = results.people.map(p => p.id);
+        expect(ids).toContain("N_GENE_EP");
+    });
+
     it('search with FlexSearch limit bounds engine output', async () => {
         // Add 20 people with same first name
         for (let i = 0; i < 20; i++) {

@@ -34,17 +34,23 @@ export function CommandPalette() {
 
     const { data, isLoading } = useSearch(debouncedQuery, { limit: 20 });
 
-    // Global hotkey: Cmd+K / Ctrl+K
+    // Global hotkey: "/" — only when not in a text input/textarea/contenteditable
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-                e.preventDefault();
-                setSearchOpen(!searchOpen);
-            }
+            if (e.key !== '/') return;
+            const target = e.target as HTMLElement;
+            if (
+                target.tagName === 'INPUT' ||
+                target.tagName === 'TEXTAREA' ||
+                target.isContentEditable ||
+                !!target.closest('[contenteditable="true"]')
+            ) return;
+            e.preventDefault();
+            setSearchOpen(true);
         };
         document.addEventListener('keydown', handler);
         return () => document.removeEventListener('keydown', handler);
-    }, [searchOpen, setSearchOpen]);
+    }, [setSearchOpen]);
 
     const handleSelect = useCallback(
         (id: string) => {
@@ -113,6 +119,7 @@ export function CommandPalette() {
                                         firstName={firstName}
                                         lastName={lastName}
                                         className="h-8 w-8"
+                                        sex={person.sex}
                                     />
                                     <div className="flex flex-col min-w-0">
                                         <span className="font-medium truncate">{displayName}</span>

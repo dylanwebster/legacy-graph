@@ -248,11 +248,17 @@ export class SearchService {
         // (across any field) are returned.
         const words = query.trim().split(/\s+/).filter(Boolean);
 
+        // Per-word FlexSearch limit: needs to be larger than the final page size to avoid
+        // dropping candidates before intersection. We use 20× the page size (min 200) capped
+        // at 10 000 — so a limit:50 request reads at most 1 000 candidates per word, while a
+        // limit:1 000 request still caps at 10 000.
+        const perWordLimit = Math.min(Math.max((offset + limit) * 20, 200), 10_000);
+
         // 1. Search People — one pass per word, intersect after each pass
         let peopleMap: Map<string, SearchResult> | null = null;
 
         for (const word of words) {
-            const wordResults = await this.personIndex.searchAsync(word, { enrich: true });
+            const wordResults = await this.personIndex.searchAsync(word, { enrich: true, limit: perWordLimit });
 
             const wordMap = new Map<string, SearchResult>();
             wordResults.forEach(fieldResult => {
@@ -285,7 +291,7 @@ export class SearchService {
         let storyMap: Map<string, SearchResult> | null = null;
 
         for (const word of words) {
-            const wordResults = await this.storyIndex.searchAsync(word, { enrich: true });
+            const wordResults = await this.storyIndex.searchAsync(word, { enrich: true, limit: perWordLimit });
 
             const wordMap = new Map<string, SearchResult>();
             wordResults.forEach(fieldResult => {
@@ -336,6 +342,36 @@ export class SearchService {
                 places: allPlaces.length
             }
         };
+    }
+
+    /**
+     * Search only the person index and return matching person IDs.
+     * Use this instead of `search()` when only person matching is needed (e.g. tagged-person
+     * filtering in stories/assets) to avoid the extra overhead of searching stories and places.
+     */
+    public async searchPeopleIds(query: string, limit = 1000): Promise<Set<string>> {
+        const words = query.trim().split(/\s+/).filter(Boolean);
+        const perWordLimit = Math.min(Math.max(limit * 20, 200), 10_000);
+        let peopleMap: Map<string, true> | null = null;
+
+        for (const word of words) {
+            const wordResults = await this.personIndex.searchAsync(word, { enrich: true, limit: perWordLimit });
+            const wordMap = new Map<string, true>();
+            wordResults.forEach((fieldResult: any) => {
+                fieldResult.result.forEach((item: any) => {
+                    wordMap.set(item.id as string, true);
+                });
+            });
+            if (peopleMap === null) {
+                peopleMap = wordMap;
+            } else {
+                for (const id of [...peopleMap.keys()]) {
+                    if (!wordMap.has(id)) peopleMap.delete(id);
+                }
+            }
+        }
+
+        return new Set((peopleMap ?? new Map()).keys());
     }
 
     /**

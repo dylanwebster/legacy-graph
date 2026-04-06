@@ -5,11 +5,12 @@ import type { SlimPersonSummary } from '@/api/people';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { loadAvatarCrop } from '@/lib/avatarCrop';
 import { CreatePersonDialog } from '@/components/CreatePersonDialog';
-import { Input } from '@/components/ui/input';
+import { TopBarActions } from '@/components/TopBarSlotContext';
+import { SearchBar } from '@/components/SearchBar';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { Search, ChevronUp, ChevronDown, ArrowUpDown, UserPlus } from 'lucide-react';
+import { ChevronUp, ChevronDown, ArrowUpDown, UserPlus } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 export const Route = createLazyFileRoute('/people/')({
@@ -97,20 +98,22 @@ function PeopleBrowse() {
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between p-4 lg:p-6 pb-0">
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight">People</h1>
-                    <p className="text-sm text-muted-foreground mt-1">
-                        {isSearchMode
-                            ? `${totalCount} result${totalCount === 1 ? '' : 's'} for "${debouncedFilter}"`
-                            : totalCount > 0 ? `${totalCount} people in the graph` : 'Browse all people'
-                        }
-                    </p>
-                </div>
-                <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
+            <TopBarActions>
+                <div className="w-px h-5 bg-border shrink-0 mx-1" />
+                <SearchBar
+                    value={filter}
+                    onChange={setFilter}
+                    placeholder="Search all people…"
+                />
+                <span className="text-xs text-muted-foreground shrink-0">
+                    {isSearchMode
+                        ? `${totalCount} result${totalCount === 1 ? '' : 's'}`
+                        : `${totalCount} people`}
+                </span>
+                <Button size="sm" className="gap-1.5 shrink-0 ml-auto" onClick={() => setCreateOpen(true)}>
                     <UserPlus className="h-4 w-4" /> New Person
                 </Button>
-            </div>
+            </TopBarActions>
 
             <CreatePersonDialog
                 isOpen={createOpen}
@@ -118,19 +121,7 @@ function PeopleBrowse() {
                 onCreated={(id) => navigate({ to: '/people/$id', params: { id } })}
             />
 
-            <div className="px-4 lg:px-6 pt-4">
-                <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="Search all people..."
-                        value={filter}
-                        onChange={(e) => setFilter(e.target.value)}
-                        className="pl-9 bg-muted/30"
-                    />
-                </div>
-            </div>
-
-            <div className="px-4 lg:px-6 pt-4">
+            <div className="px-4 lg:px-6 pt-2">
                 <div className="grid grid-cols-[48px_1fr_100px_100px_1fr_60px] gap-3 px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider border-b border-border">
                     <div></div>
                     <div>Name</div>
@@ -198,6 +189,7 @@ function PeopleBrowse() {
                                         photoFilename={person.primaryAsset}
                                         className="h-8 w-8"
                                         cropData={loadAvatarCrop(person.id)}
+                                        sex={person.sex}
                                     />
                                     <span className="font-medium text-sm truncate">{displayName}</span>
                                     <span className="text-sm text-muted-foreground font-mono truncate">

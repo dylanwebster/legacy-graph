@@ -163,55 +163,60 @@ export class GraphEngine extends EventEmitter {
     public async hydrate(options?: { forceFullRebuild?: boolean }): Promise<HydrationResult> {
         this._hydrationState = 'loading';
         this._hydrationStartTime = Date.now();
+        this.watcherSuspended = true;
         console.log(`[GraphEngine] Hydrating graph (inline) from: ${this.rootDir}`);
 
-        // 1. Load People — via cache (incremental) or full nuclear
-        const cache = options?.forceFullRebuild
-            ? null
-            : await GraphCache.load(this.cachePath);
+        try {
+            // 1. Load People — via cache (incremental) or full nuclear
+            const cache = options?.forceFullRebuild
+                ? null
+                : await GraphCache.load(this.cachePath);
 
-        let peopleWithMtime: PersonEntry[];
-        let fromCache = 0;
-        let parsed = 0;
+            let peopleWithMtime: PersonEntry[];
+            let fromCache = 0;
+            let parsed = 0;
 
-        if (cache) {
-            const result = await this.loadPeopleIncremental(cache);
-            peopleWithMtime = result.results;
-            fromCache = result.fromCache;
-            parsed = result.parsed;
-        } else {
-            const result = await this.loadPeopleFull();
-            peopleWithMtime = result.results;
-            parsed = result.parsed;
+            if (cache) {
+                const result = await this.loadPeopleIncremental(cache);
+                peopleWithMtime = result.results;
+                fromCache = result.fromCache;
+                parsed = result.parsed;
+            } else {
+                const result = await this.loadPeopleFull();
+                peopleWithMtime = result.results;
+                parsed = result.parsed;
+            }
+
+            // 2. Load Stories (Narrative Layer — always from disk)
+            const storyLoader = new StoryLoader(path.join(this.rootDir, 'stories'));
+            const stories = await storyLoader.loadAll().catch((err) => {
+                console.warn(`[GraphEngine] Could not load stories: ${err.message}`);
+                return [] as Story[];
+            });
+
+            // 3. Build graph from loaded data (shared with worker path)
+            const result = await this.buildGraphFromData(peopleWithMtime, stories, fromCache, parsed);
+
+            // 4. Persist binary cache for next boot
+            await GraphCache.save(this.cachePath, peopleWithMtime);
+            this._cacheWrittenAt = new Date().toISOString();
+
+            // 5. Persist search index for next boot
+            await this.searchService.exportIndex(this.searchIndexPath).catch(err => {
+                console.warn(`[GraphEngine] Failed to export search index: ${err.message}`);
+            });
+
+            const elapsedMs = Date.now() - this._hydrationStartTime;
+            this.emit('hydration:complete', {
+                nodeCount: this.graph.order,
+                edgeCount: this.graph.size,
+                elapsedMs
+            });
+
+            return result;
+        } finally {
+            this.watcherSuspended = false;
         }
-
-        // 2. Load Stories (Narrative Layer — always from disk)
-        const storyLoader = new StoryLoader(path.join(this.rootDir, 'stories'));
-        const stories = await storyLoader.loadAll().catch((err) => {
-            console.warn(`[GraphEngine] Could not load stories: ${err.message}`);
-            return [] as Story[];
-        });
-
-        // 3. Build graph from loaded data (shared with worker path)
-        const result = await this.buildGraphFromData(peopleWithMtime, stories, fromCache, parsed);
-
-        // 4. Persist binary cache for next boot
-        await GraphCache.save(this.cachePath, peopleWithMtime);
-        this._cacheWrittenAt = new Date().toISOString();
-
-        // 5. Persist search index for next boot
-        await this.searchService.exportIndex(this.searchIndexPath).catch(err => {
-            console.warn(`[GraphEngine] Failed to export search index: ${err.message}`);
-        });
-
-        const elapsedMs = Date.now() - this._hydrationStartTime;
-        this.emit('hydration:complete', {
-            nodeCount: this.graph.order,
-            edgeCount: this.graph.size,
-            elapsedMs
-        });
-
-        return result;
     }
 
     /**
@@ -225,6 +230,7 @@ export class GraphEngine extends EventEmitter {
     public async hydrateInBackground(options?: { forceFullRebuild?: boolean }): Promise<HydrationResult> {
         this._hydrationState = 'loading';
         this._hydrationStartTime = Date.now();
+        this.watcherSuspended = true;
         console.log(`[GraphEngine] Hydrating graph (worker thread) from: ${this.rootDir}`);
 
         try {
@@ -248,7 +254,11 @@ export class GraphEngine extends EventEmitter {
             return result;
         } catch (err: any) {
             console.warn(`[GraphEngine] Worker failed, falling back to inline hydration: ${err.message}`);
+            // hydrate() manages watcherSuspended itself; reset here before handing off
+            this.watcherSuspended = false;
             return this.hydrate(options);
+        } finally {
+            this.watcherSuspended = false;
         }
     }
 

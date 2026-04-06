@@ -246,6 +246,30 @@ describe('Assets API', () => {
         fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
 
+    it('GET /api/assets?q= filters by multi-word person name with middle initial', async () => {
+        writeTestAsset();
+        let personId: string | undefined;
+        try {
+            const createRes = await request.post('/api/people').send({
+                names: [{ first: 'AssetsSearch E', last: 'PersonSearch' }],
+                sex: 'U',
+                assets: [TEST_ASSET],
+            });
+            expect(createRes.status).toBe(201);
+            personId = createRes.body.id;
+
+            // Searching first+last skipping middle initial should match
+            const res = await request.get('/api/assets?q=AssetsSearch+PersonSearch');
+            expect(res.status).toBe(200);
+            const item = res.body.assets.find((a: any) => a.filename === TEST_ASSET);
+            expect(item).toBeDefined();
+        } finally {
+            if (personId) {
+                try { fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`)); } catch { /* ignore */ }
+            }
+        }
+    });
+
     // ── PUT /api/assets/:filename/meta ───────────────────────────────────────
 
     it('PUT /api/assets/:filename/meta updates description', async () => {

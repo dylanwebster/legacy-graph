@@ -20,8 +20,7 @@ import { createPortal } from "react-dom";
 import { MentionList } from "./MentionList";
 import type { MentionListHandle } from "./MentionList";
 import type { SlimPersonSummary } from "@/api/people";
-import { usePerson } from "@/api/hooks";
-import { PersonHoverContent } from "@/components/PersonChip";
+import { PersonHoverCard } from "@/components/PersonHoverCard";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -294,7 +293,6 @@ function MentionHoverCard({
   onMouseEnter: () => void;
   onMouseLeave: () => void;
 }) {
-  const { data: person } = usePerson(personId);
   return createPortal(
     <div
       className="mention-hover-card w-64 rounded-lg border bg-popover p-3 shadow-md text-popover-foreground"
@@ -308,7 +306,7 @@ function MentionHoverCard({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <PersonHoverContent id={personId} person={person} />
+      <PersonHoverCard id={personId} />
     </div>,
     document.body,
   );

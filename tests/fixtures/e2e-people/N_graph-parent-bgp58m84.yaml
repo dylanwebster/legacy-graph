@@ -1,0 +1,15 @@
+version: '5.0'
+id: N_graph-parent-bgp58m84
+created: '2026-01-01T00:00:00.000Z'
+last_modified: '2026-01-01T00:00:00.000Z'
+names:
+  - first: Graph
+    last: Parent
+    primary: true
+sex: F
+tags: []
+relationships:
+  parents: []
+events: []
+assets: []
+scrapbook_md: ''

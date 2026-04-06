@@ -420,6 +420,7 @@ function PersonDetail() {
                                     photoFilename={primaryPhoto}
                                     className="h-20 w-20 text-2xl"
                                     cropData={avatarCrop}
+                                    sex={person.sex}
                                     onClick={primaryPhoto ? () => setLightboxAsset(primaryPhoto) : undefined}
                                 />
                                 {!primaryPhoto && (

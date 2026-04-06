@@ -11,6 +11,7 @@ import { assetType } from '@/lib/assetUtils';
 import { AssetLightbox } from '@/components/AssetLightbox';
 import { AssetSearchBar } from '@/components/AssetSearchBar';
 import type { PersonChipData } from '@/components/AssetSearchBar';
+import { TopBarActions } from '@/components/TopBarSlotContext';
 import { BulkUploadDialog } from '@/components/BulkUploadDialog';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -240,10 +241,8 @@ function AssetGallery() {
 
     return (
         <div className="flex flex-col h-full">
-            {/* Toolbar */}
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0 flex-wrap">
-                <h1 className="text-base font-semibold shrink-0">Assets</h1>
-
+            <TopBarActions>
+                <div className="w-px h-5 bg-border shrink-0 mx-1" />
                 {/* Search */}
                 <AssetSearchBar
                     textValue={query}
@@ -252,9 +251,8 @@ function AssetGallery() {
                     onAddPerson={(id, name) => setChips((prev) => prev.some((c) => c.id === id) ? prev : [...prev, { id, name }])}
                     onRemovePerson={(id) => setChips((prev) => prev.filter((c) => c.id !== id))}
                 />
-
                 {/* Type filter */}
-                <div className="flex gap-1">
+                <div className="flex gap-1 shrink-0">
                     {(['all', 'image', 'document'] as const).map((t) => (
                         <button
                             key={t}
@@ -270,12 +268,11 @@ function AssetGallery() {
                         </button>
                     ))}
                 </div>
-
                 {/* Orphans toggle */}
                 <button
                     type="button"
                     onClick={() => setOrphansOnly((v) => !v)}
-                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors shrink-0 ${
                         orphansOnly
                             ? 'bg-destructive text-destructive-foreground'
                             : 'bg-muted text-muted-foreground hover:bg-muted/80'
@@ -283,9 +280,8 @@ function AssetGallery() {
                 >
                     Unlinked
                 </button>
-
                 {/* Sort */}
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 shrink-0">
                     {(
                         [
                             { key: 'name', label: 'Name' },
@@ -316,16 +312,17 @@ function AssetGallery() {
                         </button>
                     ))}
                 </div>
-
-                <Button size="sm" variant="outline" className="shrink-0" onClick={() => setUploadOpen(true)}>
-                    <Upload className="h-3.5 w-3.5 mr-1.5" />
+                <span className="ml-auto text-xs text-muted-foreground shrink-0">
+                    {filtered.length}
+                    {filtered.length !== (data?.totalCount ?? 0)
+                        ? ` / ${data?.totalCount ?? 0} assets`
+                        : ' assets'}
+                </span>
+                <Button size="sm" className="shrink-0 h-8 gap-1.5" onClick={() => setUploadOpen(true)}>
+                    <Upload className="h-3.5 w-3.5" />
                     Upload
                 </Button>
-
-                <span className="ml-auto text-xs text-muted-foreground shrink-0">
-                    {filtered.length} {filtered.length !== (data?.totalCount ?? 0) ? `/ ${data?.totalCount ?? 0}` : ''}
-                </span>
-            </div>
+            </TopBarActions>
 
             {/* Gallery */}
             <div ref={parentRef} className="flex-1 overflow-auto p-4">

@@ -1,0 +1,17 @@
+version: '5.0'
+id: N_graph-child-1r1szt1i
+created: '2026-01-01T00:00:00.000Z'
+last_modified: '2026-01-01T00:00:00.000Z'
+names:
+  - first: Graph
+    last: Child
+    primary: true
+sex: M
+tags: []
+relationships:
+  parents:
+    - id: N_graph-parent-bgp58m84
+      type: biological
+events: []
+assets: []
+scrapbook_md: ''

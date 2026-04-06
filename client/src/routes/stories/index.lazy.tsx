@@ -5,6 +5,7 @@ import type { StoryFeedItem } from '@/api/stories';
 import { PersonChip } from '@/components/PersonChip';
 import { AssetSearchBar } from '@/components/AssetSearchBar';
 import type { PersonChipData } from '@/components/AssetSearchBar';
+import { TopBarActions } from '@/components/TopBarSlotContext';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -105,8 +106,8 @@ function StoriesFeed() {
 
     return (
         <div className="flex flex-col h-full">
-            {/* Toolbar */}
-            <div className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0">
+            <TopBarActions>
+                <div className="w-px h-5 bg-border shrink-0 mx-1" />
                 <AssetSearchBar
                     textValue={filter}
                     onTextChange={setFilter}
@@ -114,10 +115,9 @@ function StoriesFeed() {
                     onAddPerson={(id, name) => setChips((prev) => prev.some((c) => c.id === id) ? prev : [...prev, { id, name }])}
                     onRemovePerson={(id) => setChips((prev) => prev.filter((c) => c.id !== id))}
                 />
-
                 {/* Sort */}
                 {!isSearchMode && (
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 shrink-0">
                         {SORT_OPTIONS.map(({ key, label }) => {
                             const isActive = sortKey === key;
                             const SortIcon = isActive
@@ -132,7 +132,6 @@ function StoriesFeed() {
                                             setOrder(o => o === 'asc' ? 'desc' : 'asc');
                                         } else {
                                             setSortKey(key);
-                                            // Alpha naturally sorts A→Z (asc); timestamps default to newest-first (desc)
                                             setOrder(key === 'alpha' ? 'asc' : 'desc');
                                         }
                                     }}
@@ -149,20 +148,18 @@ function StoriesFeed() {
                         })}
                     </div>
                 )}
-
-                <span className="text-xs text-muted-foreground ml-auto">
+                <span className="text-xs text-muted-foreground ml-auto shrink-0">
                     {totalCount} {totalCount === 1 ? 'story' : 'stories'}
                 </span>
-
                 <Button
                     size="sm"
-                    className="h-8 gap-1.5"
+                    className="h-8 gap-1.5 shrink-0"
                     onClick={() => navigate({ to: '/stories/$id', params: { id: 'new' } })}
                 >
                     <Plus className="h-4 w-4" />
                     New Story
                 </Button>
-            </div>
+            </TopBarActions>
 
             {/* Feed */}
             {isLoading ? (
@@ -247,7 +244,7 @@ function StoryFeedList({
     });
 
     return (
-        <div ref={parentRef} className="flex-1 overflow-y-auto">
+        <div ref={parentRef} className="flex-1 overflow-y-auto pt-4">
             <div
                 style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
                 className="max-w-3xl mx-auto px-4 py-4"

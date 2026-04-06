@@ -805,6 +805,24 @@ _gedcom: {}
     });
 
     describe('GET /api/graph', () => {
+        const graphPeopleDir = path.join('./tests/fixtures/data', 'people');
+        let existingPeopleFiles: Set<string>;
+
+        beforeEach(() => {
+            existingPeopleFiles = new Set(
+                fs.existsSync(graphPeopleDir) ? fs.readdirSync(graphPeopleDir) : []
+            );
+        });
+
+        afterEach(() => {
+            if (!fs.existsSync(graphPeopleDir)) return;
+            for (const f of fs.readdirSync(graphPeopleDir)) {
+                if (!existingPeopleFiles.has(f)) {
+                    try { fs.unlinkSync(path.join(graphPeopleDir, f)); } catch { /* ignore */ }
+                }
+            }
+        });
+
         it('should return nodes and edges arrays', async () => {
             const response = await request.get('/api/graph');
             expect(response.status).toBe(200);
