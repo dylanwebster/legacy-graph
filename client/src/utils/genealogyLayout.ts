@@ -292,6 +292,8 @@ export interface FamilyTreeNode {
     hasHiddenAncestors: boolean;
     hasHiddenDescendants: boolean;
     hasHiddenSiblings: boolean;
+    /** true = root or direct ancestor/descendant path; false = sibling node */
+    isLineage: boolean;
 }
 
 /**
@@ -378,6 +380,7 @@ export function buildFamilyTree(
                         hasHiddenAncestors: false,
                         hasHiddenDescendants: false,
                         hasHiddenSiblings: false,
+                        isLineage: false,
                     });
                 }
             }
@@ -399,6 +402,7 @@ export function buildFamilyTree(
             hasHiddenAncestors,
             hasHiddenDescendants,
             hasHiddenSiblings,
+            isLineage: true,
         };
     }
 
@@ -438,6 +442,7 @@ export function buildFamilyTree(
                         hasHiddenAncestors: false,
                         hasHiddenDescendants: false,
                         hasHiddenSiblings: false,
+                        isLineage: false,
                     });
                 }
             }
@@ -459,6 +464,7 @@ export function buildFamilyTree(
             hasHiddenAncestors,
             hasHiddenDescendants,
             hasHiddenSiblings,
+            isLineage: true,
         };
     }
 
@@ -500,6 +506,7 @@ export function buildFamilyTree(
                     hasHiddenAncestors: (parentMap.get(sid) ?? []).length > 0,
                     hasHiddenDescendants: (childMap.get(sid) ?? []).length > 0,
                     hasHiddenSiblings: false,
+                    isLineage: false,
                 });
             }
         }
@@ -528,6 +535,7 @@ export interface TreeConnector {
     id: string;
     path: string; // SVG path "d" attribute
     kind: 'parent-child' | 'sibling';
+    isLineage: boolean; // true = both endpoints are on the direct ancestor/descendant path
 }
 
 const BASE_CARD_W = 192;
@@ -571,7 +579,10 @@ export function computeAdaptiveTreeLayout(
             if (i > 0) total += TREE_NODE_GAP;
             total += ancestorSubtreeHeight(node.parents[i]);
         }
-        return Math.max(selfH, total);
+        // When parents push the node down via centering (myCY ≤ yStart + total/2),
+        // siblings extend below. The worst-case bottom is total/2 + cardH/2 + siblingsH.
+        const siblingsH = node.siblings.length * (crossAxisCardSize + TREE_NODE_GAP);
+        return Math.max(selfH, total, total / 2 + crossAxisCardSize / 2 + siblingsH);
     }
 
     function descendantSubtreeHeight(node: FamilyTreeNode): number {
@@ -582,7 +593,9 @@ export function computeAdaptiveTreeLayout(
             if (i > 0) total += TREE_NODE_GAP;
             total += descendantSubtreeHeight(node.children[i]);
         }
-        return Math.max(selfH, total);
+        // Same centering logic as ancestor side.
+        const siblingsH = node.siblings.length * (crossAxisCardSize + TREE_NODE_GAP);
+        return Math.max(selfH, total, total / 2 + crossAxisCardSize / 2 + siblingsH);
     }
 
     function emit(node: FamilyTreeNode, x: number, y: number) {
@@ -603,6 +616,7 @@ export function computeAdaptiveTreeLayout(
         dir: 'ancestor' | 'descendant',
         fromNode: FamilyTreeNode,
         toNode: FamilyTreeNode,
+        isLineage: boolean,
     ) {
         const fid = fromNode.id ?? `g${fromNode.generation}`;
         const tid = toNode.id ?? `g${toNode.generation}`;
@@ -613,7 +627,7 @@ export function computeAdaptiveTreeLayout(
             const x1 = dir === 'ancestor' ? fromX + mainAxisCardSize : fromX;
             const x2 = dir === 'ancestor' ? toX : toX + mainAxisCardSize;
             const mx = (x1 + x2) / 2;
-            connectors.push({ id, kind: 'parent-child', path: `M ${x1} ${fromCY} L ${mx} ${fromCY} L ${mx} ${toCY} L ${x2} ${toCY}` });
+            connectors.push({ id, kind: 'parent-child', isLineage, path: `M ${x1} ${fromCY} L ${mx} ${fromCY} L ${mx} ${toCY} L ${x2} ${toCY}` });
         } else {
             // After swap+negate: screen_x = logical_y (fromCY/toCY), screen_y = -logical_x
             // Ancestors are ABOVE (negative screen y), descendants BELOW (positive screen y)
@@ -621,39 +635,7 @@ export function computeAdaptiveTreeLayout(
             const y1 = dir === 'ancestor' ? -fromX : -fromX + cardH;
             const y2 = dir === 'ancestor' ? -toX + cardH : -toX;
             const my = (y1 + y2) / 2;
-            connectors.push({ id, kind: 'parent-child', path: `M ${fromCY} ${y1} L ${fromCY} ${my} L ${toCY} ${my} L ${toCY} ${y2}` });
-        }
-    }
-
-    /** Place siblings at the same genX, stacked alongside the node, with dashed connectors */
-    function emitSiblings(node: FamilyTreeNode, genX: number, nodeY: number) {
-        if (node.siblings.length === 0) return;
-        const nodeCY = nodeY + crossAxisCardSize / 2;
-        let currentY = nodeY + crossAxisCardSize + TREE_NODE_GAP;
-        for (const sib of node.siblings) {
-            emit(sib, genX, currentY);
-            const sibCY = currentY + crossAxisCardSize / 2;
-            const fid = node.id ?? `g${node.generation}`;
-            const sid = sib.id ?? `sib${sib.generation}`;
-
-            if (orientation === 'horizontal') {
-                // Vertical bracket on the left edge of the cards
-                const bx = genX - 10;
-                connectors.push({
-                    id: `${fid}-${sid}-sib`,
-                    kind: 'sibling',
-                    path: `M ${genX} ${nodeCY} L ${bx} ${nodeCY} L ${bx} ${sibCY} L ${genX} ${sibCY}`,
-                });
-            } else {
-                // After swap+negate: card top edge in screen_y = -genX; bracket 10px above that
-                const by = -genX - 10;
-                connectors.push({
-                    id: `${fid}-${sid}-sib`,
-                    kind: 'sibling',
-                    path: `M ${nodeCY} ${-genX} L ${nodeCY} ${by} L ${sibCY} ${by} L ${sibCY} ${-genX}`,
-                });
-            }
-            currentY += crossAxisCardSize + TREE_NODE_GAP;
+            connectors.push({ id, kind: 'parent-child', isLineage, path: `M ${fromCY} ${y1} L ${fromCY} ${my} L ${toCY} ${my} L ${toCY} ${y2}` });
         }
     }
 
@@ -661,7 +643,12 @@ export function computeAdaptiveTreeLayout(
         if (node.parents.length === 0) {
             const cy = yStart + crossAxisCardSize / 2;
             emit(node, genX, yStart);
-            emitSiblings(node, genX, yStart);
+            // Place siblings below; no visible parents to connect from
+            let sibY = yStart + crossAxisCardSize + TREE_NODE_GAP;
+            for (const sib of node.siblings) {
+                emit(sib, genX, sibY);
+                sibY += crossAxisCardSize + TREE_NODE_GAP;
+            }
             return cy;
         }
         // Ancestors branch in the positive main-axis direction
@@ -678,9 +665,21 @@ export function computeAdaptiveTreeLayout(
         const myCY = (Math.min(...parentCenters) + Math.max(...parentCenters)) / 2;
         const nodeY = myCY - crossAxisCardSize / 2;
         emit(node, genX, nodeY);
-        emitSiblings(node, genX, nodeY);
+        // Focal node → each parent (lineage connectors)
         for (let i = 0; i < node.parents.length; i++) {
-            emitConnector(genX, myCY, parentGenX, parentCenters[i], 'ancestor', node, node.parents[i]);
+            emitConnector(genX, myCY, parentGenX, parentCenters[i], 'ancestor',
+                node, node.parents[i], node.isLineage && node.parents[i].isLineage);
+        }
+        // Siblings: place below focal node, connect each to the same parent(s)
+        let sibY = nodeY + crossAxisCardSize + TREE_NODE_GAP;
+        for (const sib of node.siblings) {
+            emit(sib, genX, sibY);
+            const sibCY = sibY + crossAxisCardSize / 2;
+            for (let i = 0; i < node.parents.length; i++) {
+                emitConnector(genX, sibCY, parentGenX, parentCenters[i], 'ancestor',
+                    sib, node.parents[i], false);
+            }
+            sibY += crossAxisCardSize + TREE_NODE_GAP;
         }
         return myCY;
     }
@@ -689,7 +688,12 @@ export function computeAdaptiveTreeLayout(
         if (node.children.length === 0) {
             const cy = yStart + crossAxisCardSize / 2;
             emit(node, genX, yStart);
-            emitSiblings(node, genX, yStart);
+            // Place siblings below; no child info to connect from (descendants have no parent data)
+            let sibY = yStart + crossAxisCardSize + TREE_NODE_GAP;
+            for (const sib of node.siblings) {
+                emit(sib, genX, sibY);
+                sibY += crossAxisCardSize + TREE_NODE_GAP;
+            }
             return cy;
         }
         // Descendants branch in the negative main-axis direction
@@ -706,9 +710,15 @@ export function computeAdaptiveTreeLayout(
         const myCY = (Math.min(...childCenters) + Math.max(...childCenters)) / 2;
         const nodeY = myCY - crossAxisCardSize / 2;
         emit(node, genX, nodeY);
-        emitSiblings(node, genX, nodeY);
         for (let i = 0; i < node.children.length; i++) {
-            emitConnector(genX, myCY, childGenX, childCenters[i], 'descendant', node, node.children[i]);
+            emitConnector(genX, myCY, childGenX, childCenters[i], 'descendant',
+                node, node.children[i], node.isLineage && node.children[i].isLineage);
+        }
+        // Siblings on descendant side have no parent info — place without connectors
+        let sibY = nodeY + crossAxisCardSize + TREE_NODE_GAP;
+        for (const sib of node.siblings) {
+            emit(sib, genX, sibY);
+            sibY += crossAxisCardSize + TREE_NODE_GAP;
         }
         return myCY;
     }
@@ -729,8 +739,26 @@ export function computeAdaptiveTreeLayout(
             parentCenters.push(cy);
             currentY += h;
         }
+        // Root → each parent (always lineage)
         for (let i = 0; i < root.parents.length; i++) {
-            emitConnector(0, 0, parentGenX, parentCenters[i], 'ancestor', root, root.parents[i]);
+            emitConnector(0, 0, parentGenX, parentCenters[i], 'ancestor', root, root.parents[i], true);
+        }
+        // Root siblings → same parents (non-lineage); placed below root
+        let sibY = (-crossAxisCardSize / 2) + crossAxisCardSize + TREE_NODE_GAP;
+        for (const sib of root.siblings) {
+            emit(sib, 0, sibY);
+            const sibCY = sibY + crossAxisCardSize / 2;
+            for (let i = 0; i < root.parents.length; i++) {
+                emitConnector(0, sibCY, parentGenX, parentCenters[i], 'ancestor', sib, root.parents[i], false);
+            }
+            sibY += crossAxisCardSize + TREE_NODE_GAP;
+        }
+    } else {
+        // No parents: emit root siblings without connectors
+        let sibY = (-crossAxisCardSize / 2) + crossAxisCardSize + TREE_NODE_GAP;
+        for (const sib of root.siblings) {
+            emit(sib, 0, sibY);
+            sibY += crossAxisCardSize + TREE_NODE_GAP;
         }
     }
 
@@ -747,14 +775,14 @@ export function computeAdaptiveTreeLayout(
             childCenters.push(cy);
             currentY += h;
         }
+        // Root → each child (always lineage)
         for (let i = 0; i < root.children.length; i++) {
-            emitConnector(0, 0, childGenX, childCenters[i], 'descendant', root, root.children[i]);
+            emitConnector(0, 0, childGenX, childCenters[i], 'descendant', root, root.children[i], true);
         }
     }
 
     // Add root at origin, centered in cross-axis
     emit(root, 0, -crossAxisCardSize / 2);
-    emitSiblings(root, 0, -crossAxisCardSize / 2);
 
     return { nodes: positioned, connectors };
 }

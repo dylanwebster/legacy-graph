@@ -8,6 +8,7 @@ import {
 } from '@/utils/genealogyLayout';
 import { sexColor as sexStroke } from '@/utils/sexColors';
 import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from './PersonPreviewCard';
+import { useUIStore } from '@/store/uiStore';
 
 // ─── Handle ───────────────────────────────────────────────────────────────────
 
@@ -111,6 +112,12 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
     const isMobile = dims.width < MOBILE_BREAKPOINT;
     const ancestorDepth = isMobile ? 2 : DEFAULT_ANCESTOR_DEPTH;
     const descendantDepth = isMobile ? 2 : DEFAULT_DESCENDANT_DEPTH;
+
+    // Connector colors — lineage uses the same purple as the force graph highlight
+    const theme = useUIStore(s => s.theme);
+    const isDark = theme === 'dark';
+    const lineageStroke = isDark ? 'rgba(167,139,250,0.9)' : 'rgba(139,92,246,0.85)';
+    const nonLineageStroke = isDark ? 'rgba(148,163,184,0.5)' : 'rgba(71,85,105,0.5)';
 
     // Reset expansion + view when root actually changes (not on initial mount).
     // Comparing against a ref avoids firing on mount when rootPersonId is already set,
@@ -404,10 +411,8 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                             key={c.id}
                             d={c.path}
                             fill="none"
-                            stroke="var(--foreground)"
-                            strokeWidth={c.kind === 'sibling' ? 1 : 1.5}
-                            strokeDasharray={c.kind === 'sibling' ? '5 4' : undefined}
-                            opacity={c.kind === 'sibling' ? 0.3 : 0.55}
+                            stroke={c.isLineage ? lineageStroke : nonLineageStroke}
+                            strokeWidth={1.5}
                         />
                     ))}
 
