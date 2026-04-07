@@ -542,6 +542,8 @@ const BASE_CARD_W = 192;
 const BASE_CARD_H = 64;
 const TREE_GEN_GAP = 56;
 const TREE_NODE_GAP = 12;
+/** Extra gap appended after a node's sibling group to visually separate branches. */
+const SIBLING_GROUP_EXTRA_GAP = 20;
 
 /**
  * Compute positions for all nodes in a bidirectional family tree.
@@ -582,7 +584,8 @@ export function computeAdaptiveTreeLayout(
         // When parents push the node down via centering (myCY ≤ yStart + total/2),
         // siblings extend below. The worst-case bottom is total/2 + cardH/2 + siblingsH.
         const siblingsH = node.siblings.length * (crossAxisCardSize + TREE_NODE_GAP);
-        return Math.max(selfH, total, total / 2 + crossAxisCardSize / 2 + siblingsH);
+        const extraGap = node.siblings.length > 0 ? SIBLING_GROUP_EXTRA_GAP : 0;
+        return Math.max(selfH, total, total / 2 + crossAxisCardSize / 2 + siblingsH) + extraGap;
     }
 
     function descendantSubtreeHeight(node: FamilyTreeNode): number {
@@ -595,7 +598,8 @@ export function computeAdaptiveTreeLayout(
         }
         // Same centering logic as ancestor side.
         const siblingsH = node.siblings.length * (crossAxisCardSize + TREE_NODE_GAP);
-        return Math.max(selfH, total, total / 2 + crossAxisCardSize / 2 + siblingsH);
+        const extraGap = node.siblings.length > 0 ? SIBLING_GROUP_EXTRA_GAP : 0;
+        return Math.max(selfH, total, total / 2 + crossAxisCardSize / 2 + siblingsH) + extraGap;
     }
 
     function emit(node: FamilyTreeNode, x: number, y: number) {
