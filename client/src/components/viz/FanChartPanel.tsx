@@ -8,7 +8,7 @@ import {
     type FanArc,
 } from '@/utils/genealogyLayout';
 import { sexColor } from '@/utils/sexColors';
-import { Network } from 'lucide-react';
+import { CircleDot } from 'lucide-react';
 import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from './PersonPreviewCard';
 
 // ─── Handle ───────────────────────────────────────────────────────────────────
@@ -255,9 +255,8 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                 className="relative w-full h-full flex items-center justify-center"
             >
                 <div className="text-center space-y-2 text-muted-foreground">
-                    <Network className="h-10 w-10 mx-auto opacity-25" />
-                    <p className="text-sm font-medium">Select a focal person</p>
-                    <p className="text-xs opacity-60">Use the Focal picker above to choose a root ancestor</p>
+                    <CircleDot className="h-10 w-10 mx-auto opacity-25" />
+                    <p className="text-sm font-medium">Select a focal person above to display the chart</p>
                 </div>
             </div>
         );

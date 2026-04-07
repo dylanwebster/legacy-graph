@@ -1,6 +1,6 @@
 import { useRef, useState, useMemo, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { ArrowRight, ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
+import { ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Network } from 'lucide-react';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
 import {
     buildFamilyTree,
@@ -357,9 +357,8 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                 className="relative w-full h-full flex items-center justify-center"
             >
                 <div className="text-center space-y-2 text-muted-foreground">
-                    <ArrowRight className="h-10 w-10 mx-auto opacity-25" />
-                    <p className="text-sm font-medium">Select a focal person</p>
-                    <p className="text-xs opacity-60">Use the Focal picker above to choose a root person</p>
+                    <Network className="h-10 w-10 mx-auto opacity-25" />
+                    <p className="text-sm font-medium">Select a focal person above to display the chart</p>
                 </div>
             </div>
         );
