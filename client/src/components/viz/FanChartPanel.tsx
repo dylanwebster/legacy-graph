@@ -38,7 +38,7 @@ interface FanChartPanelProps {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const BASE_R = 52;
+const BASE_R = 56;
 /** Interpolate hue between blue (paternal, slot 0) and rose (maternal, last slot). */
 function lineageColor(slot: AncestorSlot, isDark: boolean): string {
     if (slot.generation === 0) return sexColor(slot.sex);
@@ -88,8 +88,18 @@ function shortName(label: string, maxChars = 14): string {
     return abbreviated.slice(0, maxChars);
 }
 
+/** Format birth/death years for display inside an arc. */
+function buildYearsStr(node?: { birthYear?: number | null; deathYear?: number | null } | null): string {
+    const b = node?.birthYear ?? null;
+    const d = node?.deathYear ?? null;
+    if (b && d) return `${b}–${d}`;
+    if (b) return `b. ${b}`;
+    if (d) return `d. ${d}`;
+    return '';
+}
+
 /** Minimum arc angular width (radians) to show a label. */
-const MIN_LABEL_ARC = 0.22; // ~12.6°
+const MIN_LABEL_ARC = 0.18; // ~10.3° (safe with 270° fan giving wider arcs)
 
 const MOBILE_BREAKPOINT = 640;
 
@@ -128,10 +138,13 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
         };
     }, [scale, pan, onViewChange]);
     const [isDragging, setIsDragging] = useState(false);
+    const isDraggingRef = useRef(false); // ref mirror — lets move handler be stable (no stale closure)
     const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
 
     // Selected arc for preview popover
     const [selectedArc, setSelectedArc] = useState<FanArc | null>(null);
+    // Hovered arc — tracked via React state (not inline DOM mutation) for consistent rendering
+    const [hoveredArcId, setHoveredArcId] = useState<string | null>(null);
 
     const isMobile = dims.width < MOBILE_BREAKPOINT;
 
@@ -172,7 +185,8 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     const handlePointerDown = useCallback(
         (e: React.PointerEvent) => {
             if (e.button !== 0) return;
-            // Don't capture — let clicks on buttons and SVG arcs work naturally
+            setHoveredArcId(null);
+            isDraggingRef.current = false;
             dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
         },
         [pan],
@@ -183,17 +197,21 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
             if (!dragRef.current) return;
             const dx = e.clientX - dragRef.current.startX;
             const dy = e.clientY - dragRef.current.startY;
-            if (!isDragging && Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) {
-                setIsDragging(true);
-            }
-            if (isDragging || Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) {
+            if (Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) {
+                if (!isDraggingRef.current) {
+                    isDraggingRef.current = true;
+                    setIsDragging(true);
+                    // Capture pointer so fast moves never lose the drag
+                    containerRef.current?.setPointerCapture(e.pointerId);
+                }
                 setPan({ x: dragRef.current.panX + dx, y: dragRef.current.panY + dy });
             }
         },
-        [isDragging],
+        [], // stable — uses only refs, no stale closure on isDragging state
     );
 
     const handlePointerUp = useCallback(() => {
+        isDraggingRef.current = false;
         setIsDragging(false);
         dragRef.current = null;
     }, []);
@@ -250,6 +268,39 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     const cx = dims.width / 2;
     const cy = dims.height / 2;
 
+    // Geometric hover detection — more reliable than SVG onMouseEnter/onMouseLeave
+    // which can miss narrow arcs or behave inconsistently for curved paths.
+    const handleSvgMouseMove = useCallback(
+        (e: React.MouseEvent<SVGSVGElement>) => {
+            if (isDraggingRef.current) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const fanOffsetY = dims.height * 0.07;
+            // Map screen → fan-local (unscaled) coordinates
+            const fanX = (e.clientX - rect.left - cx - pan.x) / scale;
+            const fanY = (e.clientY - rect.top - cy - pan.y - fanOffsetY) / scale;
+            const r = Math.sqrt(fanX * fanX + fanY * fanY);
+            let angle = Math.atan2(fanY, fanX);
+            if (angle < 0) angle += 2 * Math.PI;
+
+            for (const arc of arcs) {
+                if (!arc.slot.id) continue;
+                if (r < arc.innerR || r > arc.outerR) continue;
+                // Normalize arc start/end to [0, 2π), handling wrap-around past 360°
+                const a1 = ((arc.startAngle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+                let a2 = ((arc.endAngle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+                if (a2 <= a1) a2 += 2 * Math.PI; // arc crosses the 0°/360° boundary
+                let θ = angle;
+                if (θ < a1) θ += 2 * Math.PI; // bring test angle into same range as arc
+                if (θ >= a1 && θ <= a2) {
+                    setHoveredArcId(arc.slot.id);
+                    return;
+                }
+            }
+            setHoveredArcId(null);
+        },
+        [arcs, cx, cy, pan, scale, dims.height],
+    );
+
     if (!rootPersonId) {
         return (
             <div
@@ -264,7 +315,9 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
         );
     }
 
-    const transform = `translate(${cx + pan.x}, ${cy + pan.y}) scale(${scale})`;
+    // Shift arc origin slightly down: 270° fan's mass sits above center, this recenters it visually
+    const FAN_OFFSET_Y = dims.height * 0.07;
+    const transform = `translate(${cx + pan.x}, ${cy + pan.y + FAN_OFFSET_Y}) scale(${scale})`;
 
     return (
         <div
@@ -282,6 +335,8 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                 height={dims.height}
                 data-testid="fan-chart-svg"
                 className="select-none"
+                onMouseMove={handleSvgMouseMove}
+                onMouseLeave={() => setHoveredArcId(null)}
             >
                 <g transform={transform}>
                     {/* Arcs — rendered back-to-front (largest generation first for overlap) */}
@@ -295,43 +350,51 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                         const ly = labelR * Math.sin(midA);
                         const showLabel = !isEmpty && angleDelta >= MIN_LABEL_ARC;
 
-                        // Label rotation: keep text readable
-                        let labelRotDeg = (midA * 180) / Math.PI + 90;
-                        // Flip text that would be upside-down
-                        if (midA > Math.PI / 2 && midA < (3 * Math.PI) / 2) {
-                            labelRotDeg += 180;
+                        // Label rotation — three-step formula:
+                        // 1. Normalize midA to [0, 2π) to handle 270° wrap-around arcs.
+                        // 2. Compute tangential orientation: rotate text by (normMid + 90°).
+                        // 3. If the result lands in the "unreadable" zone (90°, 270°), flip 180°
+                        //    so the text always reads within the upright range [-90°, 90°].
+                        const normMid = ((midA % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+                        let labelRotDeg = ((normMid * 180 / Math.PI + 90) % 360 + 360) % 360;
+                        if (labelRotDeg > 90 && labelRotDeg < 270) labelRotDeg -= 180;
+
+                        // For outer generations, snap toward horizontal for legibility —
+                        // tangential text becomes too steep on narrow arcs at the chart edges.
+                        const rotCap = arc.slot.generation <= 1 ? 90 : arc.slot.generation === 2 ? 55 : 0;
+                        if (rotCap < 90) {
+                            labelRotDeg = Math.sign(labelRotDeg || 1) * Math.min(Math.abs(labelRotDeg), rotCap);
                         }
 
                         const isSelected = !!arc.slot.id && arc.slot.id === selectedArc?.slot.id;
+                        const isHovered = !!arc.slot.id && arc.slot.id === hoveredArcId;
+
+                        // Richer label: name + birth/death years when arc is wide enough.
+                        // Use actual arc length (labelR × angleDelta) for truncation — outer rings
+                        // have larger radii so they fit more characters than angleDelta alone implies.
+                        const gNode = arc.slot.id ? graphNodeMap.get(arc.slot.id) : undefined;
+                        const yearsStr = buildYearsStr(gNode);
+                        const arcH = arc.outerR - arc.innerR;
+                        const arcLength = labelR * angleDelta; // px along the arc midline
+                        const showYears = !isEmpty && !!yearsStr && angleDelta >= 0.28 && arcH >= 20;
+                        const nameMaxChars = Math.max(4, Math.floor(arcLength / 6.5));
+                        const nameFontSize = Math.max(8, Math.min(11, Math.min(angleDelta * 30, arcH * 0.45)));
+                        const yearsFontSize = Math.max(7, nameFontSize - 1.5);
 
                         return (
                             <g key={`${arc.slot.generation}-${arc.slot.slotIndex}`}>
                                 <path
                                     d={arcPathStr(arc, 0, 0)}
                                     fill={isEmpty ? 'var(--muted)' : lineageColor(arc.slot, isDark)}
-                                    stroke={isSelected ? 'var(--primary)' : 'var(--background)'}
-                                    strokeWidth={isSelected ? 2.5 : 1.5}
-                                    opacity={isEmpty ? 0.18 : isSelected ? 0.85 : 1}
+                                    stroke={isSelected ? 'var(--primary)' : isHovered ? 'rgba(255,255,255,0.55)' : 'var(--background)'}
+                                    strokeWidth={isSelected ? 2.5 : isHovered ? 2 : 1.5}
+                                    opacity={isEmpty ? 0.18 : isSelected ? 0.95 : isHovered ? 0.72 : 0.88}
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         handleArcClick(arc);
                                     }}
                                     className={isEmpty ? 'cursor-default' : 'cursor-pointer'}
-                                    style={!isEmpty ? { transition: 'opacity 0.15s, stroke 0.15s' } : undefined}
-                                    onMouseEnter={
-                                        !isEmpty && !isSelected
-                                            ? (e) => {
-                                                  (e.currentTarget as SVGPathElement).style.opacity = '0.75';
-                                              }
-                                            : undefined
-                                    }
-                                    onMouseLeave={
-                                        !isEmpty && !isSelected
-                                            ? (e) => {
-                                                  (e.currentTarget as SVGPathElement).style.opacity = '1';
-                                              }
-                                            : undefined
-                                    }
+                                    style={{ transition: 'opacity 0.12s, stroke 0.12s' }}
                                 />
                                 {showLabel && (
                                     <text
@@ -339,12 +402,19 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                                         y={ly}
                                         textAnchor="middle"
                                         dominantBaseline="middle"
-                                        fontSize={Math.max(8, Math.min(11, angleDelta * 28))}
+                                        fontSize={nameFontSize}
                                         fill="white"
                                         transform={`rotate(${labelRotDeg.toFixed(1)}, ${lx.toFixed(1)}, ${ly.toFixed(1)})`}
                                         style={{ pointerEvents: 'none', userSelect: 'none' }}
                                     >
-                                        {shortName(arc.slot.label, Math.max(6, Math.floor(angleDelta * 18)))}
+                                        <tspan x={lx} dy={showYears ? '-0.45em' : '0'}>
+                                            {shortName(arc.slot.label, nameMaxChars)}
+                                        </tspan>
+                                        {showYears && (
+                                            <tspan x={lx} dy="1.1em" fontSize={yearsFontSize} opacity={0.8}>
+                                                {yearsStr}
+                                            </tspan>
+                                        )}
                                     </text>
                                 )}
                             </g>
@@ -352,29 +422,38 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                     })}
 
                     {/* Root circle at center (0,0) */}
-                    {rootNode && (
-                        <g>
-                            <circle
-                                cx={0}
-                                cy={0}
-                                r={BASE_R}
-                                fill={sexColor(rootNode.sex)}
-                                opacity={0.92}
-                            />
-                            <text
-                                x={0}
-                                y={-6}
-                                textAnchor="middle"
-                                dominantBaseline="middle"
-                                fontSize={11}
-                                fontWeight={600}
-                                fill="white"
-                                style={{ pointerEvents: 'none', userSelect: 'none' }}
-                            >
-                                {shortName(rootNode.label, 16)}
-                            </text>
-                        </g>
-                    )}
+                    {rootNode && (() => {
+                        const rootGNode = rootNode.id ? graphNodeMap.get(rootNode.id) : undefined;
+                        const rootYears = buildYearsStr(rootGNode);
+                        return (
+                            <g>
+                                <circle
+                                    cx={0}
+                                    cy={0}
+                                    r={BASE_R}
+                                    fill={sexColor(rootNode.sex)}
+                                    opacity={0.92}
+                                />
+                                <text
+                                    x={0}
+                                    y={0}
+                                    textAnchor="middle"
+                                    dominantBaseline="middle"
+                                    fill="white"
+                                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                                >
+                                    <tspan x={0} dy={rootYears ? '-0.5em' : '0'} fontSize={11} fontWeight={600}>
+                                        {shortName(rootNode.label, 16)}
+                                    </tspan>
+                                    {rootYears && (
+                                        <tspan x={0} dy="1.15em" fontSize={9} opacity={0.85}>
+                                            {rootYears}
+                                        </tspan>
+                                    )}
+                                </text>
+                            </g>
+                        );
+                    })()}
                 </g>
             </svg>
 

@@ -154,17 +154,17 @@ describe('computeFanArcLayout', () => {
         expect(arcs).toHaveLength(6);
     });
 
-    it('arcs for a generation span full 360deg (2*PI)', () => {
+    it('arcs for a generation span the full 270deg (1.5*PI)', () => {
         const slots = buildAncestorTree(nodes, links, 'ROOT', 1);
         const arcs = computeFanArcLayout(slots, 600);
-        // Gen 1 has 2 arcs that should together span 360deg
+        // Gen 1 has 2 arcs that should together span 270deg
         expect(arcs).toHaveLength(2);
         const startAngles = arcs.map(a => a.startAngle);
         const endAngles = arcs.map(a => a.endAngle);
         const minAngle = Math.min(...startAngles);
         const maxAngle = Math.max(...endAngles);
         const totalSpan = maxAngle - minAngle;
-        expect(totalSpan).toBeCloseTo(2 * Math.PI, 1);
+        expect(totalSpan).toBeCloseTo(1.5 * Math.PI, 1);
     });
 
     it('uses containerSize (min dimension) for ring scaling', () => {

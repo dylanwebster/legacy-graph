@@ -135,8 +135,9 @@ export function buildAncestorTree(
 
 /**
  * Compute FanArc descriptors for all ancestor slots (excluding generation 0 root).
- * Fan is a full 360° circle: root at center, ancestors radiate outward.
- * Angle range: 0 → 2*Math.PI (full circle).
+ * Fan is a 270° arc: root at center, ancestors radiate outward.
+ * Gap at the bottom (45°–135° in SVG y-down coords).
+ * Paternal ancestors trail up-left (135°→270°), maternal up-right (270°→405°=45°).
  *
  * @param slots  result of buildAncestorTree
  * @param containerSize  min(width, height) of the SVG container (used to auto-size rings)
@@ -151,8 +152,8 @@ export function computeFanArcLayout(
 
     const maxR = containerSize * 0.42; // leave margin for labels
     const RING_WIDTH = Math.min(80, Math.max(20, (maxR - BASE_R) / maxGen));
-    const TOTAL_ANGLE = 2 * Math.PI; // full 360°
-    const START_ANGLE = 0;
+    const TOTAL_ANGLE = 1.5 * Math.PI; // 270°
+    const START_ANGLE = 0.75 * Math.PI; // 135° — lower-left in SVG y-down coordinates
 
     const result: FanArc[] = [];
 
