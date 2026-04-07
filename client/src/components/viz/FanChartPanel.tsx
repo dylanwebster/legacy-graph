@@ -10,6 +10,7 @@ import {
 import { sexColor } from '@/utils/sexColors';
 import { CircleDot } from 'lucide-react';
 import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from './PersonPreviewCard';
+import { abbreviateName } from '@/utils/nameUtils';
 
 // ─── Handle ───────────────────────────────────────────────────────────────────
 
@@ -74,8 +75,9 @@ function arcMidAngle(arc: FanArc): number {
 
 /** Truncate label to fit inside arc (rough heuristic). */
 function shortName(label: string, maxChars = 14): string {
-    if (label.length <= maxChars) return label;
-    const parts = label.split(' ');
+    const abbreviated = abbreviateName(label);
+    if (abbreviated.length <= maxChars) return abbreviated;
+    const parts = abbreviated.split(' ');
     if (parts.length >= 2) {
         const first = parts[0];
         const lastInitial = parts[parts.length - 1][0] + '.';
@@ -83,7 +85,7 @@ function shortName(label: string, maxChars = 14): string {
         if (candidate.length <= maxChars) return candidate;
         return first.slice(0, maxChars);
     }
-    return label.slice(0, maxChars);
+    return abbreviated.slice(0, maxChars);
 }
 
 /** Minimum arc angular width (radians) to show a label. */

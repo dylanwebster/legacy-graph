@@ -1,6 +1,7 @@
 import { Focus, X } from 'lucide-react';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import type { GraphLinkData, GraphNodeData } from '@/api/hooks';
+import { abbreviateName } from '@/utils/nameUtils';
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -64,10 +65,10 @@ export function PersonCardBody({
                     sex={sex}
                 />
                 <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm truncate">{label}</p>
+                    <p className="font-medium text-sm truncate">{abbreviateName(label)}</p>
                     {birthLine && <p className="text-xs text-muted-foreground truncate">{birthLine}</p>}
                     {deathLine && <p className="text-xs text-muted-foreground truncate">{deathLine}</p>}
-                    {spouseLabel && <p className="text-xs text-muted-foreground truncate">m. {spouseLabel}</p>}
+                    {spouseLabel && <p className="text-xs text-muted-foreground truncate">m. {abbreviateName(spouseLabel)}</p>}
                 </div>
             </div>
             {showActions && (
@@ -146,10 +147,10 @@ export function PersonPreviewCard({
                             sex={sex}
                         />
                         <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm truncate">{label}</p>
+                            <p className="font-medium text-sm truncate">{abbreviateName(label)}</p>
                             {birthLine && <p className="text-xs text-muted-foreground truncate">{birthLine}</p>}
                             {deathLine && <p className="text-xs text-muted-foreground truncate">{deathLine}</p>}
-                            {spouseLabel && <p className="text-xs text-muted-foreground truncate">m. {spouseLabel}</p>}
+                            {spouseLabel && <p className="text-xs text-muted-foreground truncate">m. {abbreviateName(spouseLabel)}</p>}
                         </div>
                         <button
                             onClick={onClose}

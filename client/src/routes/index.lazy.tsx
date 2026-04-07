@@ -1777,7 +1777,7 @@ function FamilyGraphPanel({
                             backgroundColor="transparent"
                             graphData={stableGraphData as unknown as { nodes: NodeObject[]; links: LinkObject[] }}
                             nodeId="id"
-                            nodeLabel="label"
+                            nodeLabel=""
                             nodeRelSize={NODE_R}
                             nodeCanvasObject={drawNode}
                             nodeCanvasObjectMode={() => 'replace'}
