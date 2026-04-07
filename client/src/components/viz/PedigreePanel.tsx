@@ -1,6 +1,6 @@
 import { useRef, useState, useMemo, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Network } from 'lucide-react';
+import { ArrowRight, ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Network } from 'lucide-react';
 import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
 import {
     buildFamilyTree,
