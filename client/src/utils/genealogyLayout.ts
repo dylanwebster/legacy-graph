@@ -556,9 +556,9 @@ const SIBLING_GROUP_EXTRA_GAP = 20;
 export function computeAdaptiveTreeLayout(
     root: FamilyTreeNode,
     orientation: 'horizontal' | 'vertical',
+    cardW = BASE_CARD_W,
+    cardH = BASE_CARD_H,
 ): { nodes: PositionedTreeNode[]; connectors: TreeConnector[] } {
-    const cardW = BASE_CARD_W;
-    const cardH = BASE_CARD_H;
     // In horizontal mode the branching axis is x and the stacking axis is y.
     // In vertical mode, emit() swaps and negates: screen_x = logical_y, screen_y = -logical_x.
     // The stacking dimension (cross axis) must therefore be cardW (192px) in vertical, not cardH (64px).

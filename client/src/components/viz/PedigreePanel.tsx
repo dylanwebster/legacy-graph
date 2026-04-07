@@ -48,23 +48,25 @@ const DEFAULT_ANCESTOR_DEPTH = 3;
 const DEFAULT_DESCENDANT_DEPTH = 3;
 const MOBILE_BREAKPOINT = 640;
 
-const CARD_W = 192;
-const CARD_H = 64;
-const NAME_MAX = 24; // max chars per name line before truncation
-
 /**
  * Split a full name into [line1, line2|null].
  * Short names stay on one line. Long names split given-name(s) / surname.
- * Each line is capped at NAME_MAX chars.
+ * Each line is capped at nameMax chars.
  */
-function splitNameLines(label: string): [string, string | null] {
-    const cap = (s: string) => s.length > NAME_MAX ? s.slice(0, NAME_MAX - 1) + '…' : s;
-    if (label.length <= NAME_MAX) return [label, null];
+function splitNameLines(label: string, nameMax = 24): [string, string | null] {
+    const cap = (s: string) => s.length > nameMax ? s.slice(0, nameMax - 1) + '…' : s;
+    if (label.length <= nameMax) return [label, null];
     const parts = label.split(' ');
     if (parts.length === 1) return [cap(label), null];
     const surname = parts[parts.length - 1];
     const given = parts.slice(0, -1).join(' ');
     return [cap(given), cap(surname)];
+}
+
+function getInitials(label: string): string {
+    const parts = label.trim().split(/\s+/);
+    if (parts.length === 1) return (parts[0][0] ?? '?').toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -112,6 +114,18 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
     const isMobile = dims.width < MOBILE_BREAKPOINT;
     const ancestorDepth = isMobile ? 2 : DEFAULT_ANCESTOR_DEPTH;
     const descendantDepth = isMobile ? 2 : DEFAULT_DESCENDANT_DEPTH;
+
+    // Card dimensions — orientation + viewport aware
+    const showAvatar = !isMobile;
+    const CARD_W = orientation === 'horizontal'
+        ? (isMobile ? 176 : 220)
+        : (isMobile ? 120 : 148);
+    const CARD_H = orientation === 'horizontal'
+        ? (isMobile ? 44 : 56)
+        : (isMobile ? 68 : 88);
+    const NAME_MAX = orientation === 'horizontal'
+        ? (isMobile ? 22 : 24)
+        : (isMobile ? 16 : 18);
 
     // Connector colors — lineage uses the same purple as the force graph highlight
     const theme = useUIStore(s => s.theme);
@@ -241,10 +255,10 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
             ancestorDepth, descendantDepth,
             expandedUp, expandedDown, expandedSiblings,
         );
-        const layout = computeAdaptiveTreeLayout(tree, orientation);
+        const layout = computeAdaptiveTreeLayout(tree, orientation, CARD_W, CARD_H);
         return { treeNodes: layout.nodes, treeConnectors: layout.connectors };
     }, [rootPersonId, nodes, links, orientation, ancestorDepth, descendantDepth,
-        expandedUp, expandedDown, expandedSiblings]);
+        expandedUp, expandedDown, expandedSiblings, CARD_W, CARD_H]);
 
     // Node lookup for graph data (birthYear, primaryAsset)
     const graphNodeMap = useMemo(
@@ -451,22 +465,64 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                     style={{ transition: 'stroke 0.15s, stroke-width 0.15s' }}
                                 />
 
-                                {/* Root indicator */}
+                                {/* Root indicator — left bar in horizontal, top bar in vertical */}
                                 {isRoot && (
-                                    <rect
-                                        x={0}
-                                        y={0}
-                                        width={4}
-                                        height={CARD_H}
-                                        rx={2}
-                                        fill="var(--primary)"
-                                    />
+                                    orientation === 'horizontal' ? (
+                                        <rect x={0} y={0} width={4} height={CARD_H} rx={2} fill="var(--primary)" />
+                                    ) : (
+                                        <rect x={0} y={0} width={CARD_W} height={4} rx={2} fill="var(--primary)" />
+                                    )
                                 )}
 
-                                {/* Sex-color dot */}
+                                {/* Avatar (desktop only) */}
+                                {showAvatar && (() => {
+                                    const primaryAsset = graphNode?.primaryAsset ?? null;
+                                    const clipId = `avatar-clip-${n.node.id}`;
+                                    const acx = orientation === 'horizontal' ? 22 : CARD_W / 2;
+                                    const acy = orientation === 'horizontal' ? CARD_H / 2 : 22;
+                                    const r = 14;
+                                    return (
+                                        <>
+                                            <defs>
+                                                <clipPath id={clipId}>
+                                                    <circle cx={acx} cy={acy} r={r} />
+                                                </clipPath>
+                                            </defs>
+                                            {primaryAsset ? (
+                                                <image
+                                                    href={`/assets/${primaryAsset}`}
+                                                    x={acx - r}
+                                                    y={acy - r}
+                                                    width={r * 2}
+                                                    height={r * 2}
+                                                    clipPath={`url(#${clipId})`}
+                                                    preserveAspectRatio="xMidYMid slice"
+                                                    style={{ pointerEvents: 'none' }}
+                                                />
+                                            ) : (
+                                                <>
+                                                    <circle cx={acx} cy={acy} r={r} fill={sexStroke(n.node.sex)} opacity={0.15} />
+                                                    <text
+                                                        x={acx}
+                                                        y={acy + 4}
+                                                        textAnchor="middle"
+                                                        fontSize={10}
+                                                        fontWeight={600}
+                                                        fill={sexStroke(n.node.sex)}
+                                                        style={{ pointerEvents: 'none' }}
+                                                    >
+                                                        {getInitials(n.node.label)}
+                                                    </text>
+                                                </>
+                                            )}
+                                        </>
+                                    );
+                                })()}
+
+                                {/* Sex-color dot — bottom-right */}
                                 <circle
-                                    cx={CARD_W - 10}
-                                    cy={10}
+                                    cx={CARD_W - 8}
+                                    cy={CARD_H - 8}
                                     r={3}
                                     fill={sexStroke(n.node.sex)}
                                     style={{ pointerEvents: 'none' }}
@@ -474,46 +530,96 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
 
                                 {/* Name (1 or 2 lines) + lifespan */}
                                 {(() => {
-                                    const [line1, line2] = splitNameLines(n.node.label);
-                                    const tx = isRoot ? 12 : 8;
-                                    const y1 = line2 ? 17 : 21;
-                                    return (
-                                        <>
-                                            <text
-                                                x={tx}
-                                                y={y1}
-                                                fontSize={11}
-                                                fontWeight={isRoot ? 600 : 500}
-                                                fill="var(--card-foreground)"
-                                                style={{ pointerEvents: 'none' }}
-                                            >
-                                                {line1}
-                                            </text>
-                                            {line2 && (
+                                    const [line1, line2] = splitNameLines(n.node.label, NAME_MAX);
+                                    const fw = isRoot ? 600 : 500;
+
+                                    if (orientation === 'horizontal') {
+                                        // Wide-short card: avatar on left, text on right
+                                        const tx = showAvatar ? 44 : 10;
+                                        return (
+                                            <>
                                                 <text
                                                     x={tx}
-                                                    y={31}
-                                                    fontSize={11}
-                                                    fontWeight={isRoot ? 600 : 500}
+                                                    y={line2 ? 18 : 22}
+                                                    fontSize={isMobile ? 10 : 11}
+                                                    fontWeight={fw}
                                                     fill="var(--card-foreground)"
                                                     style={{ pointerEvents: 'none' }}
                                                 >
-                                                    {line2}
+                                                    {line1}
                                                 </text>
-                                            )}
-                                            {!!lifespan && (
+                                                {line2 && (
+                                                    <text
+                                                        x={tx}
+                                                        y={30}
+                                                        fontSize={isMobile ? 10 : 11}
+                                                        fontWeight={fw}
+                                                        fill="var(--card-foreground)"
+                                                        style={{ pointerEvents: 'none' }}
+                                                    >
+                                                        {line2}
+                                                    </text>
+                                                )}
+                                                {!!lifespan && (
+                                                    <text
+                                                        x={tx}
+                                                        y={line2 ? 42 : (isMobile ? 34 : 40)}
+                                                        fontSize={9}
+                                                        fill="var(--muted-foreground)"
+                                                        style={{ pointerEvents: 'none' }}
+                                                    >
+                                                        {lifespan}
+                                                    </text>
+                                                )}
+                                            </>
+                                        );
+                                    } else {
+                                        // Narrow-tall card: avatar top-center, text below centered
+                                        const tcx = CARD_W / 2;
+                                        const nameTopY = showAvatar ? (line2 ? 50 : 56) : (line2 ? 18 : 24);
+                                        const nameLine2Y = nameTopY + 13;
+                                        const datesY = line2 ? nameLine2Y + 14 : nameTopY + 16;
+                                        return (
+                                            <>
                                                 <text
-                                                    x={tx}
-                                                    y={line2 ? 47 : 36}
-                                                    fontSize={9}
-                                                    fill="var(--muted-foreground)"
+                                                    x={tcx}
+                                                    y={nameTopY}
+                                                    textAnchor="middle"
+                                                    fontSize={isMobile ? 10 : 11}
+                                                    fontWeight={fw}
+                                                    fill="var(--card-foreground)"
                                                     style={{ pointerEvents: 'none' }}
                                                 >
-                                                    {lifespan}
+                                                    {line1}
                                                 </text>
-                                            )}
-                                        </>
-                                    );
+                                                {line2 && (
+                                                    <text
+                                                        x={tcx}
+                                                        y={nameLine2Y}
+                                                        textAnchor="middle"
+                                                        fontSize={isMobile ? 10 : 11}
+                                                        fontWeight={fw}
+                                                        fill="var(--card-foreground)"
+                                                        style={{ pointerEvents: 'none' }}
+                                                    >
+                                                        {line2}
+                                                    </text>
+                                                )}
+                                                {!!lifespan && (
+                                                    <text
+                                                        x={tcx}
+                                                        y={datesY}
+                                                        textAnchor="middle"
+                                                        fontSize={9}
+                                                        fill="var(--muted-foreground)"
+                                                        style={{ pointerEvents: 'none' }}
+                                                    >
+                                                        {lifespan}
+                                                    </text>
+                                                )}
+                                            </>
+                                        );
+                                    }
                                 })()}
 
                                 {/* Expand/collapse ancestors button — right of card (horizontal) or above card (vertical) */}
