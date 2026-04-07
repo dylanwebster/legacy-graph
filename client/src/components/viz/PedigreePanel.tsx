@@ -7,6 +7,7 @@ import {
     computeAdaptiveTreeLayout,
 } from '@/utils/genealogyLayout';
 import { sexColor as sexStroke } from '@/utils/sexColors';
+import { abbreviateName } from '@/utils/nameUtils';
 import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from './PersonPreviewCard';
 import { useUIStore } from '@/store/uiStore';
 
@@ -64,7 +65,7 @@ function splitNameLines(label: string, nameMax = 24): [string, string | null] {
 }
 
 function getInitials(label: string): string {
-    const parts = label.trim().split(/\s+/);
+    const parts = abbreviateName(label).trim().split(/\s+/);
     if (parts.length === 1) return (parts[0][0] ?? '?').toUpperCase();
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
@@ -118,14 +119,14 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
     // Card dimensions — orientation + viewport aware
     const showAvatar = !isMobile;
     const CARD_W = orientation === 'horizontal'
-        ? (isMobile ? 176 : 220)
-        : (isMobile ? 120 : 148);
+        ? (isMobile ? 140 : 172)
+        : (isMobile ? 96 : 120);
     const CARD_H = orientation === 'horizontal'
         ? (isMobile ? 44 : 56)
         : (isMobile ? 68 : 88);
     const NAME_MAX = orientation === 'horizontal'
-        ? (isMobile ? 22 : 24)
-        : (isMobile ? 16 : 18);
+        ? (isMobile ? 20 : 19)
+        : (isMobile ? 13 : 16);
 
     // Connector colors — lineage uses the same purple as the force graph highlight
     const theme = useUIStore(s => s.theme);
@@ -478,7 +479,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                 {showAvatar && (() => {
                                     const primaryAsset = graphNode?.primaryAsset ?? null;
                                     const clipId = `avatar-clip-${n.node.id}`;
-                                    const acx = orientation === 'horizontal' ? 22 : CARD_W / 2;
+                                    const acx = orientation === 'horizontal' ? 20 : CARD_W / 2;
                                     const acy = orientation === 'horizontal' ? CARD_H / 2 : 22;
                                     const r = 14;
                                     return (
@@ -519,23 +520,14 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                     );
                                 })()}
 
-                                {/* Sex-color dot — bottom-right */}
-                                <circle
-                                    cx={CARD_W - 8}
-                                    cy={CARD_H - 8}
-                                    r={3}
-                                    fill={sexStroke(n.node.sex)}
-                                    style={{ pointerEvents: 'none' }}
-                                />
-
                                 {/* Name (1 or 2 lines) + lifespan */}
                                 {(() => {
-                                    const [line1, line2] = splitNameLines(n.node.label, NAME_MAX);
+                                    const [line1, line2] = splitNameLines(abbreviateName(n.node.label), NAME_MAX);
                                     const fw = isRoot ? 600 : 500;
 
                                     if (orientation === 'horizontal') {
                                         // Wide-short card: avatar on left, text on right
-                                        const tx = showAvatar ? 44 : 10;
+                                        const tx = showAvatar ? 40 : 8;
                                         return (
                                             <>
                                                 <text
