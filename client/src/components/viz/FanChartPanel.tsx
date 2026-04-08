@@ -205,7 +205,6 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     const handlePointerDown = useCallback(
         (e: React.PointerEvent) => {
             if (e.button !== 0) return;
-            setHoveredArcId(null);
             isDraggingRef.current = false;
             dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
         },
@@ -311,7 +310,8 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                 if (a2 <= a1) a2 += 2 * Math.PI; // arc crosses the 0°/360° boundary
                 let θ = angle;
                 if (θ < a1) θ += 2 * Math.PI; // bring test angle into same range as arc
-                if (θ >= a1 && θ <= a2) {
+                // 1e-9 epsilon handles floating-point rounding at arc boundaries
+                if (θ >= a1 - 1e-9 && θ <= a2 + 1e-9) {
                     setHoveredArcId(arc.slot.id);
                     return;
                 }
@@ -343,7 +343,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
         <div
             ref={containerRef}
             className="relative w-full h-full overflow-hidden"
-            style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+            style={{ cursor: isDragging ? 'grabbing' : hoveredArcId ? 'pointer' : 'grab', touchAction: 'none' }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -356,7 +356,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                 data-testid="fan-chart-svg"
                 className="select-none"
                 onMouseMove={handleSvgMouseMove}
-                onMouseLeave={() => setHoveredArcId(null)}
+                onMouseLeave={() => { if (!isDraggingRef.current) setHoveredArcId(null); }}
             >
                 <g transform={transform}>
                     {/* Curved text paths for gen 1–3 arcs.
@@ -435,11 +435,11 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                                     stroke={isSelected ? 'var(--primary)' : isHovered ? 'rgba(255,255,255,0.55)' : 'var(--background)'}
                                     strokeWidth={isSelected ? 2.5 : isHovered ? 2 : 1.5}
                                     opacity={isEmpty ? 0.18 : isSelected ? 0.95 : isHovered ? 0.72 : 0.88}
-                                    onClick={(e) => {
+                                    onClick={isEmpty ? undefined : (e) => {
                                         e.stopPropagation();
                                         handleArcClick(arc);
                                     }}
-                                    className={isEmpty ? 'cursor-default' : 'cursor-pointer'}
+                                    pointerEvents={isEmpty ? 'none' : undefined}
                                     style={{ transition: 'opacity 0.12s, stroke 0.12s' }}
                                 />
 
@@ -646,7 +646,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                 const midA = arcMidAngle(selectedArc);
                 const offsetR = selectedArc.outerR + 16;
                 const screenX = cx + pan.x + offsetR * Math.cos(midA) * scale;
-                const screenY = cy + pan.y + offsetR * Math.sin(midA) * scale;
+                const screenY = cy + pan.y + FAN_OFFSET_Y + offsetR * Math.sin(midA) * scale;
                 const gNode = graphNodeMap.get(slot.id!);
                 return (
                     <PersonPreviewCard
