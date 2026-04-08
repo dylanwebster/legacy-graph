@@ -4,7 +4,6 @@ import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
 import {
     buildAncestorTree,
     computeFanArcLayout,
-    normalizeFanAngle,
     type AncestorSlot,
     type FanArc,
 } from '@/utils/genealogyLayout';
@@ -349,103 +348,59 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     const cx = dims.width / 2;
     const cy = dims.height / 2;
 
-    // Geometric hover detection — more reliable than SVG onMouseEnter/onMouseLeave
-    // which can miss narrow arcs or behave inconsistently for curved paths.
-    //
-    // Rings are sorted by outerR so we can binary-search the correct radial band
-    // in O(log G) instead of scanning all N arcs. Within the matched ring we only
-    // test the 2^gen angular segments for that generation.
-    const ringBands = useMemo(() => {
-        // Group arcs by generation; build a sorted list of { outerR, arcs[] }.
-        const byGen = new Map<number, FanArc[]>();
-        for (const arc of arcs) {
-            const g = arc.slot.generation;
-            let bucket = byGen.get(g);
-            if (!bucket) { bucket = []; byGen.set(g, bucket); }
-            bucket.push(arc);
-        }
-        return [...byGen.entries()]
-            .sort(([a], [b]) => a - b)
-            .map(([, bucket]) => ({
-                innerR: bucket[0].innerR,
-                outerR: bucket[0].outerR,
-                arcs: bucket,
-            }));
-    }, [arcs]);
+    // Arc lookup by ID — used to map native DOM events back to FanArc objects
+    // for the preview popover positioning.
+    const arcById = useMemo(
+        () => new Map(arcs.filter(a => a.slot.id).map(a => [a.slot.id!, a])),
+        [arcs],
+    );
 
-    /**
-     * Map a screen-space pointer event to a fan-local FanArc, or null if no arc
-     * is under the cursor. Shared by both hover (mousemove) and click handlers so
-     * the two never diverge.
-     *
-     * Algorithm:
-     *  1. Invert the SVG transform (pan, scale, FAN_OFFSET_Y_FRAC) to get fan-local (r, θ).
-     *  2. Find the matching radial ring band by radius.
-     *  3. Normalize the atan2 angle into the fan's coordinate space [0.75π, 2.75π)
-     *     via normalizeFanAngle, then do a direct range check against each arc's
-     *     [startAngle, endAngle]. No modulo — avoids floating-point instability
-     *     at the 2π boundary that caused intermittent hover misses on right-side arcs.
-     */
-    const hitTestArc = useCallback(
-        (clientX: number, clientY: number, svgRect: DOMRect): FanArc | null => {
-            const fanOffsetY = dims.height * FAN_OFFSET_Y_FRAC;
-            const fanX = (clientX - svgRect.left - cx - pan.x) / scale;
-            const fanY = (clientY - svgRect.top  - cy - pan.y - fanOffsetY) / scale;
-            const r = Math.sqrt(fanX * fanX + fanY * fanY);
+    // ── Native SVG event-based hover & click ─────────────────────────────────
+    // Filled arc <path> elements receive pointer events (empty arcs do not).
+    // The browser's own SVG hit-testing on the rendered paths is authoritative —
+    // no manual coordinate inversion, no floating-point edge cases.
 
-            const EPSILON = 1e-9;
-            const band = ringBands.find(b => r >= b.innerR - EPSILON && r <= b.outerR + EPSILON);
-            if (!band) return null;
-
-            const testAngle = normalizeFanAngle(Math.atan2(fanY, fanX));
-            for (const arc of band.arcs) {
-                if (!arc.slot.id) continue;
-                if (testAngle >= arc.startAngle - EPSILON && testAngle <= arc.endAngle + EPSILON) return arc;
-            }
-            return null;
-        },
-        [ringBands, cx, cy, pan, scale, dims.height],
+    /** Read the arc ID from the nearest arc path at an event target. */
+    const arcIdFromTarget = useCallback(
+        (target: EventTarget | null): string | null =>
+            (target as Element)?.closest?.('[data-arc-id]')?.getAttribute('data-arc-id') ?? null,
+        [],
     );
 
     const handleSvgMouseMove = useCallback(
         (e: React.MouseEvent<SVGSVGElement>) => {
             if (isDraggingRef.current) return;
             lastCursorRef.current = { clientX: e.clientX, clientY: e.clientY };
-            const arc = hitTestArc(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect());
-            setHoveredArcId(arc?.slot.id ?? null);
+            setHoveredArcId(arcIdFromTarget(e.target));
         },
-        [hitTestArc],
+        [arcIdFromTarget],
     );
 
-    // Click is handled geometrically on the SVG so arc <path> elements can have
-    // pointerEvents="none" — removing any risk of native SVG hover events conflicting
-    // with the geometric hover state machine.
     const handleSvgClick = useCallback(
         (e: React.MouseEvent<SVGSVGElement>) => {
             if (isDraggingRef.current) return;
-            const arc = hitTestArc(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect());
-            if (arc && arc.slot.id) {
+            const arcId = arcIdFromTarget(e.target);
+            if (arcId) {
                 e.stopPropagation(); // prevent handleBackgroundClick from closing selectedArc
-                handleArcClick(arc);
+                const arc = arcById.get(arcId);
+                if (arc) handleArcClick(arc);
             }
             // No arc hit — let the event bubble to the container's handleBackgroundClick.
         },
-        [hitTestArc, handleArcClick],
+        [arcIdFromTarget, arcById, handleArcClick],
     );
 
-    // Re-evaluate hover whenever the transform geometry changes (pan, zoom, resize) or
-    // a drag ends — so hover state is accurate even when the cursor hasn't moved.
-    //
-    // Keyed on hitTestArc (which changes with pan/scale/dims/arcs) AND isDragging state
-    // (not the ref) so it fires on the render after setIsDragging(false).
+    // Re-evaluate hover whenever the transform geometry changes (pan, zoom, resize)
+    // or a drag ends — the cursor hasn't moved but the chart beneath it has.
+    // Uses document.elementFromPoint so the browser's own hit-testing is authoritative.
     useEffect(() => {
         if (isDragging) return;
         const pos = lastCursorRef.current;
-        const svg = svgRef.current;
-        if (!pos || !svg) return;
-        const arc = hitTestArc(pos.clientX, pos.clientY, svg.getBoundingClientRect());
-        setHoveredArcId(arc?.slot.id ?? null);
-    }, [hitTestArc, isDragging]);
+        if (!pos) return;
+        const el = document.elementFromPoint(pos.clientX, pos.clientY);
+        const arcId = (el as Element | null)?.closest?.('[data-arc-id]')?.getAttribute('data-arc-id') ?? null;
+        setHoveredArcId(arcId);
+    }, [pan, scale, isDragging, dims]);
 
     if (!rootPersonId) {
         return (
@@ -469,7 +424,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
         <div
             ref={containerRef}
             className="relative w-full h-full overflow-hidden"
-            style={{ cursor: isDragging ? 'grabbing' : hoveredArcId ? 'pointer' : 'grab', touchAction: 'none' }}
+            style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -565,12 +520,13 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                                 <path
                                     className="fan-arc"
                                     d={arcPathStr(arc, 0, 0)}
+                                    data-arc-id={isEmpty ? undefined : arc.slot.id!}
                                     fill={isEmpty ? 'var(--muted)' : lineageColor(arc.slot, isDark)}
                                     stroke={isSelected ? 'var(--primary)' : isHovered ? 'rgba(255,255,255,0.55)' : 'var(--background)'}
                                     strokeWidth={isSelected ? 2.5 : isHovered ? 2 : 1.5}
                                     opacity={isEmpty ? 0.18 : isSelected ? 0.95 : isHovered ? 0.72 : 0.88}
-                                    pointerEvents="none"
-                                    style={{ transition: 'opacity 0.12s, stroke 0.12s' }}
+                                    pointerEvents={isEmpty ? 'none' : 'fill'}
+                                    style={{ cursor: isEmpty ? undefined : 'pointer', transition: 'opacity 0.12s, stroke 0.12s' }}
                                 />
 
                                 {showLabel && isInnerRing && (() => {
