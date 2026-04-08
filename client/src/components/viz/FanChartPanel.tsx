@@ -177,6 +177,10 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     const [dims, setDims] = useState({ width: 800, height: 600 });
     const [scale, setScale] = useState(initialView?.scale ?? 1);
     const [pan, setPan] = useState(initialView?.pan ?? { x: 0, y: 0 });
+    const scaleRef = useRef(scale);
+    scaleRef.current = scale;
+    const dimsRef = useRef(dims);
+    dimsRef.current = dims;
     const viewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useImperativeHandle(ref, () => ({
@@ -217,28 +221,29 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
         return () => obs.disconnect();
     }, []);
 
-    // Wheel zoom
+    // Wheel zoom — uses refs so the handler is stable (attached once, never stale)
     useEffect(() => {
         const el = containerRef.current;
         if (!el) return;
         const handleWheel = (e: WheelEvent) => {
             e.preventDefault();
-            // Record cursor so the geometry-change effect re-evaluates hover at the
-            // zoom point — not at a stale position from the last mousemove.
             lastCursorRef.current = { clientX: e.clientX, clientY: e.clientY };
+            const curScale = scaleRef.current;
+            const curDims = dimsRef.current;
             const factor = e.deltaY < 0 ? 1.05 : 1 / 1.05;
-            const newScale = Math.max(0.2, Math.min(5, scale * factor));
+            const newScale = Math.max(0.2, Math.min(5, curScale * factor));
             // Zoom toward cursor position
             const rect = el.getBoundingClientRect();
-            const cx = e.clientX - rect.left - dims.width / 2;
-            const cy = e.clientY - rect.top - dims.height / 2;
-            const ds = newScale - scale;
-            setPan(p => ({ x: p.x - cx * ds / scale, y: p.y - cy * ds / scale }));
+            const cx = e.clientX - rect.left - curDims.width / 2;
+            const cy = e.clientY - rect.top - curDims.height / 2;
+            const ds = newScale - curScale;
+            setPan(p => ({ x: p.x - cx * ds / curScale, y: p.y - cy * ds / curScale }));
+            scaleRef.current = newScale; // update eagerly so batched events read the latest value
             setScale(newScale);
         };
         el.addEventListener('wheel', handleWheel, { passive: false });
         return () => el.removeEventListener('wheel', handleWheel);
-    }, [scale, dims]);
+    }, []); // stable — reads scale/dims from refs
 
     const DRAG_THRESHOLD = 5;
 
