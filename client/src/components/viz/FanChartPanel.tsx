@@ -39,6 +39,13 @@ interface FanChartPanelProps {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const BASE_R = 56;
+/**
+ * Vertical offset applied to the fan's SVG transform so the 270° arc's visual
+ * mass recenters in the viewport. Expressed as a fraction of container height.
+ * Shared by both the render transform and the geometric hit-test inversion so
+ * the two can never silently diverge.
+ */
+const FAN_OFFSET_Y_FRAC = 0.07;
 /** Interpolate hue between blue (paternal, slot 0) and rose (maternal, last slot). */
 function lineageColor(slot: AncestorSlot, isDark: boolean): string {
     if (slot.generation === 0) return sexColor(slot.sex);
@@ -317,36 +324,91 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
 
     // Geometric hover detection — more reliable than SVG onMouseEnter/onMouseLeave
     // which can miss narrow arcs or behave inconsistently for curved paths.
+    //
+    // Rings are sorted by outerR so we can binary-search the correct radial band
+    // in O(log G) instead of scanning all N arcs. Within the matched ring we only
+    // test the 2^gen angular segments for that generation.
+    const ringBands = useMemo(() => {
+        // Group arcs by generation; build a sorted list of { outerR, arcs[] }.
+        const byGen = new Map<number, FanArc[]>();
+        for (const arc of arcs) {
+            const g = arc.slot.generation;
+            let bucket = byGen.get(g);
+            if (!bucket) { bucket = []; byGen.set(g, bucket); }
+            bucket.push(arc);
+        }
+        return [...byGen.entries()]
+            .sort(([a], [b]) => a - b)
+            .map(([, bucket]) => ({
+                innerR: bucket[0].innerR,
+                outerR: bucket[0].outerR,
+                arcs: bucket,
+            }));
+    }, [arcs]);
+
+    /**
+     * Map a screen-space pointer event to a fan-local FanArc, or null if no arc
+     * is under the cursor. Shared by both hover (mousemove) and click handlers so
+     * the two never diverge.
+     *
+     * Algorithm:
+     *  1. Invert the SVG transform (pan, scale, FAN_OFFSET_Y_FRAC) to get fan-local (r, θ).
+     *  2. Binary-search the pre-sorted ring bands by radius (O(log G), vs. O(N) scan).
+     *  3. Within the matched ring, test only that generation's arcs angularly using the
+     *     "offset within span" formulation — no modulo normalization, no values > 4π.
+     */
+    const hitTestArc = useCallback(
+        (clientX: number, clientY: number, svgRect: DOMRect): FanArc | null => {
+            const fanOffsetY = dims.height * FAN_OFFSET_Y_FRAC;
+            const fanX = (clientX - svgRect.left - cx - pan.x) / scale;
+            const fanY = (clientY - svgRect.top  - cy - pan.y - fanOffsetY) / scale;
+            const r = Math.sqrt(fanX * fanX + fanY * fanY);
+
+            // Radial band lookup. Epsilon is consistent with the angular tolerance below
+            // so the hit area is geometrically flush at both inner and outer ring edges.
+            const EPSILON = 1e-9;
+            const band = ringBands.find(b => r >= b.innerR - EPSILON && r <= b.outerR + EPSILON);
+            if (!band) return null;
+
+            const testAngle = Math.atan2(fanY, fanX);
+            for (const arc of band.arcs) {
+                if (!arc.slot.id) continue;
+                const arcSpan = arc.endAngle - arc.startAngle;
+                // Offset within arc span, wrapped to [0, 2π). An angle exactly at
+                // startAngle gives offset=0 (≤ arcSpan); exactly at endAngle gives
+                // offset=arcSpan (≤ arcSpan+ε). No values ever exceed 2π.
+                let offset = (testAngle - arc.startAngle) % (2 * Math.PI);
+                if (offset < 0) offset += 2 * Math.PI;
+                if (offset <= arcSpan + EPSILON) return arc;
+            }
+            return null;
+        },
+        [ringBands, cx, cy, pan, scale, dims.height],
+    );
+
     const handleSvgMouseMove = useCallback(
         (e: React.MouseEvent<SVGSVGElement>) => {
             if (isDraggingRef.current) return;
-            const rect = e.currentTarget.getBoundingClientRect();
-            const fanOffsetY = dims.height * 0.07;
-            // Map screen → fan-local (unscaled) coordinates
-            const fanX = (e.clientX - rect.left - cx - pan.x) / scale;
-            const fanY = (e.clientY - rect.top - cy - pan.y - fanOffsetY) / scale;
-            const r = Math.sqrt(fanX * fanX + fanY * fanY);
-            let angle = Math.atan2(fanY, fanX);
-            if (angle < 0) angle += 2 * Math.PI;
-
-            for (const arc of arcs) {
-                if (!arc.slot.id) continue;
-                if (r < arc.innerR || r > arc.outerR) continue;
-                // Normalize arc start/end to [0, 2π), handling wrap-around past 360°
-                const a1 = ((arc.startAngle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-                let a2 = ((arc.endAngle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-                if (a2 <= a1) a2 += 2 * Math.PI; // arc crosses the 0°/360° boundary
-                let θ = angle;
-                if (θ < a1) θ += 2 * Math.PI; // bring test angle into same range as arc
-                // 1e-9 epsilon handles floating-point rounding at arc boundaries
-                if (θ >= a1 - 1e-9 && θ <= a2 + 1e-9) {
-                    setHoveredArcId(arc.slot.id);
-                    return;
-                }
-            }
-            setHoveredArcId(null);
+            const arc = hitTestArc(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect());
+            setHoveredArcId(arc?.slot.id ?? null);
         },
-        [arcs, cx, cy, pan, scale, dims.height],
+        [hitTestArc],
+    );
+
+    // Click is handled geometrically on the SVG so arc <path> elements can have
+    // pointerEvents="none" — removing any risk of native SVG hover events conflicting
+    // with the geometric hover state machine.
+    const handleSvgClick = useCallback(
+        (e: React.MouseEvent<SVGSVGElement>) => {
+            if (isDraggingRef.current) return;
+            const arc = hitTestArc(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect());
+            if (arc && arc.slot.id) {
+                e.stopPropagation(); // prevent handleBackgroundClick from closing selectedArc
+                handleArcClick(arc);
+            }
+            // No arc hit — let the event bubble to the container's handleBackgroundClick.
+        },
+        [hitTestArc, handleArcClick],
     );
 
     if (!rootPersonId) {
@@ -364,7 +426,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     }
 
     // Shift arc origin slightly down: 270° fan's mass sits above center, this recenters it visually
-    const FAN_OFFSET_Y = dims.height * 0.07;
+    const FAN_OFFSET_Y = dims.height * FAN_OFFSET_Y_FRAC;
     const transform = `translate(${cx + pan.x}, ${cy + pan.y + FAN_OFFSET_Y}) scale(${scale})`;
 
     return (
@@ -385,6 +447,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                 className="select-none"
                 onMouseMove={handleSvgMouseMove}
                 onMouseLeave={() => { if (!isDraggingRef.current) setHoveredArcId(null); }}
+                onClick={handleSvgClick}
             >
                 <g transform={transform}>
                     {/* Curved text paths for gen 1–3 arcs.
@@ -464,11 +527,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                                     stroke={isSelected ? 'var(--primary)' : isHovered ? 'rgba(255,255,255,0.55)' : 'var(--background)'}
                                     strokeWidth={isSelected ? 2.5 : isHovered ? 2 : 1.5}
                                     opacity={isEmpty ? 0.18 : isSelected ? 0.95 : isHovered ? 0.72 : 0.88}
-                                    onClick={isEmpty ? undefined : (e) => {
-                                        e.stopPropagation();
-                                        handleArcClick(arc);
-                                    }}
-                                    pointerEvents={isEmpty ? 'none' : undefined}
+                                    pointerEvents="none"
                                     style={{ transition: 'opacity 0.12s, stroke 0.12s' }}
                                 />
 
