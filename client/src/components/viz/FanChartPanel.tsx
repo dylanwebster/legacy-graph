@@ -159,6 +159,10 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
 }, ref) {
     const navigate = useNavigate();
     const containerRef = useRef<HTMLDivElement>(null);
+    const svgRef = useRef<SVGSVGElement>(null);
+    // Last known cursor position inside the SVG — used to re-evaluate hover when the
+    // geometry changes (pan, zoom, resize) without requiring cursor movement.
+    const lastCursorRef = useRef<{ clientX: number; clientY: number } | null>(null);
     const [dims, setDims] = useState({ width: 800, height: 600 });
     const [scale, setScale] = useState(initialView?.scale ?? 1);
     const [pan, setPan] = useState(initialView?.pan ?? { x: 0, y: 0 });
@@ -208,6 +212,9 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
         if (!el) return;
         const handleWheel = (e: WheelEvent) => {
             e.preventDefault();
+            // Record cursor so the geometry-change effect re-evaluates hover at the
+            // zoom point — not at a stale position from the last mousemove.
+            lastCursorRef.current = { clientX: e.clientX, clientY: e.clientY };
             const factor = e.deltaY < 0 ? 1.05 : 1 / 1.05;
             const newScale = Math.max(0.2, Math.min(5, scale * factor));
             // Zoom toward cursor position
@@ -251,10 +258,13 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
         [], // stable — uses only refs, no stale closure on isDragging state
     );
 
-    const handlePointerUp = useCallback(() => {
+    const handlePointerUp = useCallback((e: React.PointerEvent) => {
         isDraggingRef.current = false;
         setIsDragging(false);
         dragRef.current = null;
+        // Capture final cursor position so the geometry-change effect can re-evaluate
+        // hover correctly after the drag ends (without requiring cursor movement).
+        lastCursorRef.current = { clientX: e.clientX, clientY: e.clientY };
     }, []);
 
     const isDark =
@@ -389,6 +399,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     const handleSvgMouseMove = useCallback(
         (e: React.MouseEvent<SVGSVGElement>) => {
             if (isDraggingRef.current) return;
+            lastCursorRef.current = { clientX: e.clientX, clientY: e.clientY };
             const arc = hitTestArc(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect());
             setHoveredArcId(arc?.slot.id ?? null);
         },
@@ -410,6 +421,20 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
         },
         [hitTestArc, handleArcClick],
     );
+
+    // Re-evaluate hover whenever the transform geometry changes (pan, zoom, resize) or
+    // a drag ends — so hover state is accurate even when the cursor hasn't moved.
+    //
+    // Keyed on hitTestArc (which changes with pan/scale/dims/arcs) AND isDragging state
+    // (not the ref) so it fires on the render after setIsDragging(false).
+    useEffect(() => {
+        if (isDragging) return;
+        const pos = lastCursorRef.current;
+        const svg = svgRef.current;
+        if (!pos || !svg) return;
+        const arc = hitTestArc(pos.clientX, pos.clientY, svg.getBoundingClientRect());
+        setHoveredArcId(arc?.slot.id ?? null);
+    }, [hitTestArc, isDragging]);
 
     if (!rootPersonId) {
         return (
@@ -441,12 +466,18 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
             onClick={handleBackgroundClick}
         >
             <svg
+                ref={svgRef}
                 width={dims.width}
                 height={dims.height}
                 data-testid="fan-chart-svg"
                 className="select-none"
                 onMouseMove={handleSvgMouseMove}
-                onMouseLeave={() => { if (!isDraggingRef.current) setHoveredArcId(null); }}
+                onMouseLeave={() => {
+                    if (!isDraggingRef.current) {
+                        lastCursorRef.current = null;
+                        setHoveredArcId(null);
+                    }
+                }}
                 onClick={handleSvgClick}
             >
                 <g transform={transform}>
