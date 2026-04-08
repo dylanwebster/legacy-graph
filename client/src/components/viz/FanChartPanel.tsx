@@ -76,32 +76,47 @@ function arcMidAngle(arc: FanArc): number {
 /**
  * Word-wrap a person label to fit within a fixed column width.
  * Abbreviates first, then greedily packs words into lines.
- * Hard-truncates the last line with "…" if a single word is too wide.
+ * Preserves the final allowed line by truncating the remaining text with "…".
  */
 function wrapName(label: string, maxCharsPerLine: number, maxLines: number): string[] {
+    if (maxCharsPerLine <= 0 || maxLines <= 0) return [];
+
     const abbreviated = abbreviateName(label);
     if (abbreviated.length <= maxCharsPerLine) return [abbreviated];
+
     const words = abbreviated.split(/\s+/).filter(Boolean);
     const lines: string[] = [];
     let current = '';
-    for (const word of words) {
-        if (lines.length >= maxLines) break;
+
+    const truncateLine = (text: string): string => {
+        if (text.length <= maxCharsPerLine) return text;
+        if (maxCharsPerLine === 1) return '…';
+        return `${text.slice(0, maxCharsPerLine - 1)}…`;
+    };
+
+    for (let i = 0; i < words.length; i++) {
+        if (lines.length === maxLines - 1) {
+            const remaining = [current, ...words.slice(i)].filter(Boolean).join(' ');
+            if (remaining) lines.push(truncateLine(remaining));
+            return lines.filter(Boolean);
+        }
+
+        const word = words[i];
         const candidate = current ? `${current} ${word}` : word;
         if (candidate.length <= maxCharsPerLine) {
             current = candidate;
         } else {
-            if (current) lines.push(current);
-            current = word.length <= maxCharsPerLine ? word : `${word.slice(0, maxCharsPerLine - 1)}…`;
+            if (current) {
+                lines.push(current);
+                current = '';
+                i -= 1;
+            } else {
+                lines.push(truncateLine(word));
+            }
         }
     }
-    if (current && lines.length < maxLines) lines.push(current);
-    // Hard-truncate last line if it still overflows
-    if (lines.length > 0) {
-        const last = lines[lines.length - 1];
-        if (last.length > maxCharsPerLine) {
-            lines[lines.length - 1] = `${last.slice(0, maxCharsPerLine - 1)}…`;
-        }
-    }
+
+    if (current && lines.length < maxLines) lines.push(truncateLine(current));
     return lines.filter(Boolean);
 }
 
@@ -256,6 +271,19 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
 
         return { rootNode: root, arcs: computed };
     }, [rootPersonId, nodes, links, maxGen, dims.width, dims.height]);
+
+    // Auto scale-to-fit on initial load (only when no saved view state exists)
+    const hasAutoFitRef = useRef(false);
+    useEffect(() => {
+        if (hasAutoFitRef.current || initialView || arcs.length === 0) return;
+        const maxR = Math.max(...arcs.map((a) => a.outerR));
+        const containerSize = Math.min(dims.width, dims.height);
+        const available = containerSize * 0.45;
+        if (maxR > available) {
+            setScale(available / maxR);
+        }
+        hasAutoFitRef.current = true;
+    }, [arcs, dims.width, dims.height, initialView]);
 
     const graphNodeMap = useMemo(
         () => new Map(nodes.map(n => [n.id, n])),
