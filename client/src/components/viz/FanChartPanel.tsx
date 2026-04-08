@@ -8,8 +8,9 @@ import {
     type FanArc,
 } from '@/utils/genealogyLayout';
 import { sexColor } from '@/utils/sexColors';
-import { Network } from 'lucide-react';
+import { CircleDot } from 'lucide-react';
 import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from './PersonPreviewCard';
+import { abbreviateName } from '@/utils/nameUtils';
 
 // ─── Handle ───────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,11 @@ export interface FanChartPanelHandle {
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
+interface ViewState {
+    scale: number;
+    pan: { x: number; y: number };
+}
+
 interface FanChartPanelProps {
     nodes: GraphNodeData[];
     links: GraphLinkData[];
@@ -26,11 +32,13 @@ interface FanChartPanelProps {
     maxGen: number;
     onMaxGenChange: (gen: number) => void;
     onRootChange: (id: string) => void;
+    initialView?: ViewState | null;
+    onViewChange?: (view: ViewState) => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const BASE_R = 52;
+const BASE_R = 56;
 /** Interpolate hue between blue (paternal, slot 0) and rose (maternal, last slot). */
 function lineageColor(slot: AncestorSlot, isDark: boolean): string {
     if (slot.generation === 0) return sexColor(slot.sex);
@@ -65,22 +73,68 @@ function arcMidAngle(arc: FanArc): number {
     return (arc.startAngle + arc.endAngle) / 2;
 }
 
-/** Truncate label to fit inside arc (rough heuristic). */
-function shortName(label: string, maxChars = 14): string {
-    if (label.length <= maxChars) return label;
-    const parts = label.split(' ');
-    if (parts.length >= 2) {
-        const first = parts[0];
-        const lastInitial = parts[parts.length - 1][0] + '.';
-        const candidate = `${first} ${lastInitial}`;
-        if (candidate.length <= maxChars) return candidate;
-        return first.slice(0, maxChars);
+/**
+ * Word-wrap a person label to fit within a fixed column width.
+ * Abbreviates first, then greedily packs words into lines.
+ * Preserves the final allowed line by truncating the remaining text with "…".
+ */
+function wrapName(label: string, maxCharsPerLine: number, maxLines: number): string[] {
+    if (maxCharsPerLine <= 0 || maxLines <= 0) return [];
+
+    const abbreviated = abbreviateName(label);
+    if (abbreviated.length <= maxCharsPerLine) return [abbreviated];
+
+    const words = abbreviated.split(/\s+/).filter(Boolean);
+    const lines: string[] = [];
+    let current = '';
+
+    const truncateLine = (text: string): string => {
+        if (text.length <= maxCharsPerLine) return text;
+        if (maxCharsPerLine === 1) return '…';
+        return `${text.slice(0, maxCharsPerLine - 1)}…`;
+    };
+
+    for (let i = 0; i < words.length; i++) {
+        if (lines.length === maxLines - 1) {
+            const remaining = [current, ...words.slice(i)].filter(Boolean).join(' ');
+            if (remaining) lines.push(truncateLine(remaining));
+            return lines.filter(Boolean);
+        }
+
+        const word = words[i];
+        const candidate = current ? `${current} ${word}` : word;
+        if (candidate.length <= maxCharsPerLine) {
+            current = candidate;
+        } else {
+            if (current) {
+                lines.push(current);
+                current = '';
+                i -= 1;
+            } else {
+                lines.push(truncateLine(word));
+            }
+        }
     }
-    return label.slice(0, maxChars);
+
+    if (current && lines.length < maxLines) lines.push(truncateLine(current));
+    return lines.filter(Boolean);
 }
 
-/** Minimum arc angular width (radians) to show a label. */
-const MIN_LABEL_ARC = 0.22; // ~12.6°
+/** Format birth/death years for display inside an arc. */
+function buildYearsStr(node?: { birthYear?: number | null; deathYear?: number | null } | null): string {
+    const b = node?.birthYear ?? null;
+    const d = node?.deathYear ?? null;
+    if (b && d) return `${b}–${d}`;
+    if (b) return `b. ${b}`;
+    if (d) return `d. ${d}`;
+    return '';
+}
+
+/** Minimum arc angular width (radians) to show a label for inner curved-text rings (gen 1–3). */
+const MIN_LABEL_ARC_INNER = 0.15; // ~8.6°
+/** Minimum arc angular width (radians) to show a label for outer radial-text rings (gen 4+).
+ *  Much lower because available space is along the radial axis, not the tangential arc. */
+const MIN_LABEL_ARC_OUTER = 0.05; // ~2.9°
 
 const MOBILE_BREAKPOINT = 640;
 
@@ -93,21 +147,39 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     maxGen,
     onMaxGenChange,
     onRootChange,
+    initialView,
+    onViewChange,
 }, ref) {
     const navigate = useNavigate();
     const containerRef = useRef<HTMLDivElement>(null);
     const [dims, setDims] = useState({ width: 800, height: 600 });
-    const [scale, setScale] = useState(1);
-    const [pan, setPan] = useState({ x: 0, y: 0 });
+    const [scale, setScale] = useState(initialView?.scale ?? 1);
+    const [pan, setPan] = useState(initialView?.pan ?? { x: 0, y: 0 });
+    const viewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useImperativeHandle(ref, () => ({
         resetView: () => { setScale(1); setPan({ x: 0, y: 0 }); },
     }));
+
+    // Debounced view state persistence
+    useEffect(() => {
+        if (!onViewChange) return;
+        if (viewSaveTimerRef.current) clearTimeout(viewSaveTimerRef.current);
+        viewSaveTimerRef.current = setTimeout(() => {
+            onViewChange({ scale, pan });
+        }, 300);
+        return () => {
+            if (viewSaveTimerRef.current) clearTimeout(viewSaveTimerRef.current);
+        };
+    }, [scale, pan, onViewChange]);
     const [isDragging, setIsDragging] = useState(false);
+    const isDraggingRef = useRef(false); // ref mirror — lets move handler be stable (no stale closure)
     const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
 
     // Selected arc for preview popover
     const [selectedArc, setSelectedArc] = useState<FanArc | null>(null);
+    // Hovered arc — tracked via React state (not inline DOM mutation) for consistent rendering
+    const [hoveredArcId, setHoveredArcId] = useState<string | null>(null);
 
     const isMobile = dims.width < MOBILE_BREAKPOINT;
 
@@ -148,7 +220,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     const handlePointerDown = useCallback(
         (e: React.PointerEvent) => {
             if (e.button !== 0) return;
-            // Don't capture — let clicks on buttons and SVG arcs work naturally
+            isDraggingRef.current = false;
             dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
         },
         [pan],
@@ -159,17 +231,21 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
             if (!dragRef.current) return;
             const dx = e.clientX - dragRef.current.startX;
             const dy = e.clientY - dragRef.current.startY;
-            if (!isDragging && Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) {
-                setIsDragging(true);
-            }
-            if (isDragging || Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) {
+            if (Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) {
+                if (!isDraggingRef.current) {
+                    isDraggingRef.current = true;
+                    setIsDragging(true);
+                    // Capture pointer so fast moves never lose the drag
+                    containerRef.current?.setPointerCapture(e.pointerId);
+                }
                 setPan({ x: dragRef.current.panX + dx, y: dragRef.current.panY + dy });
             }
         },
-        [isDragging],
+        [], // stable — uses only refs, no stale closure on isDragging state
     );
 
     const handlePointerUp = useCallback(() => {
+        isDraggingRef.current = false;
         setIsDragging(false);
         dragRef.current = null;
     }, []);
@@ -195,6 +271,19 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
 
         return { rootNode: root, arcs: computed };
     }, [rootPersonId, nodes, links, maxGen, dims.width, dims.height]);
+
+    // Auto scale-to-fit on initial load (only when no saved view state exists)
+    const hasAutoFitRef = useRef(false);
+    useEffect(() => {
+        if (hasAutoFitRef.current || initialView || arcs.length === 0) return;
+        const maxR = Math.max(...arcs.map((a) => a.outerR));
+        const containerSize = Math.min(dims.width, dims.height);
+        const available = containerSize * 0.45;
+        if (maxR > available) {
+            setScale(available / maxR);
+        }
+        hasAutoFitRef.current = true;
+    }, [arcs, dims.width, dims.height, initialView]);
 
     const graphNodeMap = useMemo(
         () => new Map(nodes.map(n => [n.id, n])),
@@ -226,6 +315,40 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     const cx = dims.width / 2;
     const cy = dims.height / 2;
 
+    // Geometric hover detection — more reliable than SVG onMouseEnter/onMouseLeave
+    // which can miss narrow arcs or behave inconsistently for curved paths.
+    const handleSvgMouseMove = useCallback(
+        (e: React.MouseEvent<SVGSVGElement>) => {
+            if (isDraggingRef.current) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const fanOffsetY = dims.height * 0.07;
+            // Map screen → fan-local (unscaled) coordinates
+            const fanX = (e.clientX - rect.left - cx - pan.x) / scale;
+            const fanY = (e.clientY - rect.top - cy - pan.y - fanOffsetY) / scale;
+            const r = Math.sqrt(fanX * fanX + fanY * fanY);
+            let angle = Math.atan2(fanY, fanX);
+            if (angle < 0) angle += 2 * Math.PI;
+
+            for (const arc of arcs) {
+                if (!arc.slot.id) continue;
+                if (r < arc.innerR || r > arc.outerR) continue;
+                // Normalize arc start/end to [0, 2π), handling wrap-around past 360°
+                const a1 = ((arc.startAngle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+                let a2 = ((arc.endAngle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+                if (a2 <= a1) a2 += 2 * Math.PI; // arc crosses the 0°/360° boundary
+                let θ = angle;
+                if (θ < a1) θ += 2 * Math.PI; // bring test angle into same range as arc
+                // 1e-9 epsilon handles floating-point rounding at arc boundaries
+                if (θ >= a1 - 1e-9 && θ <= a2 + 1e-9) {
+                    setHoveredArcId(arc.slot.id);
+                    return;
+                }
+            }
+            setHoveredArcId(null);
+        },
+        [arcs, cx, cy, pan, scale, dims.height],
+    );
+
     if (!rootPersonId) {
         return (
             <div
@@ -233,21 +356,22 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                 className="relative w-full h-full flex items-center justify-center"
             >
                 <div className="text-center space-y-2 text-muted-foreground">
-                    <Network className="h-10 w-10 mx-auto opacity-25" />
-                    <p className="text-sm font-medium">Select a focal person</p>
-                    <p className="text-xs opacity-60">Use the Focal picker above to choose a root ancestor</p>
+                    <CircleDot className="h-10 w-10 mx-auto opacity-25" />
+                    <p className="text-sm font-medium">Select a focal person above to display the chart</p>
                 </div>
             </div>
         );
     }
 
-    const transform = `translate(${cx + pan.x}, ${cy + pan.y}) scale(${scale})`;
+    // Shift arc origin slightly down: 270° fan's mass sits above center, this recenters it visually
+    const FAN_OFFSET_Y = dims.height * 0.07;
+    const transform = `translate(${cx + pan.x}, ${cy + pan.y + FAN_OFFSET_Y}) scale(${scale})`;
 
     return (
         <div
             ref={containerRef}
             className="relative w-full h-full overflow-hidden"
-            style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+            style={{ cursor: isDragging ? 'grabbing' : hoveredArcId ? 'pointer' : 'grab', touchAction: 'none' }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -259,99 +383,241 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                 height={dims.height}
                 data-testid="fan-chart-svg"
                 className="select-none"
+                onMouseMove={handleSvgMouseMove}
+                onMouseLeave={() => { if (!isDraggingRef.current) setHoveredArcId(null); }}
             >
                 <g transform={transform}>
+                    {/* Curved text paths for gen 1–3 arcs.
+                        Path travels START→END clockwise (sweep=1): ascenders point outward so text
+                        reads correctly from outside the chart.
+                        One path per line (name lines + optional years), each at the radius
+                        that centers the whole block within the arc band. */}
+                    <defs>
+                        {arcs
+                            .filter((arc) => arc.slot.generation >= 1 && arc.slot.generation <= 3 && arc.slot.id)
+                            .flatMap((arc) => {
+                                const arcH = arc.outerR - arc.innerR;
+                                const angleDelta = arc.endAngle - arc.startAngle;
+                                const midR = (arc.innerR + arc.outerR) / 2;
+                                const nameFontSize = Math.min(14, Math.max(10, arcH * 0.19));
+                                const yearsFontSize = Math.max(8, nameFontSize - 2);
+                                const lineHeight = nameFontSize * 1.3;
+                                const arcLength = midR * angleDelta;
+                                const maxCharsPerLine = Math.max(5, Math.floor(arcLength / (nameFontSize * 0.54)));
+                                const gNode = arc.slot.id ? graphNodeMap.get(arc.slot.id) : undefined;
+                                const hasYears = !!buildYearsStr(gNode) && angleDelta >= 0.22 && arcH >= 22;
+                                const maxNameLines = Math.min(3, Math.max(1,
+                                    Math.floor((arcH - (hasYears ? yearsFontSize * 1.4 : 0)) / lineHeight)
+                                ));
+                                const nameLines = wrapName(arc.slot.label, maxCharsPerLine, maxNameLines);
+                                const nSlots = nameLines.length + (hasYears ? 1 : 0);
+                                const g = arc.slot.generation;
+                                const i = arc.slot.slotIndex;
+                                const largeArc = angleDelta > Math.PI ? 1 : 0;
+                                const makePath = (r: number) => {
+                                    const rr = Math.max(1, r);
+                                    const sx = (rr * Math.cos(arc.startAngle)).toFixed(2);
+                                    const sy = (rr * Math.sin(arc.startAngle)).toFixed(2);
+                                    const ex = (rr * Math.cos(arc.endAngle)).toFixed(2);
+                                    const ey = (rr * Math.sin(arc.endAngle)).toFixed(2);
+                                    return `M ${sx} ${sy} A ${rr.toFixed(2)} ${rr.toFixed(2)} 0 ${largeArc} 1 ${ex} ${ey}`;
+                                };
+                                // Slot 0 = outermost, slot nSlots-1 = innermost, block centered at midR
+                                const slotR = (slot: number) => midR + ((nSlots - 1) / 2 - slot) * lineHeight;
+                                return [
+                                    ...nameLines.map((_, li) => (
+                                        <path key={`fan-tp-${g}-${i}-${li}`} id={`fan-tp-${g}-${i}-${li}`} d={makePath(slotR(li))} />
+                                    )),
+                                    ...(hasYears ? [
+                                        <path key={`fan-tp-${g}-${i}-y`} id={`fan-tp-${g}-${i}-y`} d={makePath(slotR(nameLines.length))} />,
+                                    ] : []),
+                                ];
+                            })}
+                    </defs>
+
                     {/* Arcs — rendered back-to-front (largest generation first for overlap) */}
                     {[...arcs].reverse().map((arc) => {
                         const isEmpty = !arc.slot.id;
                         const angleDelta = arc.endAngle - arc.startAngle;
                         const midA = arcMidAngle(arc);
+                        const arcH = arc.outerR - arc.innerR;
                         const labelR = (arc.innerR + arc.outerR) / 2;
-                        // Labels positioned relative to center (0,0) since transform handles offset
-                        const lx = labelR * Math.cos(midA);
-                        const ly = labelR * Math.sin(midA);
-                        const showLabel = !isEmpty && angleDelta >= MIN_LABEL_ARC;
-
-                        // Label rotation: keep text readable
-                        let labelRotDeg = (midA * 180) / Math.PI + 90;
-                        // Flip text that would be upside-down
-                        if (midA > Math.PI / 2 && midA < (3 * Math.PI) / 2) {
-                            labelRotDeg += 180;
-                        }
+                        const arcTangentialWidth = labelR * angleDelta; // px along arc midline
 
                         const isSelected = !!arc.slot.id && arc.slot.id === selectedArc?.slot.id;
+                        const isHovered = !!arc.slot.id && arc.slot.id === hoveredArcId;
+
+                        const gNode = arc.slot.id ? graphNodeMap.get(arc.slot.id) : undefined;
+                        const yearsStr = buildYearsStr(gNode);
+
+                        // Gen 1–3: curved text following the arc; gen 4+: straight radial text.
+                        const isInnerRing = arc.slot.generation <= 3;
+                        const minLabelArc = isInnerRing ? MIN_LABEL_ARC_INNER : MIN_LABEL_ARC_OUTER;
+                        const showLabel = !isEmpty && angleDelta >= minLabelArc;
 
                         return (
                             <g key={`${arc.slot.generation}-${arc.slot.slotIndex}`}>
                                 <path
+                                    className="fan-arc"
                                     d={arcPathStr(arc, 0, 0)}
                                     fill={isEmpty ? 'var(--muted)' : lineageColor(arc.slot, isDark)}
-                                    stroke={isSelected ? 'var(--primary)' : 'var(--background)'}
-                                    strokeWidth={isSelected ? 2.5 : 1.5}
-                                    opacity={isEmpty ? 0.18 : isSelected ? 0.85 : 1}
-                                    onClick={(e) => {
+                                    stroke={isSelected ? 'var(--primary)' : isHovered ? 'rgba(255,255,255,0.55)' : 'var(--background)'}
+                                    strokeWidth={isSelected ? 2.5 : isHovered ? 2 : 1.5}
+                                    opacity={isEmpty ? 0.18 : isSelected ? 0.95 : isHovered ? 0.72 : 0.88}
+                                    onClick={isEmpty ? undefined : (e) => {
                                         e.stopPropagation();
                                         handleArcClick(arc);
                                     }}
-                                    className={isEmpty ? 'cursor-default' : 'cursor-pointer'}
-                                    style={!isEmpty ? { transition: 'opacity 0.15s, stroke 0.15s' } : undefined}
-                                    onMouseEnter={
-                                        !isEmpty && !isSelected
-                                            ? (e) => {
-                                                  (e.currentTarget as SVGPathElement).style.opacity = '0.75';
-                                              }
-                                            : undefined
-                                    }
-                                    onMouseLeave={
-                                        !isEmpty && !isSelected
-                                            ? (e) => {
-                                                  (e.currentTarget as SVGPathElement).style.opacity = '1';
-                                              }
-                                            : undefined
-                                    }
+                                    pointerEvents={isEmpty ? 'none' : undefined}
+                                    style={{ transition: 'opacity 0.12s, stroke 0.12s' }}
                                 />
-                                {showLabel && (
-                                    <text
-                                        x={lx}
-                                        y={ly}
-                                        textAnchor="middle"
-                                        dominantBaseline="middle"
-                                        fontSize={Math.max(8, Math.min(11, angleDelta * 28))}
-                                        fill="white"
-                                        transform={`rotate(${labelRotDeg.toFixed(1)}, ${lx.toFixed(1)}, ${ly.toFixed(1)})`}
-                                        style={{ pointerEvents: 'none', userSelect: 'none' }}
-                                    >
-                                        {shortName(arc.slot.label, Math.max(6, Math.floor(angleDelta * 18)))}
-                                    </text>
-                                )}
+
+                                {showLabel && isInnerRing && (() => {
+                                    // ── Gen 1–3: curved text — one <textPath> per line ─────────────
+                                    // Mirrors the defs computation exactly so path IDs match.
+                                    const nameFontSize = Math.min(14, Math.max(10, arcH * 0.19));
+                                    const yearsFontSize = Math.max(8, nameFontSize - 2);
+                                    const lineHeight = nameFontSize * 1.3;
+                                    const arcLength = labelR * angleDelta;
+                                    const maxCharsPerLine = Math.max(5, Math.floor(arcLength / (nameFontSize * 0.54)));
+                                    const showYears = !!yearsStr && angleDelta >= 0.22 && arcH >= 22;
+                                    const maxNameLines = Math.min(3, Math.max(1,
+                                        Math.floor((arcH - (showYears ? yearsFontSize * 1.4 : 0)) / lineHeight)
+                                    ));
+                                    const nameLines = wrapName(arc.slot.label, maxCharsPerLine, maxNameLines);
+                                    const g = arc.slot.generation;
+                                    const i = arc.slot.slotIndex;
+                                    return (
+                                        <>
+                                            {nameLines.map((line, li) => (
+                                                <text
+                                                    key={li}
+                                                    dominantBaseline="middle"
+                                                    fill="white"
+                                                    fontSize={nameFontSize}
+                                                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                                                >
+                                                    <textPath href={`#fan-tp-${g}-${i}-${li}`} startOffset="50%" textAnchor="middle">
+                                                        {line}
+                                                    </textPath>
+                                                </text>
+                                            ))}
+                                            {showYears && (
+                                                <text
+                                                    dominantBaseline="middle"
+                                                    fill="white"
+                                                    fontSize={yearsFontSize}
+                                                    opacity={0.8}
+                                                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                                                >
+                                                    <textPath href={`#fan-tp-${g}-${i}-y`} startOffset="50%" textAnchor="middle">
+                                                        {yearsStr}
+                                                    </textPath>
+                                                </text>
+                                            )}
+                                        </>
+                                    );
+                                })()}
+
+                                {showLabel && !isInnerRing && (() => {
+                                    // ── Gen 4+: straight radial text along the longer axis ──────────
+                                    // Text is rotated to the radial direction; multiple lines stack
+                                    // tangentially (perpendicular). Font size is uniform across all
+                                    // outer generations — the arcs are thick enough to support it.
+                                    const lx = labelR * Math.cos(midA);
+                                    const ly = labelR * Math.sin(midA);
+                                    const normMid = ((midA % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+                                    let labelRotDeg = normMid * 180 / Math.PI;
+                                    if (labelRotDeg > 90 && labelRotDeg < 270) labelRotDeg -= 180;
+
+                                    // Uniform font size for all outer rings (gen 4–6).
+                                    // Minimum 10px — gen 6 arcs are thick enough to handle it.
+                                    const nameFontSize = Math.max(10, Math.min(12, arcTangentialWidth / 8));
+                                    const yearsFontSize = Math.max(8, nameFontSize - 2);
+                                    const lineHeight = nameFontSize * 1.3;
+
+                                    // Chars per line: radial height (the long axis) / charWidth
+                                    const maxCharsPerLine = Math.max(4, Math.floor(arcH / (nameFontSize * 0.56)));
+                                    // Lines stack tangentially; cap at 2 to avoid overflow
+                                    const maxNameLines = Math.min(2, Math.max(1, Math.floor(arcTangentialWidth / lineHeight)));
+                                    const showYears = !!yearsStr && arcTangentialWidth >= 24;
+                                    const nameLines = wrapName(arc.slot.label, maxCharsPerLine, maxNameLines);
+                                    const nSlots = nameLines.length + (showYears ? 1 : 0);
+
+                                    // Center the block tangentially around (lx, ly)
+                                    // dy values are in the text's local coordinate system (tangential direction)
+                                    const startDy = -((nSlots - 1) / 2) * lineHeight;
+
+                                    return (
+                                        <text
+                                            x={lx}
+                                            y={ly}
+                                            textAnchor="middle"
+                                            dominantBaseline="middle"
+                                            fill="white"
+                                            transform={`rotate(${labelRotDeg.toFixed(1)}, ${lx.toFixed(1)}, ${ly.toFixed(1)})`}
+                                            style={{ pointerEvents: 'none', userSelect: 'none' }}
+                                        >
+                                            {nameLines.map((line, li) => (
+                                                <tspan
+                                                    key={li}
+                                                    x={lx}
+                                                    fontSize={nameFontSize}
+                                                    dy={li === 0 ? startDy.toFixed(1) : lineHeight.toFixed(1)}
+                                                >
+                                                    {line}
+                                                </tspan>
+                                            ))}
+                                            {showYears && (
+                                                <tspan
+                                                    x={lx}
+                                                    fontSize={yearsFontSize}
+                                                    dy={(nameLines.length === 0 ? startDy : lineHeight * 0.95).toFixed(1)}
+                                                    opacity={0.8}
+                                                >
+                                                    {yearsStr}
+                                                </tspan>
+                                            )}
+                                        </text>
+                                    );
+                                })()}
                             </g>
                         );
                     })}
 
                     {/* Root circle at center (0,0) */}
-                    {rootNode && (
-                        <g>
-                            <circle
-                                cx={0}
-                                cy={0}
-                                r={BASE_R}
-                                fill={sexColor(rootNode.sex)}
-                                opacity={0.92}
-                            />
-                            <text
-                                x={0}
-                                y={-6}
-                                textAnchor="middle"
-                                dominantBaseline="middle"
-                                fontSize={11}
-                                fontWeight={600}
-                                fill="white"
-                                style={{ pointerEvents: 'none', userSelect: 'none' }}
-                            >
-                                {shortName(rootNode.label, 16)}
-                            </text>
-                        </g>
-                    )}
+                    {rootNode && (() => {
+                        const rootGNode = rootNode.id ? graphNodeMap.get(rootNode.id) : undefined;
+                        const rootYears = buildYearsStr(rootGNode);
+                        return (
+                            <g>
+                                <circle
+                                    cx={0}
+                                    cy={0}
+                                    r={BASE_R}
+                                    fill={sexColor(rootNode.sex)}
+                                    opacity={0.92}
+                                />
+                                <text
+                                    x={0}
+                                    y={0}
+                                    textAnchor="middle"
+                                    dominantBaseline="middle"
+                                    fill="white"
+                                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                                >
+                                    <tspan x={0} dy={rootYears ? '-0.5em' : '0'} fontSize={11} fontWeight={600}>
+                                        {wrapName(rootNode.label, 16, 1)[0] ?? ''}
+                                    </tspan>
+                                    {rootYears && (
+                                        <tspan x={0} dy="1.15em" fontSize={9} opacity={0.85}>
+                                            {rootYears}
+                                        </tspan>
+                                    )}
+                                </text>
+                            </g>
+                        );
+                    })()}
                 </g>
             </svg>
 
@@ -409,7 +675,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                 const midA = arcMidAngle(selectedArc);
                 const offsetR = selectedArc.outerR + 16;
                 const screenX = cx + pan.x + offsetR * Math.cos(midA) * scale;
-                const screenY = cy + pan.y + offsetR * Math.sin(midA) * scale;
+                const screenY = cy + pan.y + FAN_OFFSET_Y + offsetR * Math.sin(midA) * scale;
                 const gNode = graphNodeMap.get(slot.id!);
                 return (
                     <PersonPreviewCard

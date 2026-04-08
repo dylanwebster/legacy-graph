@@ -184,6 +184,11 @@ function computeGenerationLevels(
 
 const DS_KEY = 'dashboard-state-v1';
 
+interface ViewState {
+    scale: number;
+    pan: { x: number; y: number };
+}
+
 interface DashboardState {
     rootPersonId: string | null;
     vizMode: 'force' | 'fan' | 'pedigree';
@@ -191,6 +196,9 @@ interface DashboardState {
     zoom: { k: number; cx: number; cy: number } | null;
     fanMaxGen: number;
     pedigreeOrientation: 'horizontal' | 'vertical';
+    fanView: ViewState | null;
+    pedigreeView: ViewState | null;
+    pedigreeExpanded: { up: string[]; down: string[]; siblings: string[] } | null;
 }
 
 const DS_DEFAULTS: DashboardState = {
@@ -200,6 +208,9 @@ const DS_DEFAULTS: DashboardState = {
     zoom: null,
     fanMaxGen: 4,
     pedigreeOrientation: 'horizontal',
+    fanView: null,
+    pedigreeView: null,
+    pedigreeExpanded: null,
 };
 
 function loadDashboardState(): DashboardState {
@@ -469,6 +480,9 @@ function FamilyGraphPanel({
     );
     const zoomRestoredRef = useRef(false);
     const zoomSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Hide the force graph canvas until the saved zoom/pan is applied, preventing the
+    // default-position flash before the restore setTimeout fires.
+    const [forceGraphReady, setForceGraphReady] = useState(!initialState.zoom);
     const dimsRef = useRef(dims);
     dimsRef.current = dims;
 
@@ -723,6 +737,7 @@ function FamilyGraphPanel({
         const saved = initialState.zoom;
         if (!saved) {
             zoomRestoredRef.current = true;
+            setForceGraphReady(true);
             return;
         }
 
@@ -734,6 +749,7 @@ function FamilyGraphPanel({
             // This prevents default mounting zooms from overriding the restored zoom
             setTimeout(() => {
                 zoomRestoredRef.current = true;
+                setForceGraphReady(true);
             }, 50);
         }, 100);
     }, [stableGraphData, initialState.zoom]);
@@ -784,6 +800,8 @@ function FamilyGraphPanel({
         setRootSearch('');
         setRootFocused(false);
         saveForceState(id);
+        // Clear fan/pedigree view+expand state so the fresh root starts at default zoom
+        updateDs({ fanView: null, pedigreeView: null, pedigreeExpanded: null });
 
         // Always freeze simulation synchronously — this runs before the next rAF tick,
         // so nodes stop immediately instead of drifting until the forces effect fires.
@@ -807,7 +825,7 @@ function FamilyGraphPanel({
                 fgRef.current.zoom(1.4, 600);
             }
         }
-    }, [saveForceState]);
+    }, [saveForceState, updateDs]);
 
     const rootDropdownNodes = useMemo<SimNode[]>(() => {
         if (!rootFocused || !stableGraphData) return [];
@@ -1709,6 +1727,8 @@ function FamilyGraphPanel({
                             maxGen={dsState.fanMaxGen}
                             onMaxGenChange={(g) => updateDs({ fanMaxGen: g })}
                             onRootChange={(id) => handleSetRoot(id)}
+                            initialView={dsState.fanView}
+                            onViewChange={(view) => updateDs({ fanView: view })}
                         />
                     </div>
                 )}
@@ -1730,6 +1750,10 @@ function FamilyGraphPanel({
                             orientation={dsState.pedigreeOrientation}
                             onOrientationChange={(o) => updateDs({ pedigreeOrientation: o })}
                             onRootChange={(id) => handleSetRoot(id)}
+                            initialView={dsState.pedigreeView}
+                            onViewChange={(view) => updateDs({ pedigreeView: view })}
+                            initialExpanded={dsState.pedigreeExpanded}
+                            onExpandChange={(expanded) => updateDs({ pedigreeExpanded: expanded })}
                         />
                     </div>
                 )}
@@ -1743,6 +1767,7 @@ function FamilyGraphPanel({
                         style={{
                             visibility: dsState.vizMode === 'force' ? 'visible' : 'hidden',
                             pointerEvents: dsState.vizMode === 'force' ? 'auto' : 'none',
+                            opacity: forceGraphReady ? 1 : 0,
                         }}
                     >
                         <ForceGraph2D
@@ -1752,7 +1777,7 @@ function FamilyGraphPanel({
                             backgroundColor="transparent"
                             graphData={stableGraphData as unknown as { nodes: NodeObject[]; links: LinkObject[] }}
                             nodeId="id"
-                            nodeLabel="label"
+                            nodeLabel=""
                             nodeRelSize={NODE_R}
                             nodeCanvasObject={drawNode}
                             nodeCanvasObjectMode={() => 'replace'}

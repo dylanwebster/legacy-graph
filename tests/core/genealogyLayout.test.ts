@@ -154,17 +154,17 @@ describe('computeFanArcLayout', () => {
         expect(arcs).toHaveLength(6);
     });
 
-    it('arcs for a generation span full 360deg (2*PI)', () => {
+    it('arcs for a generation span the full 270deg (1.5*PI)', () => {
         const slots = buildAncestorTree(nodes, links, 'ROOT', 1);
         const arcs = computeFanArcLayout(slots, 600);
-        // Gen 1 has 2 arcs that should together span 360deg
+        // Gen 1 has 2 arcs that should together span 270deg
         expect(arcs).toHaveLength(2);
         const startAngles = arcs.map(a => a.startAngle);
         const endAngles = arcs.map(a => a.endAngle);
         const minAngle = Math.min(...startAngles);
         const maxAngle = Math.max(...endAngles);
         const totalSpan = maxAngle - minAngle;
-        expect(totalSpan).toBeCloseTo(2 * Math.PI, 1);
+        expect(totalSpan).toBeCloseTo(1.5 * Math.PI, 1);
     });
 
     it('uses containerSize (min dimension) for ring scaling', () => {
@@ -515,11 +515,54 @@ describe('computeAdaptiveTreeLayout', () => {
         }
     });
 
-    it('generates sibling connectors with kind "sibling"', () => {
+    it('expanded siblings do not overlap other nodes at the same generation column', () => {
+        // P1 has 2 parents (GP1, GP2) and 3 siblings (S1-S3).
+        // With only max(selfH, parentTotal), the centering offset pushes siblings
+        // below the allocated space, causing them to overlap with P2.
+        const overlapNodes = [
+            { id: 'R', label: 'Root', sex: 'M' },
+            { id: 'P1', label: 'Parent 1', sex: 'M' },
+            { id: 'P2', label: 'Parent 2', sex: 'F' },
+            { id: 'GP1', label: 'Grandparent 1', sex: 'M' },
+            { id: 'GP2', label: 'Grandparent 2', sex: 'F' },
+            { id: 'S1', label: 'Sibling 1', sex: 'M' },
+            { id: 'S2', label: 'Sibling 2', sex: 'M' },
+            { id: 'S3', label: 'Sibling 3', sex: 'M' },
+        ];
+        const overlapLinks = [
+            { source: 'R', target: 'P1', type: 'parent_child' },
+            { source: 'R', target: 'P2', type: 'parent_child' },
+            { source: 'P1', target: 'GP1', type: 'parent_child' },
+            { source: 'P1', target: 'GP2', type: 'parent_child' },
+            { source: 'S1', target: 'GP1', type: 'parent_child' },
+            { source: 'S2', target: 'GP1', type: 'parent_child' },
+            { source: 'S3', target: 'GP1', type: 'parent_child' },
+        ];
+        // Expand P1's siblings
+        const tree = buildFamilyTree(overlapNodes, overlapLinks, 'R', 2, 0,
+            new Set(), new Set(), new Set(['P1']));
+        const layout = computeAdaptiveTreeLayout(tree, 'horizontal');
+
+        const p2Node = layout.nodes.find(n => n.node.id === 'P2')!;
+        const sibNodes = layout.nodes.filter(n => ['S1', 'S2', 'S3'].includes(n.node.id ?? ''));
+        expect(sibNodes.length).toBe(3);
+
+        for (const sib of sibNodes) {
+            // P2 and each sibling are in the same X column; they must not overlap in Y
+            const noOverlap = sib.y + sib.height <= p2Node.y || sib.y >= p2Node.y + p2Node.height;
+            expect(noOverlap).toBe(true);
+        }
+    });
+
+    it('sibling connectors are parent-child kind with isLineage false (no bracket connectors)', () => {
         const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 1, 1, new Set(), new Set(), new Set(['ROOT']));
         const layout = computeAdaptiveTreeLayout(tree, 'horizontal');
-        const siblingConnectors = layout.connectors.filter(c => c.kind === 'sibling');
-        expect(siblingConnectors.length).toBeGreaterThanOrEqual(1);
+        // No 'sibling' kind connectors — siblings now use standard parent-child connectors
+        expect(layout.connectors.filter(c => c.kind === 'sibling')).toHaveLength(0);
+        // Connectors involving SIBLING should exist and have isLineage false
+        const sibConnectors = layout.connectors.filter(c => c.id.startsWith('SIBLING-') || c.id.includes('-SIBLING-'));
+        expect(sibConnectors.length).toBeGreaterThan(0);
+        sibConnectors.forEach(c => expect(c.isLineage).toBe(false));
     });
 
     it('generates parent-child connectors with kind "parent-child"', () => {
@@ -527,5 +570,20 @@ describe('computeAdaptiveTreeLayout', () => {
         const layout = computeAdaptiveTreeLayout(tree, 'horizontal');
         const pcConnectors = layout.connectors.filter(c => c.kind === 'parent-child');
         expect(pcConnectors.length).toBeGreaterThanOrEqual(4);
+    });
+
+    it('direct ancestor connectors have isLineage true', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 1, 0, new Set(), new Set(), new Set());
+        const layout = computeAdaptiveTreeLayout(tree, 'horizontal');
+        const rootToFather = layout.connectors.find(c => c.id.includes('ROOT') && c.id.includes('FATHER'));
+        expect(rootToFather?.isLineage).toBe(true);
+    });
+
+    it('FamilyTreeNode.isLineage is true for root and ancestors, false for siblings', () => {
+        const tree = buildFamilyTree(extendedNodes, extendedLinks, 'ROOT', 1, 0, new Set(), new Set(), new Set(['ROOT']));
+        expect(tree.isLineage).toBe(true);
+        expect(tree.parents[0].isLineage).toBe(true);
+        const sib = tree.siblings[0]!;
+        expect(sib.isLineage).toBe(false);
     });
 });
