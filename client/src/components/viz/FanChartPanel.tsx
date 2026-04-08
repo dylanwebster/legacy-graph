@@ -73,19 +73,36 @@ function arcMidAngle(arc: FanArc): number {
     return (arc.startAngle + arc.endAngle) / 2;
 }
 
-/** Truncate label to fit inside arc (rough heuristic). */
-function shortName(label: string, maxChars = 14): string {
+/**
+ * Word-wrap a person label to fit within a fixed column width.
+ * Abbreviates first, then greedily packs words into lines.
+ * Hard-truncates the last line with "…" if a single word is too wide.
+ */
+function wrapName(label: string, maxCharsPerLine: number, maxLines: number): string[] {
     const abbreviated = abbreviateName(label);
-    if (abbreviated.length <= maxChars) return abbreviated;
-    const parts = abbreviated.split(' ');
-    if (parts.length >= 2) {
-        const first = parts[0];
-        const lastInitial = parts[parts.length - 1][0] + '.';
-        const candidate = `${first} ${lastInitial}`;
-        if (candidate.length <= maxChars) return candidate;
-        return first.slice(0, maxChars);
+    if (abbreviated.length <= maxCharsPerLine) return [abbreviated];
+    const words = abbreviated.split(/\s+/).filter(Boolean);
+    const lines: string[] = [];
+    let current = '';
+    for (const word of words) {
+        if (lines.length >= maxLines) break;
+        const candidate = current ? `${current} ${word}` : word;
+        if (candidate.length <= maxCharsPerLine) {
+            current = candidate;
+        } else {
+            if (current) lines.push(current);
+            current = word.length <= maxCharsPerLine ? word : `${word.slice(0, maxCharsPerLine - 1)}…`;
+        }
     }
-    return abbreviated.slice(0, maxChars);
+    if (current && lines.length < maxLines) lines.push(current);
+    // Hard-truncate last line if it still overflows
+    if (lines.length > 0) {
+        const last = lines[lines.length - 1];
+        if (last.length > maxCharsPerLine) {
+            lines[lines.length - 1] = `${last.slice(0, maxCharsPerLine - 1)}…`;
+        }
+    }
+    return lines.filter(Boolean);
 }
 
 /** Format birth/death years for display inside an arc. */
@@ -345,41 +362,47 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                     {/* Curved text paths for gen 1–3 arcs.
                         Path travels START→END clockwise (sweep=1): ascenders point outward so text
                         reads correctly from outside the chart.
-                        Two paths per arc (name / years) at slightly different radii so each
-                        <textPath startOffset="50%"> centers independently.
-                        Radii are computed with showYears awareness so the label block is
-                        vertically centered in the arc band whether one or two lines are shown. */}
+                        One path per line (name lines + optional years), each at the radius
+                        that centers the whole block within the arc band. */}
                     <defs>
                         {arcs
                             .filter((arc) => arc.slot.generation >= 1 && arc.slot.generation <= 3 && arc.slot.id)
                             .flatMap((arc) => {
                                 const arcH = arc.outerR - arc.innerR;
                                 const angleDelta = arc.endAngle - arc.startAngle;
-                                const nameFontSize = Math.min(13, Math.max(9, arcH * 0.18));
-                                const yearsFontSize = Math.max(7, nameFontSize - 2);
                                 const midR = (arc.innerR + arc.outerR) / 2;
-                                // Determine if years will be shown for this arc (mirrors render logic)
+                                const nameFontSize = Math.min(14, Math.max(10, arcH * 0.19));
+                                const yearsFontSize = Math.max(8, nameFontSize - 2);
+                                const lineHeight = nameFontSize * 1.3;
+                                const arcLength = midR * angleDelta;
+                                const maxCharsPerLine = Math.max(5, Math.floor(arcLength / (nameFontSize * 0.54)));
                                 const gNode = arc.slot.id ? graphNodeMap.get(arc.slot.id) : undefined;
                                 const hasYears = !!buildYearsStr(gNode) && angleDelta >= 0.22 && arcH >= 22;
-                                // Center the label block within the arc band:
-                                //   - single line → name path at midR
-                                //   - two lines  → shift name outward and years inward equally
-                                const lineShift = hasYears ? (nameFontSize + yearsFontSize) * 0.28 : 0;
-                                const nameR = midR + lineShift;
-                                const yearsR = midR - lineShift;
+                                const maxNameLines = Math.min(3, Math.max(1,
+                                    Math.floor((arcH - (hasYears ? yearsFontSize * 1.4 : 0)) / lineHeight)
+                                ));
+                                const nameLines = wrapName(arc.slot.label, maxCharsPerLine, maxNameLines);
+                                const nSlots = nameLines.length + (hasYears ? 1 : 0);
                                 const g = arc.slot.generation;
                                 const i = arc.slot.slotIndex;
                                 const largeArc = angleDelta > Math.PI ? 1 : 0;
                                 const makePath = (r: number) => {
-                                    const sx = (r * Math.cos(arc.startAngle)).toFixed(2);
-                                    const sy = (r * Math.sin(arc.startAngle)).toFixed(2);
-                                    const ex = (r * Math.cos(arc.endAngle)).toFixed(2);
-                                    const ey = (r * Math.sin(arc.endAngle)).toFixed(2);
-                                    return `M ${sx} ${sy} A ${r.toFixed(2)} ${r.toFixed(2)} 0 ${largeArc} 1 ${ex} ${ey}`;
+                                    const rr = Math.max(1, r);
+                                    const sx = (rr * Math.cos(arc.startAngle)).toFixed(2);
+                                    const sy = (rr * Math.sin(arc.startAngle)).toFixed(2);
+                                    const ex = (rr * Math.cos(arc.endAngle)).toFixed(2);
+                                    const ey = (rr * Math.sin(arc.endAngle)).toFixed(2);
+                                    return `M ${sx} ${sy} A ${rr.toFixed(2)} ${rr.toFixed(2)} 0 ${largeArc} 1 ${ex} ${ey}`;
                                 };
+                                // Slot 0 = outermost, slot nSlots-1 = innermost, block centered at midR
+                                const slotR = (slot: number) => midR + ((nSlots - 1) / 2 - slot) * lineHeight;
                                 return [
-                                    <path key={`fan-tp-name-${g}-${i}`} id={`fan-tp-name-${g}-${i}`} d={makePath(nameR)} />,
-                                    <path key={`fan-tp-years-${g}-${i}`} id={`fan-tp-years-${g}-${i}`} d={makePath(yearsR)} />,
+                                    ...nameLines.map((_, li) => (
+                                        <path key={`fan-tp-${g}-${i}-${li}`} id={`fan-tp-${g}-${i}-${li}`} d={makePath(slotR(li))} />
+                                    )),
+                                    ...(hasYears ? [
+                                        <path key={`fan-tp-${g}-${i}-y`} id={`fan-tp-${g}-${i}-y`} d={makePath(slotR(nameLines.length))} />,
+                                    ] : []),
                                 ];
                             })}
                     </defs>
@@ -421,27 +444,35 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                                 />
 
                                 {showLabel && isInnerRing && (() => {
-                                    // ── Gen 1–3: curved text following the arc midline ──────────────
-                                    // Name and years each get their own textPath (different radii) so
-                                    // startOffset="50%" centers each line independently.
-                                    const nameMaxChars = Math.max(6, Math.floor(arcTangentialWidth / 6));
-                                    const nameFontSize = Math.min(13, Math.max(9, arcH * 0.18));
-                                    const yearsFontSize = Math.max(7, nameFontSize - 2);
+                                    // ── Gen 1–3: curved text — one <textPath> per line ─────────────
+                                    // Mirrors the defs computation exactly so path IDs match.
+                                    const nameFontSize = Math.min(14, Math.max(10, arcH * 0.19));
+                                    const yearsFontSize = Math.max(8, nameFontSize - 2);
+                                    const lineHeight = nameFontSize * 1.3;
+                                    const arcLength = labelR * angleDelta;
+                                    const maxCharsPerLine = Math.max(5, Math.floor(arcLength / (nameFontSize * 0.54)));
                                     const showYears = !!yearsStr && angleDelta >= 0.22 && arcH >= 22;
+                                    const maxNameLines = Math.min(3, Math.max(1,
+                                        Math.floor((arcH - (showYears ? yearsFontSize * 1.4 : 0)) / lineHeight)
+                                    ));
+                                    const nameLines = wrapName(arc.slot.label, maxCharsPerLine, maxNameLines);
                                     const g = arc.slot.generation;
                                     const i = arc.slot.slotIndex;
                                     return (
                                         <>
-                                            <text
-                                                dominantBaseline="middle"
-                                                fill="white"
-                                                fontSize={nameFontSize}
-                                                style={{ pointerEvents: 'none', userSelect: 'none' }}
-                                            >
-                                                <textPath href={`#fan-tp-name-${g}-${i}`} startOffset="50%" textAnchor="middle">
-                                                    {shortName(arc.slot.label, nameMaxChars)}
-                                                </textPath>
-                                            </text>
+                                            {nameLines.map((line, li) => (
+                                                <text
+                                                    key={li}
+                                                    dominantBaseline="middle"
+                                                    fill="white"
+                                                    fontSize={nameFontSize}
+                                                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                                                >
+                                                    <textPath href={`#fan-tp-${g}-${i}-${li}`} startOffset="50%" textAnchor="middle">
+                                                        {line}
+                                                    </textPath>
+                                                </text>
+                                            ))}
                                             {showYears && (
                                                 <text
                                                     dominantBaseline="middle"
@@ -450,7 +481,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                                                     opacity={0.8}
                                                     style={{ pointerEvents: 'none', userSelect: 'none' }}
                                                 >
-                                                    <textPath href={`#fan-tp-years-${g}-${i}`} startOffset="50%" textAnchor="middle">
+                                                    <textPath href={`#fan-tp-${g}-${i}-y`} startOffset="50%" textAnchor="middle">
                                                         {yearsStr}
                                                     </textPath>
                                                 </text>
@@ -461,37 +492,60 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
 
                                 {showLabel && !isInnerRing && (() => {
                                     // ── Gen 4+: straight radial text along the longer axis ──────────
-                                    // Rotation: align with the radial (outward) direction, flip to avoid
-                                    // upside-down text.
+                                    // Text is rotated to the radial direction; multiple lines stack
+                                    // tangentially (perpendicular). Font size is uniform across all
+                                    // outer generations — the arcs are thick enough to support it.
                                     const lx = labelR * Math.cos(midA);
                                     const ly = labelR * Math.sin(midA);
                                     const normMid = ((midA % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
                                     let labelRotDeg = normMid * 180 / Math.PI;
                                     if (labelRotDeg > 90 && labelRotDeg < 270) labelRotDeg -= 180;
 
-                                    // nameMaxChars based on radial height (the longer axis)
-                                    const nameMaxChars = Math.max(4, Math.floor(arcH / 7));
-                                    // Font size constrained by tangential arc width (perpendicular to text)
-                                    const nameFontSize = Math.max(7, Math.min(11, arcTangentialWidth * 0.14));
-                                    const yearsFontSize = Math.max(6, nameFontSize - 2);
-                                    // Show years only when tangential space allows two stacked lines
-                                    const showYears = !!yearsStr && arcTangentialWidth >= 38;
+                                    // Uniform font size for all outer rings (gen 4–6).
+                                    // Minimum 10px — gen 6 arcs are thick enough to handle it.
+                                    const nameFontSize = Math.max(10, Math.min(12, arcTangentialWidth / 8));
+                                    const yearsFontSize = Math.max(8, nameFontSize - 2);
+                                    const lineHeight = nameFontSize * 1.3;
+
+                                    // Chars per line: radial height (the long axis) / charWidth
+                                    const maxCharsPerLine = Math.max(4, Math.floor(arcH / (nameFontSize * 0.56)));
+                                    // Lines stack tangentially; cap at 2 to avoid overflow
+                                    const maxNameLines = Math.min(2, Math.max(1, Math.floor(arcTangentialWidth / lineHeight)));
+                                    const showYears = !!yearsStr && arcTangentialWidth >= 24;
+                                    const nameLines = wrapName(arc.slot.label, maxCharsPerLine, maxNameLines);
+                                    const nSlots = nameLines.length + (showYears ? 1 : 0);
+
+                                    // Center the block tangentially around (lx, ly)
+                                    // dy values are in the text's local coordinate system (tangential direction)
+                                    const startDy = -((nSlots - 1) / 2) * lineHeight;
+
                                     return (
                                         <text
                                             x={lx}
                                             y={ly}
                                             textAnchor="middle"
                                             dominantBaseline="middle"
-                                            fontSize={nameFontSize}
                                             fill="white"
                                             transform={`rotate(${labelRotDeg.toFixed(1)}, ${lx.toFixed(1)}, ${ly.toFixed(1)})`}
                                             style={{ pointerEvents: 'none', userSelect: 'none' }}
                                         >
-                                            <tspan x={lx} dy={showYears ? '-0.45em' : '0'}>
-                                                {shortName(arc.slot.label, nameMaxChars)}
-                                            </tspan>
+                                            {nameLines.map((line, li) => (
+                                                <tspan
+                                                    key={li}
+                                                    x={lx}
+                                                    fontSize={nameFontSize}
+                                                    dy={li === 0 ? startDy.toFixed(1) : lineHeight.toFixed(1)}
+                                                >
+                                                    {line}
+                                                </tspan>
+                                            ))}
                                             {showYears && (
-                                                <tspan x={lx} dy="1.15em" fontSize={yearsFontSize} opacity={0.8}>
+                                                <tspan
+                                                    x={lx}
+                                                    fontSize={yearsFontSize}
+                                                    dy={(nameLines.length === 0 ? startDy : lineHeight * 0.95).toFixed(1)}
+                                                    opacity={0.8}
+                                                >
                                                     {yearsStr}
                                                 </tspan>
                                             )}
@@ -524,7 +578,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                                     style={{ pointerEvents: 'none', userSelect: 'none' }}
                                 >
                                     <tspan x={0} dy={rootYears ? '-0.5em' : '0'} fontSize={11} fontWeight={600}>
-                                        {shortName(rootNode.label, 16)}
+                                        {wrapName(rootNode.label, 16, 1)[0] ?? ''}
                                     </tspan>
                                     {rootYears && (
                                         <tspan x={0} dy="1.15em" fontSize={9} opacity={0.85}>
