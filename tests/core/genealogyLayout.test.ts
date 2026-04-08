@@ -4,6 +4,8 @@ import {
     buildFamilyTree,
     computeFanArcLayout,
     computeAdaptiveTreeLayout,
+    FAN_START_ANGLE,
+    normalizeFanAngle,
     type AncestorSlot,
     type FamilyTreeNode,
 } from '../../client/src/utils/genealogyLayout';
@@ -627,5 +629,69 @@ describe('computeAdaptiveTreeLayout', () => {
         expect(tree.parents[0].isLineage).toBe(true);
         const sib = tree.siblings[0]!;
         expect(sib.isLineage).toBe(false);
+    });
+});
+
+// ─── normalizeFanAngle ───────────────────────────────────────────────────────
+
+describe('normalizeFanAngle', () => {
+    const START = FAN_START_ANGLE; // 0.75π ≈ 2.356
+
+    it('angle at 180° (left side) stays unchanged — already above START_ANGLE', () => {
+        const result = normalizeFanAngle(Math.PI);
+        expect(result).toBeCloseTo(Math.PI, 10);
+    });
+
+    it('angle at 135° (exactly START_ANGLE) stays unchanged', () => {
+        const result = normalizeFanAngle(START);
+        expect(result).toBeCloseTo(START, 10);
+    });
+
+    it('angle at 270° (top) maps from -π/2 to 1.5π', () => {
+        const result = normalizeFanAngle(-Math.PI / 2);
+        expect(result).toBeCloseTo(1.5 * Math.PI, 10);
+    });
+
+    it('angle at 0° (right side) maps from 0 to 2π', () => {
+        const result = normalizeFanAngle(0);
+        expect(result).toBeCloseTo(2 * Math.PI, 10);
+    });
+
+    it('angle at 45° (fan end, lower-right) maps from π/4 to 2.25π', () => {
+        const result = normalizeFanAngle(Math.PI / 4);
+        expect(result).toBeCloseTo(2.25 * Math.PI, 10);
+    });
+
+    it('angle just below START_ANGLE gets shifted into arc range', () => {
+        const justBelow = START - 0.001;
+        const result = normalizeFanAngle(justBelow);
+        expect(result).toBeCloseTo(justBelow + 2 * Math.PI, 10);
+    });
+
+    it('negative angles (upper half) are shifted correctly', () => {
+        // -π (left edge, same as π) → shifted to π (since -π < START)
+        const result = normalizeFanAngle(-Math.PI);
+        expect(result).toBeCloseTo(Math.PI, 10);
+    });
+
+    it('normalized angle enables correct hit-test for right-side arcs (regression)', () => {
+        // Simulates the bug: arc at [2.1π, 2.15π], cursor atan2 ≈ 0.12π
+        const arcStart = 2.1 * Math.PI;
+        const arcEnd = 2.15 * Math.PI;
+        const raw = 0.12 * Math.PI; // atan2 result for a point at ~2.12π
+        const testAngle = normalizeFanAngle(raw);
+
+        // Should map to 0.12π + 2π = 2.12π — inside the arc
+        expect(testAngle).toBeCloseTo(2.12 * Math.PI, 10);
+        expect(testAngle).toBeGreaterThanOrEqual(arcStart);
+        expect(testAngle).toBeLessThanOrEqual(arcEnd);
+    });
+
+    it('normalized angle correctly misses arcs outside the fan gap', () => {
+        // 90° (straight down, in the fan gap) → atan2 = π/2 ≈ 1.571
+        // 1.571 < START (2.356), so shifted to 1.571 + 2π ≈ 7.854
+        // Max fan endAngle is 2.25π ≈ 7.069, so 7.854 > 7.069 → miss
+        const result = normalizeFanAngle(Math.PI / 2);
+        expect(result).toBeGreaterThan(2.25 * Math.PI);
     });
 });

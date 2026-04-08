@@ -4,6 +4,7 @@ import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
 import {
     buildAncestorTree,
     computeFanArcLayout,
+    normalizeFanAngle,
     type AncestorSlot,
     type FanArc,
 } from '@/utils/genealogyLayout';
@@ -379,9 +380,11 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
      *
      * Algorithm:
      *  1. Invert the SVG transform (pan, scale, FAN_OFFSET_Y_FRAC) to get fan-local (r, θ).
-     *  2. Binary-search the pre-sorted ring bands by radius (O(log G), vs. O(N) scan).
-     *  3. Within the matched ring, test only that generation's arcs angularly using the
-     *     "offset within span" formulation — no modulo normalization, no values > 4π.
+     *  2. Find the matching radial ring band by radius.
+     *  3. Normalize the atan2 angle into the fan's coordinate space [0.75π, 2.75π)
+     *     via normalizeFanAngle, then do a direct range check against each arc's
+     *     [startAngle, endAngle]. No modulo — avoids floating-point instability
+     *     at the 2π boundary that caused intermittent hover misses on right-side arcs.
      */
     const hitTestArc = useCallback(
         (clientX: number, clientY: number, svgRect: DOMRect): FanArc | null => {
@@ -390,22 +393,14 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
             const fanY = (clientY - svgRect.top  - cy - pan.y - fanOffsetY) / scale;
             const r = Math.sqrt(fanX * fanX + fanY * fanY);
 
-            // Radial band lookup. Epsilon is consistent with the angular tolerance below
-            // so the hit area is geometrically flush at both inner and outer ring edges.
             const EPSILON = 1e-9;
             const band = ringBands.find(b => r >= b.innerR - EPSILON && r <= b.outerR + EPSILON);
             if (!band) return null;
 
-            const testAngle = Math.atan2(fanY, fanX);
+            const testAngle = normalizeFanAngle(Math.atan2(fanY, fanX));
             for (const arc of band.arcs) {
                 if (!arc.slot.id) continue;
-                const arcSpan = arc.endAngle - arc.startAngle;
-                // Offset within arc span, wrapped to [0, 2π). An angle exactly at
-                // startAngle gives offset=0 (≤ arcSpan); exactly at endAngle gives
-                // offset=arcSpan (≤ arcSpan+ε). No values ever exceed 2π.
-                let offset = (testAngle - arc.startAngle) % (2 * Math.PI);
-                if (offset < 0) offset += 2 * Math.PI;
-                if (offset <= arcSpan + EPSILON) return arc;
+                if (testAngle >= arc.startAngle - EPSILON && testAngle <= arc.endAngle + EPSILON) return arc;
             }
             return null;
         },

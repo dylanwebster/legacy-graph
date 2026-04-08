@@ -142,6 +142,17 @@ export function buildAncestorTree(
 
 // ─── computeFanArcLayout ──────────────────────────────────────────────────────
 
+/** Fan start angle: 135° (lower-left in SVG y-down). Shared with hit-test in FanChartPanel. */
+export const FAN_START_ANGLE = 0.75 * Math.PI;
+
+/**
+ * Map an atan2 result ([-π, π]) into the fan chart's arc coordinate space
+ * ([FAN_START_ANGLE, FAN_START_ANGLE + 2π)).
+ */
+export function normalizeFanAngle(raw: number): number {
+    return raw < FAN_START_ANGLE ? raw + 2 * Math.PI : raw;
+}
+
 /**
  * Compute FanArc descriptors for all ancestor slots (excluding generation 0 root).
  * Fan is a 270° arc: root at center, ancestors radiate outward.
@@ -165,7 +176,6 @@ export function computeFanArcLayout(
     const INNER_RING_WIDTH = Math.min(90, Math.max(55, containerSize * 0.115));
     const OUTER_RING_WIDTH = INNER_RING_WIDTH * 2;
     const TOTAL_ANGLE = 1.5 * Math.PI; // 270°
-    const START_ANGLE = 0.75 * Math.PI; // 135° — lower-left in SVG y-down coordinates
 
     const result: FanArc[] = [];
 
@@ -176,7 +186,7 @@ export function computeFanArcLayout(
         const slotsInGen = Math.pow(2, g);
         const slotWidth = TOTAL_ANGLE / slotsInGen;
 
-        const startAngle = START_ANGLE + slot.slotIndex * slotWidth;
+        const startAngle = FAN_START_ANGLE + slot.slotIndex * slotWidth;
         const endAngle = startAngle + slotWidth;
 
         // Gen 1–3: uniform inner ring width.
