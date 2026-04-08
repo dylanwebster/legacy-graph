@@ -825,7 +825,7 @@ function FamilyGraphPanel({
                 fgRef.current.zoom(1.4, 600);
             }
         }
-    }, [saveForceState]);
+    }, [saveForceState, updateDs]);
 
     const rootDropdownNodes = useMemo<SimNode[]>(() => {
         if (!rootFocused || !stableGraphData) return [];

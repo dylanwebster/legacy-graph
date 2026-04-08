@@ -430,6 +430,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                         return (
                             <g key={`${arc.slot.generation}-${arc.slot.slotIndex}`}>
                                 <path
+                                    className="fan-arc"
                                     d={arcPathStr(arc, 0, 0)}
                                     fill={isEmpty ? 'var(--muted)' : lineageColor(arc.slot, isDark)}
                                     stroke={isSelected ? 'var(--primary)' : isHovered ? 'rgba(255,255,255,0.55)' : 'var(--background)'}

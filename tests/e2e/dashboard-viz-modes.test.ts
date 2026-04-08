@@ -71,7 +71,7 @@ test.describe('Dashboard Visualization Modes', () => {
 
         const svg = page.locator('[data-testid="fan-chart-svg"]');
         await expect(svg).toBeVisible({ timeout: 5_000 });
-        await expect(svg.locator('path').first()).toBeVisible({ timeout: 5_000 });
+        await expect(svg.locator('path.fan-arc').first()).toBeVisible({ timeout: 5_000 });
     });
 
     test('Fan Chart click arc re-roots the chart', async ({ page }) => {
