@@ -98,8 +98,11 @@ function buildYearsStr(node?: { birthYear?: number | null; deathYear?: number | 
     return '';
 }
 
-/** Minimum arc angular width (radians) to show a label. */
-const MIN_LABEL_ARC = 0.18; // ~10.3° (safe with 270° fan giving wider arcs)
+/** Minimum arc angular width (radians) to show a label for inner curved-text rings (gen 1–3). */
+const MIN_LABEL_ARC_INNER = 0.15; // ~8.6°
+/** Minimum arc angular width (radians) to show a label for outer radial-text rings (gen 4+).
+ *  Much lower because available space is along the radial axis, not the tangential arc. */
+const MIN_LABEL_ARC_OUTER = 0.05; // ~2.9°
 
 const MOBILE_BREAKPOINT = 640;
 
@@ -339,47 +342,67 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                 onMouseLeave={() => setHoveredArcId(null)}
             >
                 <g transform={transform}>
+                    {/* Curved text paths for gen 1–3 arcs.
+                        Path travels START→END clockwise (sweep=1): ascenders point outward so text
+                        reads correctly from outside the chart.
+                        Two paths per arc (name / years) at slightly different radii so each
+                        <textPath startOffset="50%"> centers independently.
+                        Radii are computed with showYears awareness so the label block is
+                        vertically centered in the arc band whether one or two lines are shown. */}
+                    <defs>
+                        {arcs
+                            .filter((arc) => arc.slot.generation >= 1 && arc.slot.generation <= 3 && arc.slot.id)
+                            .flatMap((arc) => {
+                                const arcH = arc.outerR - arc.innerR;
+                                const angleDelta = arc.endAngle - arc.startAngle;
+                                const nameFontSize = Math.min(13, Math.max(9, arcH * 0.18));
+                                const yearsFontSize = Math.max(7, nameFontSize - 2);
+                                const midR = (arc.innerR + arc.outerR) / 2;
+                                // Determine if years will be shown for this arc (mirrors render logic)
+                                const gNode = arc.slot.id ? graphNodeMap.get(arc.slot.id) : undefined;
+                                const hasYears = !!buildYearsStr(gNode) && angleDelta >= 0.22 && arcH >= 22;
+                                // Center the label block within the arc band:
+                                //   - single line → name path at midR
+                                //   - two lines  → shift name outward and years inward equally
+                                const lineShift = hasYears ? (nameFontSize + yearsFontSize) * 0.28 : 0;
+                                const nameR = midR + lineShift;
+                                const yearsR = midR - lineShift;
+                                const g = arc.slot.generation;
+                                const i = arc.slot.slotIndex;
+                                const largeArc = angleDelta > Math.PI ? 1 : 0;
+                                const makePath = (r: number) => {
+                                    const sx = (r * Math.cos(arc.startAngle)).toFixed(2);
+                                    const sy = (r * Math.sin(arc.startAngle)).toFixed(2);
+                                    const ex = (r * Math.cos(arc.endAngle)).toFixed(2);
+                                    const ey = (r * Math.sin(arc.endAngle)).toFixed(2);
+                                    return `M ${sx} ${sy} A ${r.toFixed(2)} ${r.toFixed(2)} 0 ${largeArc} 1 ${ex} ${ey}`;
+                                };
+                                return [
+                                    <path key={`fan-tp-name-${g}-${i}`} id={`fan-tp-name-${g}-${i}`} d={makePath(nameR)} />,
+                                    <path key={`fan-tp-years-${g}-${i}`} id={`fan-tp-years-${g}-${i}`} d={makePath(yearsR)} />,
+                                ];
+                            })}
+                    </defs>
+
                     {/* Arcs — rendered back-to-front (largest generation first for overlap) */}
                     {[...arcs].reverse().map((arc) => {
                         const isEmpty = !arc.slot.id;
                         const angleDelta = arc.endAngle - arc.startAngle;
                         const midA = arcMidAngle(arc);
+                        const arcH = arc.outerR - arc.innerR;
                         const labelR = (arc.innerR + arc.outerR) / 2;
-                        // Labels positioned relative to center (0,0) since transform handles offset
-                        const lx = labelR * Math.cos(midA);
-                        const ly = labelR * Math.sin(midA);
-                        const showLabel = !isEmpty && angleDelta >= MIN_LABEL_ARC;
-
-                        // Label rotation — three-step formula:
-                        // 1. Normalize midA to [0, 2π) to handle 270° wrap-around arcs.
-                        // 2. Compute tangential orientation: rotate text by (normMid + 90°).
-                        // 3. If the result lands in the "unreadable" zone (90°, 270°), flip 180°
-                        //    so the text always reads within the upright range [-90°, 90°].
-                        const normMid = ((midA % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-                        let labelRotDeg = ((normMid * 180 / Math.PI + 90) % 360 + 360) % 360;
-                        if (labelRotDeg > 90 && labelRotDeg < 270) labelRotDeg -= 180;
-
-                        // For outer generations, snap toward horizontal for legibility —
-                        // tangential text becomes too steep on narrow arcs at the chart edges.
-                        const rotCap = arc.slot.generation <= 1 ? 90 : arc.slot.generation === 2 ? 55 : 0;
-                        if (rotCap < 90) {
-                            labelRotDeg = Math.sign(labelRotDeg || 1) * Math.min(Math.abs(labelRotDeg), rotCap);
-                        }
+                        const arcTangentialWidth = labelR * angleDelta; // px along arc midline
 
                         const isSelected = !!arc.slot.id && arc.slot.id === selectedArc?.slot.id;
                         const isHovered = !!arc.slot.id && arc.slot.id === hoveredArcId;
 
-                        // Richer label: name + birth/death years when arc is wide enough.
-                        // Use actual arc length (labelR × angleDelta) for truncation — outer rings
-                        // have larger radii so they fit more characters than angleDelta alone implies.
                         const gNode = arc.slot.id ? graphNodeMap.get(arc.slot.id) : undefined;
                         const yearsStr = buildYearsStr(gNode);
-                        const arcH = arc.outerR - arc.innerR;
-                        const arcLength = labelR * angleDelta; // px along the arc midline
-                        const showYears = !isEmpty && !!yearsStr && angleDelta >= 0.28 && arcH >= 20;
-                        const nameMaxChars = Math.max(4, Math.floor(arcLength / 6.5));
-                        const nameFontSize = Math.max(8, Math.min(11, Math.min(angleDelta * 30, arcH * 0.45)));
-                        const yearsFontSize = Math.max(7, nameFontSize - 1.5);
+
+                        // Gen 1–3: curved text following the arc; gen 4+: straight radial text.
+                        const isInnerRing = arc.slot.generation <= 3;
+                        const minLabelArc = isInnerRing ? MIN_LABEL_ARC_INNER : MIN_LABEL_ARC_OUTER;
+                        const showLabel = !isEmpty && angleDelta >= minLabelArc;
 
                         return (
                             <g key={`${arc.slot.generation}-${arc.slot.slotIndex}`}>
@@ -396,27 +419,85 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                                     className={isEmpty ? 'cursor-default' : 'cursor-pointer'}
                                     style={{ transition: 'opacity 0.12s, stroke 0.12s' }}
                                 />
-                                {showLabel && (
-                                    <text
-                                        x={lx}
-                                        y={ly}
-                                        textAnchor="middle"
-                                        dominantBaseline="middle"
-                                        fontSize={nameFontSize}
-                                        fill="white"
-                                        transform={`rotate(${labelRotDeg.toFixed(1)}, ${lx.toFixed(1)}, ${ly.toFixed(1)})`}
-                                        style={{ pointerEvents: 'none', userSelect: 'none' }}
-                                    >
-                                        <tspan x={lx} dy={showYears ? '-0.45em' : '0'}>
-                                            {shortName(arc.slot.label, nameMaxChars)}
-                                        </tspan>
-                                        {showYears && (
-                                            <tspan x={lx} dy="1.1em" fontSize={yearsFontSize} opacity={0.8}>
-                                                {yearsStr}
+
+                                {showLabel && isInnerRing && (() => {
+                                    // ── Gen 1–3: curved text following the arc midline ──────────────
+                                    // Name and years each get their own textPath (different radii) so
+                                    // startOffset="50%" centers each line independently.
+                                    const nameMaxChars = Math.max(6, Math.floor(arcTangentialWidth / 6));
+                                    const nameFontSize = Math.min(13, Math.max(9, arcH * 0.18));
+                                    const yearsFontSize = Math.max(7, nameFontSize - 2);
+                                    const showYears = !!yearsStr && angleDelta >= 0.22 && arcH >= 22;
+                                    const g = arc.slot.generation;
+                                    const i = arc.slot.slotIndex;
+                                    return (
+                                        <>
+                                            <text
+                                                dominantBaseline="middle"
+                                                fill="white"
+                                                fontSize={nameFontSize}
+                                                style={{ pointerEvents: 'none', userSelect: 'none' }}
+                                            >
+                                                <textPath href={`#fan-tp-name-${g}-${i}`} startOffset="50%" textAnchor="middle">
+                                                    {shortName(arc.slot.label, nameMaxChars)}
+                                                </textPath>
+                                            </text>
+                                            {showYears && (
+                                                <text
+                                                    dominantBaseline="middle"
+                                                    fill="white"
+                                                    fontSize={yearsFontSize}
+                                                    opacity={0.8}
+                                                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                                                >
+                                                    <textPath href={`#fan-tp-years-${g}-${i}`} startOffset="50%" textAnchor="middle">
+                                                        {yearsStr}
+                                                    </textPath>
+                                                </text>
+                                            )}
+                                        </>
+                                    );
+                                })()}
+
+                                {showLabel && !isInnerRing && (() => {
+                                    // ── Gen 4+: straight radial text along the longer axis ──────────
+                                    // Rotation: align with the radial (outward) direction, flip to avoid
+                                    // upside-down text.
+                                    const lx = labelR * Math.cos(midA);
+                                    const ly = labelR * Math.sin(midA);
+                                    const normMid = ((midA % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+                                    let labelRotDeg = normMid * 180 / Math.PI;
+                                    if (labelRotDeg > 90 && labelRotDeg < 270) labelRotDeg -= 180;
+
+                                    // nameMaxChars based on radial height (the longer axis)
+                                    const nameMaxChars = Math.max(4, Math.floor(arcH / 7));
+                                    // Font size constrained by tangential arc width (perpendicular to text)
+                                    const nameFontSize = Math.max(7, Math.min(11, arcTangentialWidth * 0.14));
+                                    const yearsFontSize = Math.max(6, nameFontSize - 2);
+                                    // Show years only when tangential space allows two stacked lines
+                                    const showYears = !!yearsStr && arcTangentialWidth >= 38;
+                                    return (
+                                        <text
+                                            x={lx}
+                                            y={ly}
+                                            textAnchor="middle"
+                                            dominantBaseline="middle"
+                                            fontSize={nameFontSize}
+                                            fill="white"
+                                            transform={`rotate(${labelRotDeg.toFixed(1)}, ${lx.toFixed(1)}, ${ly.toFixed(1)})`}
+                                            style={{ pointerEvents: 'none', userSelect: 'none' }}
+                                        >
+                                            <tspan x={lx} dy={showYears ? '-0.45em' : '0'}>
+                                                {shortName(arc.slot.label, nameMaxChars)}
                                             </tspan>
-                                        )}
-                                    </text>
-                                )}
+                                            {showYears && (
+                                                <tspan x={lx} dy="1.15em" fontSize={yearsFontSize} opacity={0.8}>
+                                                    {yearsStr}
+                                                </tspan>
+                                            )}
+                                        </text>
+                                    );
+                                })()}
                             </g>
                         );
                     })}

@@ -150,8 +150,11 @@ export function computeFanArcLayout(
     const maxGen = Math.max(0, ...slots.map((s) => s.generation));
     if (maxGen === 0) return [];
 
-    const maxR = containerSize * 0.42; // leave margin for labels
-    const RING_WIDTH = Math.min(80, Math.max(20, (maxR - BASE_R) / maxGen));
+    // Inner rings (gen 1–3): consistent fixed width, scaled gently to container.
+    // Outer rings (gen 4+): double the inner width so labels have room along the radial axis.
+    // Rings always expand outward — adding generations never shrinks existing rings.
+    const INNER_RING_WIDTH = Math.min(90, Math.max(55, containerSize * 0.115));
+    const OUTER_RING_WIDTH = INNER_RING_WIDTH * 2;
     const TOTAL_ANGLE = 1.5 * Math.PI; // 270°
     const START_ANGLE = 0.75 * Math.PI; // 135° — lower-left in SVG y-down coordinates
 
@@ -166,8 +169,19 @@ export function computeFanArcLayout(
 
         const startAngle = START_ANGLE + slot.slotIndex * slotWidth;
         const endAngle = startAngle + slotWidth;
-        const innerR = BASE_R + (g - 1) * RING_WIDTH;
-        const outerR = BASE_R + g * RING_WIDTH;
+
+        // Gen 1–3: uniform inner ring width.
+        // Gen 4+: transition to doubled outer ring width.
+        let innerR: number;
+        let outerR: number;
+        if (g <= 3) {
+            innerR = BASE_R + (g - 1) * INNER_RING_WIDTH;
+            outerR = BASE_R + g * INNER_RING_WIDTH;
+        } else {
+            const innerBase = BASE_R + 3 * INNER_RING_WIDTH;
+            innerR = innerBase + (g - 4) * OUTER_RING_WIDTH;
+            outerR = innerBase + (g - 3) * OUTER_RING_WIDTH;
+        }
 
         result.push({ slot, startAngle, endAngle, innerR, outerR });
     }
