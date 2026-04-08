@@ -46,15 +46,26 @@ const BASE_R = 56;
  * the two can never silently diverge.
  */
 const FAN_OFFSET_Y_FRAC = 0.07;
-/** Interpolate hue between blue (paternal, slot 0) and rose (maternal, last slot). */
+/**
+ * Gradient from paternal blue (#60a5fa ≈ hsl 217) to maternal pink (#f472b6 ≈ hsl 330)
+ * via the LONG path around the colour wheel: blue → green → yellow → orange → red → pink.
+ * Hue travels 217 → 0 → 330, a span of 247°.
+ */
+const PATERNAL_HUE = 217;
+const MATERNAL_HUE = 330;
+// Long-path span going clockwise (decreasing hue, wrapping through 0)
+const LONG_PATH_SPAN = PATERNAL_HUE + (360 - MATERNAL_HUE); // 247°
+
 function lineageColor(slot: AncestorSlot, isDark: boolean): string {
     if (slot.generation === 0) return sexColor(slot.sex);
-    const maxSlot = Math.max(1, Math.pow(2, slot.generation) - 1);
-    const t = slot.slotIndex / maxSlot;
-    const hue = Math.round(220 + t * 120);
-    const saturation = 65;
-    const lightness = isDark ? 52 : 48;
-    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+    const slotsInGen = Math.pow(2, slot.generation);
+    const maxSlot = slotsInGen - 1;
+    const t = maxSlot === 0 ? 0 : slot.slotIndex / maxSlot;
+    // Traverse 217 → 0 → 330 (long path: blue→green→yellow→orange→red→pink)
+    const hue = ((PATERNAL_HUE - t * LONG_PATH_SPAN) % 360 + 360) % 360;
+    const saturation = isDark ? 55 : 52;
+    const lightness = isDark ? 62 : 58;
+    return `hsl(${Math.round(hue)}, ${saturation}%, ${lightness}%)`;
 }
 
 /** SVG arc path string for a FanArc segment. cx/cy is the fan center. */
@@ -583,7 +594,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                                                 <text
                                                     key={li}
                                                     dominantBaseline="middle"
-                                                    fill="white"
+                                                    fill="black"
                                                     fontSize={nameFontSize}
                                                     style={{ pointerEvents: 'none', userSelect: 'none' }}
                                                 >
@@ -595,7 +606,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                                             {showYears && (
                                                 <text
                                                     dominantBaseline="middle"
-                                                    fill="white"
+                                                    fill="black"
                                                     fontSize={yearsFontSize}
                                                     opacity={0.8}
                                                     style={{ pointerEvents: 'none', userSelect: 'none' }}
@@ -644,7 +655,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                                             y={ly}
                                             textAnchor="middle"
                                             dominantBaseline="middle"
-                                            fill="white"
+                                            fill="black"
                                             transform={`rotate(${labelRotDeg.toFixed(1)}, ${lx.toFixed(1)}, ${ly.toFixed(1)})`}
                                             style={{ pointerEvents: 'none', userSelect: 'none' }}
                                         >
@@ -685,7 +696,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                                     cx={0}
                                     cy={0}
                                     r={BASE_R}
-                                    fill={sexColor(rootNode.sex)}
+                                    fill="#94a3b8"
                                     opacity={0.92}
                                 />
                                 <text
@@ -745,11 +756,11 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                     Lineage
                 </p>
                 <div className="flex items-center gap-2">
-                    <span className="inline-block h-2 w-4 rounded-sm" style={{ background: 'hsl(220,65%,52%)' }} />
+                    <span className="inline-block h-2 w-4 rounded-sm" style={{ background: `hsl(${PATERNAL_HUE}, 52%, 58%)`, opacity: 0.88 }} />
                     <span className="text-muted-foreground">Paternal</span>
                 </div>
                 <div className="flex items-center gap-2">
-                    <span className="inline-block h-2 w-4 rounded-sm" style={{ background: 'hsl(340,65%,52%)' }} />
+                    <span className="inline-block h-2 w-4 rounded-sm" style={{ background: `hsl(${MATERNAL_HUE}, 52%, 58%)`, opacity: 0.88 }} />
                     <span className="text-muted-foreground">Maternal</span>
                 </div>
             </div>

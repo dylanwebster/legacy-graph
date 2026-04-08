@@ -127,6 +127,48 @@ describe('buildAncestorTree', () => {
         expect(gen1[1].id).toBeNull();
     });
 
+    it('places father (M) at even slots and mother (F) at odd slots regardless of ID sort order', () => {
+        // IDs chosen so alphabetical sort would put mother first (A < Z)
+        const sexTestNodes = [
+            { id: 'ROOT', label: 'Root', sex: 'M' },
+            { id: 'Z_DAD', label: 'Dad', sex: 'M' },
+            { id: 'A_MOM', label: 'Mom', sex: 'F' },
+            { id: 'Z_GP_DAD', label: 'Pat Grandfather', sex: 'M' },
+            { id: 'A_GP_MOM', label: 'Pat Grandmother', sex: 'F' },
+            { id: 'Z_MGP_DAD', label: 'Mat Grandfather', sex: 'M' },
+            { id: 'A_MGP_MOM', label: 'Mat Grandmother', sex: 'F' },
+        ];
+        const sexTestLinks = [
+            { source: 'ROOT', target: 'Z_DAD', type: 'parent_child' },
+            { source: 'ROOT', target: 'A_MOM', type: 'parent_child' },
+            { source: 'Z_DAD', target: 'Z_GP_DAD', type: 'parent_child' },
+            { source: 'Z_DAD', target: 'A_GP_MOM', type: 'parent_child' },
+            { source: 'A_MOM', target: 'Z_MGP_DAD', type: 'parent_child' },
+            { source: 'A_MOM', target: 'A_MGP_MOM', type: 'parent_child' },
+        ];
+
+        const slots = buildAncestorTree(sexTestNodes, sexTestLinks, 'ROOT', 2);
+
+        // Gen 1: slot 0 = father (M), slot 1 = mother (F)
+        const gen1 = slots.filter(s => s.generation === 1);
+        const fatherSlot = gen1.find(s => s.slotIndex === 0)!;
+        const motherSlot = gen1.find(s => s.slotIndex === 1)!;
+        expect(fatherSlot.sex).toBe('M');
+        expect(motherSlot.sex).toBe('F');
+        expect(fatherSlot.id).toBe('Z_DAD');
+        expect(motherSlot.id).toBe('A_MOM');
+
+        // Gen 2: even slots = male, odd slots = female
+        const gen2 = slots.filter(s => s.generation === 2);
+        for (const s of gen2) {
+            if (s.slotIndex % 2 === 0) {
+                expect(s.sex).toBe('M');
+            } else {
+                expect(s.sex).toBe('F');
+            }
+        }
+    });
+
     it('respects maxGenerations limit', () => {
         const slots = buildAncestorTree(nodes, links, 'ROOT', 1);
         const maxGen = Math.max(...slots.map(s => s.generation));

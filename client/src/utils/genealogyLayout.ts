@@ -88,8 +88,17 @@ export function buildAncestorTree(
         if (!parentMap.has(childId)) parentMap.set(childId, []);
         parentMap.get(childId)!.push(parentId);
     }
-    // Deterministic order: sort parent IDs so layout is stable
-    for (const [, parents] of parentMap) parents.sort();
+    // Sort parents: M (father) first, F (mother) second, then by ID for stability.
+    // This ensures Ahnentafel convention: even slots = father, odd slots = mother.
+    const sexOrder = (id: string) => {
+        const sex = nodeMap.get(id)?.sex;
+        if (sex === 'M') return 0;
+        if (sex === 'F') return 1;
+        return 2;
+    };
+    for (const [, parents] of parentMap) {
+        parents.sort((a, b) => sexOrder(a) - sexOrder(b) || a.localeCompare(b));
+    }
 
     const result: AncestorSlot[] = [];
 
@@ -341,8 +350,16 @@ export function buildFamilyTree(
         if (!childMap.has(parentId)) childMap.set(parentId, []);
         childMap.get(parentId)!.push(childId);
     }
-    // Sort for deterministic layout
-    for (const [, ids] of parentMap) ids.sort();
+    // Sort parents: M (father) first, F (mother) second, then by ID for stability.
+    const sexOrder = (id: string) => {
+        const sex = nodeMap.get(id)?.sex;
+        if (sex === 'M') return 0;
+        if (sex === 'F') return 1;
+        return 2;
+    };
+    for (const [, ids] of parentMap) {
+        ids.sort((a, b) => sexOrder(a) - sexOrder(b) || a.localeCompare(b));
+    }
     for (const [, ids] of childMap) ids.sort();
 
     // Compute siblings: people who share at least one parent
