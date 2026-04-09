@@ -6,6 +6,7 @@ if (!process.env.DATA_DIR) {
 }
 const dataDir = process.env.DATA_DIR;
 const port = parseInt(process.env.PORT || '3000', 10);
+const geonamesDb = process.env.GEONAMES_DB;
 
 async function bootstrap() {
     console.log(`[Boot] Starting LegacyGraph server...`);
@@ -15,6 +16,7 @@ async function bootstrap() {
         const server = await createServer({
             dataDir,
             port,
+            geonamesDb,
             awaitHydration: false // Run hydration in background while server accepts early connections
         });
 

@@ -24,6 +24,8 @@ export interface ServerConfig {
     /** If false, createServer returns immediately while hydration runs in background (503 until ready).
      *  Defaults to true for backward compatibility (server blocks until graph is hydrated). */
     awaitHydration?: boolean;
+    /** Path to GeoNames SQLite database. Falls back to GEONAMES_DB env var or ~/.legacy-graph/geonames.db */
+    geonamesDb?: string;
 }
 
 export async function createServer(config: ServerConfig): Promise<FastifyInstance> {
@@ -62,7 +64,9 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         }
     });
 
-    const geocodingService = new GeocodingService(config.dataDir);
+    const geocodingService = new GeocodingService(config.dataDir, {
+        dbPath: config.geonamesDb,
+    });
 
     // Decorate server with services so route plugins can access them
     const appServices: AppServices = { graphEngine, txManager, authConfig, dataDir: config.dataDir, geocodingService };

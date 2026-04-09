@@ -1,40 +1,37 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as os from 'os';
 import type { Place } from '../schemas/PlaceSchema';
-
-const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org/search';
-const USER_AGENT = 'LegacyGraph/1.0 (self-hosted genealogy platform)';
-const RATE_LIMIT_MS = 1000;
-
-interface NominatimResult {
-    display_name: string;
-    lat: string;
-    lon: string;
-    address?: {
-        country_code?: string;
-    };
-}
+import { GeonamesDb } from './GeonamesDb';
 
 export class GeocodingService {
     private readonly cacheFile: string;
-    private readonly fetchFn: typeof fetch;
+    private readonly geonamesDb: GeonamesDb | null;
 
     // In-memory cache: lowercase name → Place
     private cache: Map<string, Place> = new Map();
     private cacheLoadPromise: Promise<void> | null = null;
 
-    // Rate limiter: promise queue
-    private requestQueue: Promise<void> = Promise.resolve();
-    private lastRequestTime = 0;
-
-    constructor(dataDir: string, options?: { fetchFn?: typeof fetch }) {
+    constructor(dataDir: string, options?: { dbPath?: string }) {
         this.cacheFile = path.join(dataDir, '_meta', '.geocode-cache.json');
-        this.fetchFn = options?.fetchFn ?? fetch;
+
+        const dbPath = options?.dbPath
+            ?? process.env.GEONAMES_DB
+            ?? path.join(os.homedir(), '.legacy-graph', 'geonames.db');
+
+        this.geonamesDb = GeonamesDb.fromFile(dbPath);
+
+        if (!this.geonamesDb) {
+            console.warn(
+                `[GeocodingService] GeoNames database not found at ${dbPath}. ` +
+                `Place search will return empty results. Run "npm run geonames:build" to create it.`
+            );
+        }
     }
 
     /**
-     * Resolve a place name to a Place object, using cache → disk → Nominatim.
-     * Falls back to { name } on any error.
+     * Resolve a place name to a Place object, using cache → disk → GeoNames DB.
+     * Falls back to { name } if no match found.
      */
     public async resolve(name: string): Promise<Place> {
         await this.ensureCacheLoaded();
@@ -44,8 +41,7 @@ export class GeocodingService {
             return this.cache.get(key)!;
         }
 
-        // Enqueue behind rate limiter
-        const result = await this.enqueue(() => this.fetchResolve(name));
+        const result = this.resolveFromDb(name);
         this.cache.set(key, result);
         await this.persistCache();
         return result;
@@ -54,86 +50,47 @@ export class GeocodingService {
     /**
      * Search for place candidates. Returns up to `limit` results (default 5).
      * No caching — transient, for type-ahead use.
-     * Runs through the rate limiter to respect Nominatim's 1 req/s policy.
      */
     public async search(query: string, limit = 5): Promise<Place[]> {
-        return this.enqueue(async () => {
-            try {
-                const url = `${NOMINATIM_BASE}?q=${encodeURIComponent(query)}&format=jsonv2&addressdetails=1&limit=${limit + 2}`;
-                const response = await this.fetchFn(url, {
-                    headers: { 'User-Agent': USER_AGENT },
-                });
+        if (!this.geonamesDb) return [];
 
-                if (!response.ok) return [];
-
-                const items: NominatimResult[] = await response.json();
-                return items.slice(0, limit).map(item => this.itemToPlace(item, query));
-            } catch {
-                return [];
-            }
-        });
+        const rows = this.geonamesDb.searchByName(query, limit);
+        return rows.map(row => this.rowToPlace(row, query));
     }
 
     // ─── Private ────────────────────────────────────────────────────────────
 
-    private async fetchResolve(name: string): Promise<Place> {
-        try {
-            const url = `${NOMINATIM_BASE}?q=${encodeURIComponent(name)}&format=jsonv2&addressdetails=1&limit=1`;
-            const response = await this.fetchFn(url, {
-                headers: { 'User-Agent': USER_AGENT },
-            });
+    private resolveFromDb(name: string): Place {
+        if (!this.geonamesDb) return { name };
 
-            if (!response.ok) return { name };
+        const row = this.geonamesDb.resolveByName(name);
+        if (!row) return { name };
 
-            const items: NominatimResult[] = await response.json();
-            if (!items || items.length === 0) return { name };
-
-            return this.itemToPlace(items[0], name);
-        } catch {
-            return { name };
-        }
+        return this.rowToPlace(row, name);
     }
 
-    private itemToPlace(item: NominatimResult, originalInput: string): Place {
-        const place: Place = { name: item.display_name };
+    private rowToPlace(row: { primaryName: string; lat: number; lng: number; countryCode: string | null; admin1Name?: string | null; matchedName: string; sourceType: string }, originalInput: string): Place {
+        const place: Place = { name: row.primaryName };
 
-        const lat = parseFloat(item.lat);
-        const lng = parseFloat(item.lon);
-        if (!isNaN(lat)) place.lat = lat;
-        if (!isNaN(lng)) place.lng = lng;
+        place.lat = row.lat;
+        place.lng = row.lng;
 
-        if (item.address?.country_code) {
-            place.countryCode = item.address.country_code.toUpperCase();
+        if (row.countryCode) {
+            place.countryCode = row.countryCode;
         }
 
-        // Set historicalName when the resolved name differs from input
-        if (item.display_name.toLowerCase() !== originalInput.toLowerCase()) {
+        if (row.admin1Name) {
+            place.admin1Name = row.admin1Name;
+        }
+
+        // Set historicalName when the input differs from the modern name
+        if (row.primaryName.toLowerCase() !== originalInput.toLowerCase()) {
             place.historicalName = originalInput;
         }
 
         place.resolvedAt = new Date().toISOString();
 
         return place;
-    }
-
-    /**
-     * Rate-limiter: ensures sequential requests are ≥1000ms apart.
-     */
-    private enqueue<T>(fn: () => Promise<T>): Promise<T> {
-        const result = this.requestQueue.then(async () => {
-            const now = Date.now();
-            const wait = this.lastRequestTime + RATE_LIMIT_MS - now;
-            if (wait > 0) {
-                await new Promise<void>(resolve => setTimeout(resolve, wait));
-            }
-            this.lastRequestTime = Date.now();
-            return fn();
-        });
-
-        // Advance the queue, swallowing errors so the queue never breaks
-        this.requestQueue = result.then(() => { }, () => { });
-
-        return result;
     }
 
     /**

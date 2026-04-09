@@ -154,7 +154,12 @@ function PlaceSearchCombobox({
                             className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 text-left"
                             onMouseDown={() => handleSelect(place)}
                         >
-                            <span className="truncate flex-1">{place.name}</span>
+                            <span className="truncate flex-1">
+                                {place.name}
+                                {!!place.admin1Name && (
+                                    <span className="text-muted-foreground">, {place.admin1Name}</span>
+                                )}
+                            </span>
                             {!!place.countryCode && (
                                 <span className="text-xs text-muted-foreground shrink-0">{place.countryCode}</span>
                             )}
