@@ -7,6 +7,7 @@ export const PlaceSchema = z.object({
     lng: z.number().min(-180).max(180).optional(),
     countryCode: z.string().length(2).optional(),
     admin1Name: z.string().optional(),
+    admin2Name: z.string().optional(),
     resolvedAt: z.string().datetime().optional(),
 });
 

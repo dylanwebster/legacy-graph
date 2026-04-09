@@ -115,6 +115,7 @@ function createSchema(db: DatabaseSync): void {
             feature_code TEXT NOT NULL,
             country_code TEXT,
             admin1 TEXT,
+            admin2 TEXT,
             population INTEGER DEFAULT 0
         );
 
@@ -146,7 +147,7 @@ async function importAllCountries(db: DatabaseSync, tsvPath: string): Promise<{ 
     console.log('\n[2/4] Importing allCountries.txt...');
 
     const insertPlace = db.prepare(
-        'INSERT OR IGNORE INTO geonames VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT OR IGNORE INTO geonames VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const insertFts = db.prepare(
         'INSERT INTO names_fts (name, geonameid, source_type) VALUES (?, ?, ?)'
@@ -191,6 +192,7 @@ async function importAllCountries(db: DatabaseSync, tsvPath: string): Promise<{ 
         const lng = parseFloat(cols[5]);
         const countryCode = cols[8] || null;
         const admin1 = cols[10] || null;
+        const admin2 = cols[11] || null;
         const population = parseInt(cols[14], 10) || 0;
 
         if (isNaN(geonameid) || isNaN(lat) || isNaN(lng)) continue;
@@ -199,7 +201,7 @@ async function importAllCountries(db: DatabaseSync, tsvPath: string): Promise<{ 
         placeCount++;
 
         batch.push(() => {
-            insertPlace.run(geonameid, name, asciiname, lat, lng, featureClass, featureCode, countryCode, admin1, population);
+            insertPlace.run(geonameid, name, asciiname, lat, lng, featureClass, featureCode, countryCode, admin1, admin2, population);
             insertFts.run(name, String(geonameid), 'primary');
             // Also index ASCII name if it differs
             if (asciiname && asciiname !== name) {
@@ -334,6 +336,7 @@ async function main() {
     // Step 4: Optimize
     console.log('\n[4/4] Optimizing indexes...');
     db.exec('CREATE INDEX IF NOT EXISTS idx_geonames_adm1_lookup ON geonames(country_code, admin1, feature_code)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_geonames_adm2_lookup ON geonames(country_code, admin1, admin2, feature_code)');
     db.exec("INSERT INTO names_fts(names_fts) VALUES('optimize')");
     db.exec('PRAGMA journal_mode=DELETE'); // Switch back from WAL for portability
     console.log('  ✓ FTS index optimized');

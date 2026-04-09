@@ -13,6 +13,7 @@ export interface GeonamesRow {
     matchedName: string;
     sourceType: string; // 'primary' | 'alternate' | 'historic'
     admin1Name: string | null;
+    admin2Name: string | null;
 }
 
 /**
@@ -27,6 +28,17 @@ export class GeonamesDb {
     private constructor(db: DatabaseSync) {
         this.db = db;
 
+        // Detect whether admin2 column exists (for backwards compatibility with older DBs)
+        const hasAdmin2 = this.columnExists(db, 'geonames', 'admin2');
+
+        const admin2Select = hasAdmin2 ? 'a2.name AS admin2_name' : 'NULL AS admin2_name';
+        const admin2Join = hasAdmin2
+            ? `LEFT JOIN geonames a2 ON a2.country_code = g.country_code
+                AND a2.admin1 = g.admin1
+                AND a2.admin2 = g.admin2
+                AND a2.feature_code = 'ADM2'`
+            : '';
+
         const sql = `
             SELECT
                 g.geonameid,
@@ -39,12 +51,14 @@ export class GeonamesDb {
                 g.population,
                 f.name AS matched_name,
                 f.source_type,
-                a.name AS admin1_name
+                a.name AS admin1_name,
+                ${admin2Select}
             FROM names_fts f
             JOIN geonames g ON g.geonameid = CAST(f.geonameid AS INTEGER)
             LEFT JOIN geonames a ON a.country_code = g.country_code
                 AND a.admin1 = g.admin1
                 AND a.feature_code = 'ADM1'
+            ${admin2Join}
             WHERE names_fts MATCH ?
             ORDER BY
                 (CASE WHEN LOWER(f.name) = LOWER(?) THEN 0 ELSE 1 END),
@@ -57,6 +71,15 @@ export class GeonamesDb {
 
         this.searchStmt = db.prepare(sql);
         this.resolveStmt = db.prepare(sql);
+    }
+
+    private columnExists(db: DatabaseSync, table: string, column: string): boolean {
+        try {
+            const rows = db.prepare(`PRAGMA table_info(${table})`).all() as any[];
+            return rows.some(r => r.name === column);
+        } catch {
+            return false;
+        }
     }
 
     /**
@@ -87,8 +110,19 @@ export class GeonamesDb {
         if (!ftsQuery) return [];
 
         try {
-            const rows = this.searchStmt.all(ftsQuery, query, limit) as any[];
-            return rows.map(this.rowToGeonamesRow);
+            // Fetch extra rows to account for duplicates from alternate names
+            const rows = this.searchStmt.all(ftsQuery, query, limit * 4) as any[];
+            // Deduplicate by geonameid, keeping the first (best-ranked) row
+            const seen = new Set<number>();
+            const deduped: GeonamesRow[] = [];
+            for (const row of rows) {
+                const id = row.geonameid;
+                if (seen.has(id)) continue;
+                seen.add(id);
+                deduped.push(this.rowToGeonamesRow(row));
+                if (deduped.length >= limit) break;
+            }
+            return deduped;
         } catch {
             return [];
         }
@@ -137,6 +171,7 @@ export class GeonamesDb {
             matchedName: row.matched_name,
             sourceType: row.source_type,
             admin1Name: row.admin1_name ?? null,
+            admin2Name: row.admin2_name ?? null,
         };
     }
 }

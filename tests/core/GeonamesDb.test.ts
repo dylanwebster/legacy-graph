@@ -21,6 +21,7 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
             feature_code TEXT NOT NULL,
             country_code TEXT,
             admin1 TEXT,
+            admin2 TEXT,
             population INTEGER DEFAULT 0
         );
 
@@ -33,6 +34,7 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
             is_preferred INTEGER DEFAULT 0
         );
         CREATE INDEX idx_altnames_geonameid ON alternate_names(geonameid);
+        CREATE INDEX idx_geonames_adm2_lookup ON geonames(country_code, admin1, admin2, feature_code);
 
         CREATE VIRTUAL TABLE names_fts USING fts5(
             name,
@@ -46,7 +48,7 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
 
     // Insert test places
     const insertPlace = raw.prepare(
-        'INSERT INTO geonames VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO geonames VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const insertFts = raw.prepare(
         'INSERT INTO names_fts (name, geonameid, source_type) VALUES (?, ?, ?)'
@@ -56,45 +58,50 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     );
 
     // ADM1 records (for admin1 name JOIN)
-    insertPlace.run(6269131, 'England', 'England', 52.16, -0.70, 'A', 'ADM1', 'GB', 'ENG', 0);
-    insertPlace.run(5332921, 'California', 'California', 37.25, -119.75, 'A', 'ADM1', 'US', 'CA', 0);
-    insertPlace.run(6093943, 'Ontario', 'Ontario', 50.00, -86.00, 'A', 'ADM1', 'CA', '08', 0);
-    insertPlace.run(5128638, 'New York', 'New York', 43.00, -75.50, 'A', 'ADM1', 'US', 'NY', 0);
+    insertPlace.run(6269131, 'England', 'England', 52.16, -0.70, 'A', 'ADM1', 'GB', 'ENG', null, 0);
+    insertPlace.run(5332921, 'California', 'California', 37.25, -119.75, 'A', 'ADM1', 'US', 'CA', null, 0);
+    insertPlace.run(6093943, 'Ontario', 'Ontario', 50.00, -86.00, 'A', 'ADM1', 'CA', '08', null, 0);
+    insertPlace.run(5128638, 'New York', 'New York', 43.00, -75.50, 'A', 'ADM1', 'US', 'NY', null, 0);
+
+    // ADM2 records (for admin2/county name JOIN)
+    insertPlace.run(5344994, 'El Dorado County', 'El Dorado County', 38.74, -120.52, 'A', 'ADM2', 'US', 'CA', '017', 0);
+    insertFts.run('El Dorado County', '5344994', 'primary');
+    insertPlace.run(5391832, 'San Francisco County', 'San Francisco County', 37.78, -122.42, 'A', 'ADM2', 'US', 'CA', '075', 0);
 
     // London, UK — large city
-    insertPlace.run(2643743, 'London', 'London', 51.5074, -0.1278, 'P', 'PPLC', 'GB', 'ENG', 8982000);
+    insertPlace.run(2643743, 'London', 'London', 51.5074, -0.1278, 'P', 'PPLC', 'GB', 'ENG', null, 8982000);
     insertFts.run('London', '2643743', 'primary');
 
     // London, Ontario — smaller city
-    insertPlace.run(6058560, 'London', 'London', 42.9834, -81.2330, 'P', 'PPL', 'CA', '08', 383822);
+    insertPlace.run(6058560, 'London', 'London', 42.9834, -81.2330, 'P', 'PPL', 'CA', '08', null, 383822);
     insertFts.run('London', '6058560', 'primary');
 
     // Kaliningrad (formerly Königsberg)
-    insertPlace.run(554234, 'Kaliningrad', 'Kaliningrad', 54.7104, 20.4522, 'P', 'PPLA', 'RU', '23', 489359);
+    insertPlace.run(554234, 'Kaliningrad', 'Kaliningrad', 54.7104, 20.4522, 'P', 'PPLA', 'RU', '23', null, 489359);
     insertFts.run('Kaliningrad', '554234', 'primary');
     // Historic alternate name
     insertAlt.run(1, 554234, 'Königsberg', 'de', 1, 0);
     insertFts.run('Königsberg', '554234', 'historic');
 
     // New York City
-    insertPlace.run(5128581, 'New York City', 'New York City', 40.7128, -74.0060, 'P', 'PPL', 'US', 'NY', 8336817);
+    insertPlace.run(5128581, 'New York City', 'New York City', 40.7128, -74.0060, 'P', 'PPL', 'US', 'NY', null, 8336817);
     insertFts.run('New York City', '5128581', 'primary');
 
     // York, UK
-    insertPlace.run(2633352, 'York', 'York', 53.9591, -1.0815, 'P', 'PPL', 'GB', 'ENG', 144202);
+    insertPlace.run(2633352, 'York', 'York', 53.9591, -1.0815, 'P', 'PPL', 'GB', 'ENG', null, 144202);
     insertFts.run('York', '2633352', 'primary');
 
     // Malmö, Sweden (diacritics test)
-    insertPlace.run(2692969, 'Malmö', 'Malmo', 55.6059, 13.0007, 'P', 'PPLA', 'SE', '27', 301706);
+    insertPlace.run(2692969, 'Malmö', 'Malmo', 55.6059, 13.0007, 'P', 'PPLA', 'SE', '27', null, 301706);
     insertFts.run('Malmö', '2692969', 'primary');
     insertFts.run('Malmo', '2692969', 'alternate');
 
     // York Castle — structure (should rank below city)
-    insertPlace.run(9999901, 'York Castle', 'York Castle', 53.9570, -1.0790, 'S', 'CSTL', 'GB', 'ENG', 0);
+    insertPlace.run(9999901, 'York Castle', 'York Castle', 53.9570, -1.0790, 'S', 'CSTL', 'GB', 'ENG', null, 0);
     insertFts.run('York Castle', '9999901', 'primary');
 
     // Pressburg (historical name for Bratislava)
-    insertPlace.run(3060972, 'Bratislava', 'Bratislava', 48.1486, 17.1077, 'P', 'PPLC', 'SK', '02', 437725);
+    insertPlace.run(3060972, 'Bratislava', 'Bratislava', 48.1486, 17.1077, 'P', 'PPLC', 'SK', '02', null, 437725);
     insertFts.run('Bratislava', '3060972', 'primary');
     insertAlt.run(2, 3060972, 'Pressburg', 'de', 1, 0);
     insertFts.run('Pressburg', '3060972', 'historic');
@@ -102,8 +109,14 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     insertFts.run('Pozsony', '3060972', 'historic');
 
     // Historical populated place (no longer exists)
-    insertPlace.run(9999902, 'Dunwich', 'Dunwich', 52.2767, 1.6317, 'P', 'PPLH', 'GB', 'ENG', 0);
+    insertPlace.run(9999902, 'Dunwich', 'Dunwich', 52.2767, 1.6317, 'P', 'PPLH', 'GB', 'ENG', null, 0);
     insertFts.run('Dunwich', '9999902', 'primary');
+
+    // Grizzly Flat — place in El Dorado County, CA (admin2 test)
+    insertPlace.run(5350964, 'Grizzly Flat', 'Grizzly Flat', 38.6449, -120.5227, 'P', 'PPL', 'US', 'CA', '017', 268);
+    insertFts.run('Grizzly Flat', '5350964', 'primary');
+    insertAlt.run(4, 5350964, 'Grizzly Flats', 'en', 0, 0);
+    insertFts.run('Grizzly Flats', '5350964', 'alternate');
 
     return { db: GeonamesDb.fromConnection(raw), raw };
 }
@@ -225,5 +238,20 @@ describe('GeonamesDb', () => {
         const results = db.searchByName('Dunwich', 5);
         expect(results.length).toBeGreaterThanOrEqual(1);
         expect(results[0].featureCode).toBe('PPLH');
+    });
+
+    it('admin2Name is populated from ADM2 join', () => {
+        const results = db.searchByName('Grizzly Flat', 5);
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].admin2Name).toBe('El Dorado County');
+        expect(results[0].admin1Name).toBe('California');
+    });
+
+    it('searching for a county-level ADM2 place returns results', () => {
+        const results = db.searchByName('El Dorado County', 5);
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].primaryName).toBe('El Dorado County');
+        expect(results[0].featureCode).toBe('ADM2');
+        expect(results[0].admin1Name).toBe('California');
     });
 });

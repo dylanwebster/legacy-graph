@@ -55,7 +55,7 @@ export class GeocodingService {
         if (!this.geonamesDb) return [];
 
         const rows = this.geonamesDb.searchByName(query, limit);
-        return rows.map(row => this.rowToPlace(row, query));
+        return rows.map(row => this.searchRowToPlace(row));
     }
 
     // ─── Private ────────────────────────────────────────────────────────────
@@ -69,7 +69,34 @@ export class GeocodingService {
         return this.rowToPlace(row, name);
     }
 
-    private rowToPlace(row: { primaryName: string; lat: number; lng: number; countryCode: string | null; admin1Name?: string | null; matchedName: string; sourceType: string }, originalInput: string): Place {
+    /**
+     * Convert a search result row to a Place, using the matched alternate name
+     * as the place name so search results reflect what the user typed.
+     */
+    private searchRowToPlace(row: { primaryName: string; lat: number; lng: number; countryCode: string | null; admin1Name?: string | null; admin2Name?: string | null; matchedName: string; sourceType: string }): Place {
+        const place: Place = { name: row.matchedName };
+
+        place.lat = row.lat;
+        place.lng = row.lng;
+
+        if (row.countryCode) {
+            place.countryCode = row.countryCode;
+        }
+
+        if (row.admin1Name) {
+            place.admin1Name = row.admin1Name;
+        }
+
+        if (row.admin2Name) {
+            place.admin2Name = row.admin2Name;
+        }
+
+        place.resolvedAt = new Date().toISOString();
+
+        return place;
+    }
+
+    private rowToPlace(row: { primaryName: string; lat: number; lng: number; countryCode: string | null; admin1Name?: string | null; admin2Name?: string | null; matchedName: string; sourceType: string }, originalInput: string): Place {
         const place: Place = { name: row.primaryName };
 
         place.lat = row.lat;
@@ -81,6 +108,10 @@ export class GeocodingService {
 
         if (row.admin1Name) {
             place.admin1Name = row.admin1Name;
+        }
+
+        if (row.admin2Name) {
+            place.admin2Name = row.admin2Name;
         }
 
         // Set historicalName when the input differs from the modern name

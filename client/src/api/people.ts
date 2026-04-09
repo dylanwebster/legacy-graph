@@ -7,6 +7,7 @@ export interface Place {
     lng?: number;
     countryCode?: string;
     admin1Name?: string;
+    admin2Name?: string;
     resolvedAt?: string;
 }
 
