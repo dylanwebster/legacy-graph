@@ -178,9 +178,9 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     const [scale, setScale] = useState(initialView?.scale ?? 1);
     const [pan, setPan] = useState(initialView?.pan ?? { x: 0, y: 0 });
     const scaleRef = useRef(scale);
-    scaleRef.current = scale;
+    useEffect(() => { scaleRef.current = scale; }, [scale]);
     const dimsRef = useRef(dims);
-    dimsRef.current = dims;
+    useEffect(() => { dimsRef.current = dims; }, [dims]);
     const viewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useImperativeHandle(ref, () => ({
