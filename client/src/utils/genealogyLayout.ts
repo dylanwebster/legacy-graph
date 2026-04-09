@@ -61,6 +61,17 @@ interface LinkRef {
     type: string;
 }
 
+/** Compare parent IDs: fathers (M) first, mothers (F) second, then by ID for stability. */
+function compareParentsBySexThenId(nodeMap: Map<string, NodeRef>, a: string, b: string): number {
+    const sexRank = (id: string) => {
+        const sex = nodeMap.get(id)?.sex;
+        if (sex === 'M') return 0;
+        if (sex === 'F') return 1;
+        return 2;
+    };
+    return sexRank(a) - sexRank(b) || a.localeCompare(b);
+}
+
 // ─── buildAncestorTree ────────────────────────────────────────────────────────
 
 /**
@@ -88,8 +99,10 @@ export function buildAncestorTree(
         if (!parentMap.has(childId)) parentMap.set(childId, []);
         parentMap.get(childId)!.push(parentId);
     }
-    // Deterministic order: sort parent IDs so layout is stable
-    for (const [, parents] of parentMap) parents.sort();
+    // Sort parents: father first, mother second (Ahnentafel: even slots = father, odd = mother).
+    for (const [, parents] of parentMap) {
+        parents.sort((a, b) => compareParentsBySexThenId(nodeMap, a, b));
+    }
 
     const result: AncestorSlot[] = [];
 
@@ -133,6 +146,17 @@ export function buildAncestorTree(
 
 // ─── computeFanArcLayout ──────────────────────────────────────────────────────
 
+/** Fan start angle: 135° (lower-left in SVG y-down coordinates). */
+export const FAN_START_ANGLE = 0.75 * Math.PI;
+
+/**
+ * Map an atan2 result ([-π, π]) into the fan chart's arc coordinate space
+ * ([FAN_START_ANGLE, FAN_START_ANGLE + 2π)).
+ */
+export function normalizeFanAngle(raw: number): number {
+    return raw < FAN_START_ANGLE ? raw + 2 * Math.PI : raw;
+}
+
 /**
  * Compute FanArc descriptors for all ancestor slots (excluding generation 0 root).
  * Fan is a 270° arc: root at center, ancestors radiate outward.
@@ -156,7 +180,6 @@ export function computeFanArcLayout(
     const INNER_RING_WIDTH = Math.min(90, Math.max(55, containerSize * 0.115));
     const OUTER_RING_WIDTH = INNER_RING_WIDTH * 2;
     const TOTAL_ANGLE = 1.5 * Math.PI; // 270°
-    const START_ANGLE = 0.75 * Math.PI; // 135° — lower-left in SVG y-down coordinates
 
     const result: FanArc[] = [];
 
@@ -167,7 +190,7 @@ export function computeFanArcLayout(
         const slotsInGen = Math.pow(2, g);
         const slotWidth = TOTAL_ANGLE / slotsInGen;
 
-        const startAngle = START_ANGLE + slot.slotIndex * slotWidth;
+        const startAngle = FAN_START_ANGLE + slot.slotIndex * slotWidth;
         const endAngle = startAngle + slotWidth;
 
         // Gen 1–3: uniform inner ring width.
@@ -341,8 +364,10 @@ export function buildFamilyTree(
         if (!childMap.has(parentId)) childMap.set(parentId, []);
         childMap.get(parentId)!.push(childId);
     }
-    // Sort for deterministic layout
-    for (const [, ids] of parentMap) ids.sort();
+    // Sort parents: father first, mother second.
+    for (const [, ids] of parentMap) {
+        ids.sort((a, b) => compareParentsBySexThenId(nodeMap, a, b));
+    }
     for (const [, ids] of childMap) ids.sort();
 
     // Compute siblings: people who share at least one parent
