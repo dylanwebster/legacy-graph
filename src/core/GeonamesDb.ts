@@ -28,8 +28,6 @@ export class GeonamesDb {
     private readonly hasAdmin2: boolean;
     private readonly hasCountries: boolean;
     private readonly baseSql: string;
-    // Lowercase country name → country code (e.g., "germany" → "DE")
-    private readonly countryNameToCode: Map<string, string> = new Map();
 
     private constructor(db: DatabaseSync) {
         this.db = db;
@@ -37,15 +35,8 @@ export class GeonamesDb {
         // Detect whether admin2 column exists (for backwards compatibility with older DBs)
         this.hasAdmin2 = this.columnExists(db, 'geonames', 'admin2');
 
-        // Load country name → code mapping if countries table exists
-        // Multiple names can map to the same code (official + alternates)
+        // Detect whether countries table exists (for country name matching in qualifiers)
         this.hasCountries = this.tableExists(db, 'countries');
-        if (this.hasCountries) {
-            const rows = db.prepare('SELECT code, name FROM countries').all() as any[];
-            for (const row of rows) {
-                this.countryNameToCode.set(row.name.toLowerCase(), row.code);
-            }
-        }
 
         const admin2Select = this.hasAdmin2 ? 'a2.name AS admin2_name' : 'NULL AS admin2_name';
         const admin2Join = this.hasAdmin2
@@ -100,23 +91,6 @@ export class GeonamesDb {
         } catch {
             return false;
         }
-    }
-
-    /**
-     * Resolve a country name (or prefix) to a 2-letter country code.
-     * Supports exact match ("germany" → "DE") and prefix match ("great brit" → "GB").
-     * Returns null if no match.
-     */
-    private resolveCountryCode(nameLower: string): string | null {
-        // Exact match first
-        const exact = this.countryNameToCode.get(nameLower);
-        if (exact) return exact;
-
-        // Prefix match (e.g., "great brit" → "Great Britain" → "GB")
-        for (const [name, code] of this.countryNameToCode) {
-            if (name.startsWith(nameLower)) return code;
-        }
-        return null;
     }
 
     private tableExists(db: DatabaseSync, table: string): boolean {
@@ -186,15 +160,13 @@ export class GeonamesDb {
         if (!ftsQuery) return [];
 
         // Build a WHERE clause per qualifier. Each qualifier is matched against
-        // country code, country name (via lookup), admin1 code, admin1 name, or admin2 name.
+        // country code, country name (via countries table), admin1 code, admin1 name, or admin2 name.
+        // All matching is done in SQL so partial typing works naturally.
         const qualifierClauses: string[] = [];
         const params: (string | number)[] = [ftsQuery];
 
         for (const q of qualifiers) {
             const ql = q.toLowerCase();
-
-            // Resolve country name to code (e.g., "germany" → "DE", "united states" → "US")
-            const resolvedCode = this.resolveCountryCode(ql);
 
             const conditions = [
                 'LOWER(g.country_code) = ?',
@@ -204,10 +176,13 @@ export class GeonamesDb {
             ];
             const condParams = [ql, ql, ql, ql];
 
-            // If we resolved a country code from the name, also match against it
-            if (resolvedCode) {
-                conditions.push('LOWER(g.country_code) = ?');
-                condParams.push(resolvedCode.toLowerCase());
+            // Match qualifier against country names in the countries table
+            // This handles partial names like "Chi" → China, "United Sta" → United States
+            if (this.hasCountries) {
+                conditions.push(
+                    'EXISTS (SELECT 1 FROM countries c WHERE c.code = g.country_code AND LOWER(c.name) LIKE ? || \'%\')'
+                );
+                condParams.push(ql);
             }
 
             if (this.hasAdmin2) {
