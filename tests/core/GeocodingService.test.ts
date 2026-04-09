@@ -47,8 +47,22 @@ async function createTestGeonamesDb(dbPath: string): Promise<void> {
             tokenize = 'unicode61 remove_diacritics 2'
         );
 
+        CREATE TABLE countries (code TEXT NOT NULL, name TEXT NOT NULL, UNIQUE(code, name));
+
         CREATE TABLE db_meta (key TEXT PRIMARY KEY, value TEXT);
     `);
+
+    // Insert countries
+    const insertCountry = db.prepare('INSERT INTO countries VALUES (?, ?)');
+    insertCountry.run('GB', 'United Kingdom');
+    insertCountry.run('GB', 'Great Britain');
+    insertCountry.run('US', 'United States');
+    insertCountry.run('CA', 'Canada');
+    insertCountry.run('FR', 'France');
+    insertCountry.run('DE', 'Germany');
+    insertCountry.run('ES', 'Spain');
+    insertCountry.run('IT', 'Italy');
+    insertCountry.run('RU', 'Russia');
 
     const insertPlace = db.prepare(
         'INSERT INTO geonames VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -64,9 +78,17 @@ async function createTestGeonamesDb(dbPath: string): Promise<void> {
     insertPlace.run(6269131, 'England', 'England', 52.16, -0.70, 'A', 'ADM1', 'GB', 'ENG', null, 0);
     insertPlace.run(5332921, 'California', 'California', 37.25, -119.75, 'A', 'ADM1', 'US', 'CA', null, 0);
     insertPlace.run(5128638, 'New York', 'New York', 43.00, -75.50, 'A', 'ADM1', 'US', 'NY', null, 0);
+    insertPlace.run(4099753, 'Arkansas', 'Arkansas', 34.75, -92.50, 'A', 'ADM1', 'US', 'AR', null, 0);
+    insertPlace.run(4736286, 'Texas', 'Texas', 31.25, -99.25, 'A', 'ADM1', 'US', 'TX', null, 0);
 
     // ADM2 records (counties)
     insertPlace.run(5350000, 'Fresno County', 'Fresno County', 36.76, -119.65, 'A', 'ADM2', 'US', 'CA', '019', 0);
+    insertPlace.run(5345659, 'El Dorado County', 'El Dorado County', 38.74, -120.52, 'A', 'ADM2', 'US', 'CA', '017', 0);
+    insertFts.run('El Dorado County', '5345659', 'primary');
+
+    // El Dorado, Arkansas (different state — to ensure suffix fallback is needed)
+    insertPlace.run(4104048, 'El Dorado', 'El Dorado', 33.2076, -92.6663, 'P', 'PPL', 'US', 'AR', null, 18259);
+    insertFts.run('El Dorado', '4104048', 'primary');
 
     // London, UK
     insertPlace.run(2643743, 'London', 'London', 51.5074, -0.1278, 'P', 'PPLC', 'GB', 'ENG', null, 8982000);
@@ -282,5 +304,62 @@ describe('GeocodingService', () => {
 
         // Should return both Fresno CA and Fresno TX
         expect(results.length).toBe(2);
+    });
+
+    it('search "El Dorado, California, US" finds El Dorado County via suffix fallback', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const results = await svc.search('El Dorado, California, US', 5);
+
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results.some(r => r.name === 'El Dorado County')).toBe(true);
+    });
+
+    it('search "Fresno, USA" matches country code prefix', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const results = await svc.search('Fresno, USA', 5);
+
+        expect(results.length).toBe(2);
+        expect(results.every(r => r.countryCode === 'US')).toBe(true);
+    });
+
+    it('search "London, United Kingdom" resolves country name', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const results = await svc.search('London, United Kingdom', 5);
+
+        expect(results.length).toBe(1);
+        expect(results[0].countryCode).toBe('GB');
+    });
+
+    it('search "Berlin, Germany" resolves country name', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const results = await svc.search('Berlin, Germany', 5);
+
+        expect(results.length).toBe(1);
+        expect(results[0].countryCode).toBe('DE');
+    });
+
+    it('search "Fresno, CA, United States" resolves admin1 + country name', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const results = await svc.search('Fresno, CA, United States', 5);
+
+        expect(results.length).toBe(1);
+        expect(results[0].admin1Name).toBe('California');
+        expect(results[0].countryCode).toBe('US');
+    });
+
+    it('search "London, Great Britain" resolves country alias', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const results = await svc.search('London, Great Britain', 5);
+
+        expect(results.length).toBe(1);
+        expect(results[0].countryCode).toBe('GB');
+    });
+
+    it('search "Paris, France" resolves country name', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const results = await svc.search('Paris, France', 5);
+
+        expect(results.length).toBe(1);
+        expect(results[0].countryCode).toBe('FR');
     });
 });

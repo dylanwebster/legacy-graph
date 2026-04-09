@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import type { Place } from '../schemas/PlaceSchema';
-import { GeonamesDb, type GeonamesRow } from './GeonamesDb';
+import { GeonamesDb } from './GeonamesDb';
 
 export class GeocodingService {
     private readonly cacheFile: string;
@@ -61,37 +61,33 @@ export class GeocodingService {
 
         if (!placeName) return [];
 
-        if (qualifiers.length === 0) {
-            // Simple search — no filtering needed
-            const rows = this.geonamesDb.searchByName(placeName, limit);
-            return rows.map(row => this.searchRowToPlace(row));
-        }
+        const rows = qualifiers.length === 0
+            ? this.geonamesDb.searchByName(placeName, limit)
+            : this.geonamesDb.searchFiltered(placeName, qualifiers, limit);
 
-        // Fetch extra results to filter down
-        const rows = this.geonamesDb.searchByName(placeName, limit * 10);
-        const filtered = rows.filter(row => this.matchesQualifiers(row, qualifiers));
-        return filtered.slice(0, limit).map(row => this.searchRowToPlace(row));
+        return this.deduplicatePlaces(rows.map(row => this.searchRowToPlace(row)), limit);
+    }
+
+    /**
+     * Deduplicate places that would display identically in the dropdown
+     * (same name, admin1, admin2, country).
+     */
+    private deduplicatePlaces(places: Place[], limit: number): Place[] {
+        const seen = new Set<string>();
+        const result: Place[] = [];
+        for (const p of places) {
+            // Use the displayed admin2 for dedup (hidden when it matches the place name)
+            const displayAdmin2 = (p.admin2Name && p.admin2Name !== p.name) ? p.admin2Name : '';
+            const key = `${p.name}|${p.admin1Name ?? ''}|${displayAdmin2}|${p.countryCode ?? ''}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            result.push(p);
+            if (result.length >= limit) break;
+        }
+        return result;
     }
 
     // ─── Private ────────────────────────────────────────────────────────────
-
-    /**
-     * Check if a row matches all comma-separated qualifiers.
-     * Each qualifier is matched against admin1Name, admin1Code, admin2Name, or countryCode.
-     */
-    private matchesQualifiers(row: GeonamesRow, qualifiers: string[]): boolean {
-        for (const q of qualifiers) {
-            const ql = q.toLowerCase();
-            const matchesAdmin1Name = row.admin1Name?.toLowerCase().startsWith(ql) ?? false;
-            const matchesAdmin1Code = row.admin1Code?.toLowerCase() === ql;
-            const matchesAdmin2Name = row.admin2Name?.toLowerCase().startsWith(ql) ?? false;
-            const matchesCountryCode = row.countryCode?.toLowerCase() === ql;
-            if (!matchesAdmin1Name && !matchesAdmin1Code && !matchesAdmin2Name && !matchesCountryCode) {
-                return false;
-            }
-        }
-        return true;
-    }
 
     private resolveFromDb(name: string): Place {
         if (!this.geonamesDb) return { name };

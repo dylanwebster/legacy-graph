@@ -31,6 +31,7 @@ const GEONAMES_BASE = 'https://download.geonames.org/export/dump';
 const FILES = {
     allCountries: 'allCountries.zip',
     alternateNames: 'alternateNamesV2.zip',
+    countryInfo: 'countryInfo.txt',
 };
 
 // Feature classes/codes to include (genealogy-relevant)
@@ -137,6 +138,12 @@ function createSchema(db: DatabaseSync): void {
             tokenize = 'unicode61 remove_diacritics 2'
         );
 
+        CREATE TABLE IF NOT EXISTS countries (
+            code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            UNIQUE(code, name)
+        );
+
         CREATE TABLE IF NOT EXISTS db_meta (key TEXT PRIMARY KEY, value TEXT);
     `);
 }
@@ -144,7 +151,7 @@ function createSchema(db: DatabaseSync): void {
 // ─── Import Functions ───────────────────────────────────────────────────────
 
 async function importAllCountries(db: DatabaseSync, tsvPath: string): Promise<{ placeCount: number; validIds: Set<number> }> {
-    console.log('\n[2/4] Importing allCountries.txt...');
+    console.log('\n[2/5] Importing allCountries.txt...');
 
     const insertPlace = db.prepare(
         'INSERT OR IGNORE INTO geonames VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -220,7 +227,7 @@ async function importAllCountries(db: DatabaseSync, tsvPath: string): Promise<{ 
 }
 
 async function importAlternateNames(db: DatabaseSync, tsvPath: string, validIds: Set<number>): Promise<number> {
-    console.log('\n[3/4] Importing alternateNamesV2.txt...');
+    console.log('\n[3/5] Importing alternateNamesV2.txt...');
 
     const insertAlt = db.prepare(
         'INSERT OR IGNORE INTO alternate_names VALUES (?, ?, ?, ?, ?, ?)'
@@ -287,6 +294,53 @@ async function importAlternateNames(db: DatabaseSync, tsvPath: string, validIds:
     return altCount;
 }
 
+async function importCountryInfo(db: DatabaseSync, tsvPath: string): Promise<number> {
+    console.log('\n[4/5] Importing countryInfo.txt...');
+
+    const insertCountry = db.prepare(
+        'INSERT OR IGNORE INTO countries VALUES (?, ?)'
+    );
+    // Look up alternate names for a country geonameid
+    const altNamesQuery = db.prepare(
+        'SELECT DISTINCT name FROM alternate_names WHERE geonameid = ? AND (lang = \'en\' OR lang IS NULL OR lang = \'\')'
+    );
+
+    let nameCount = 0;
+
+    // Read the small countryInfo file synchronously to avoid stream locking issues
+    const content = fs.readFileSync(tsvPath, 'utf8');
+    db.exec('BEGIN TRANSACTION');
+    for (const line of content.split('\n')) {
+        if (line.startsWith('#') || !line.trim()) continue;
+        const cols = line.split('\t');
+        if (cols.length < 17) continue;
+
+        const code = cols[0]; // ISO 2-letter code
+        const name = cols[4]; // Country name
+        const geonameid = parseInt(cols[16], 10); // GeoNames ID for the country
+        if (!code || !name) continue;
+
+        // Insert official name
+        insertCountry.run(code, name);
+        nameCount++;
+
+        // Insert alternate English names from the alternate_names table
+        if (!isNaN(geonameid)) {
+            const altRows = altNamesQuery.all(geonameid) as any[];
+            for (const row of altRows) {
+                if (row.name && row.name !== name) {
+                    insertCountry.run(code, row.name);
+                    nameCount++;
+                }
+            }
+        }
+    }
+    db.exec('COMMIT');
+
+    console.log(`  ✓ Imported ${nameCount} country names`);
+    return nameCount;
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -304,11 +358,13 @@ async function main() {
     await fsp.mkdir(cacheDir, { recursive: true });
 
     // Step 1: Download
-    console.log('\n[1/4] Downloading GeoNames data...');
+    console.log('\n[1/5] Downloading GeoNames data...');
     const allCountriesZip = path.join(cacheDir, FILES.allCountries);
     const altNamesZip = path.join(cacheDir, FILES.alternateNames);
+    const countryInfoPath = path.join(cacheDir, FILES.countryInfo);
     await downloadFile(`${GEONAMES_BASE}/${FILES.allCountries}`, allCountriesZip);
     await downloadFile(`${GEONAMES_BASE}/${FILES.alternateNames}`, altNamesZip);
+    await downloadFile(`${GEONAMES_BASE}/${FILES.countryInfo}`, countryInfoPath);
 
     // Extract
     const allCountriesTsv = await unzipFile(allCountriesZip, cacheDir, 'allCountries.txt');
@@ -330,15 +386,28 @@ async function main() {
     // Step 2: Import allCountries
     const { placeCount, validIds } = await importAllCountries(db, allCountriesTsv);
 
+    // Add country geonameids to validIds so their alternate names get imported
+    const countryContent = fs.readFileSync(countryInfoPath, 'utf8');
+    for (const line of countryContent.split('\n')) {
+        if (line.startsWith('#') || !line.trim()) continue;
+        const cols = line.split('\t');
+        if (cols.length >= 17) {
+            const gid = parseInt(cols[16], 10);
+            if (!isNaN(gid)) validIds.add(gid);
+        }
+    }
+
     // Step 3: Import alternate names
     const altCount = await importAlternateNames(db, altNamesTsv, validIds);
 
-    // Step 4: Optimize
-    console.log('\n[4/4] Optimizing indexes...');
+    // Step 4: Import country info (uses alternate_names for country aliases)
+    await importCountryInfo(db, countryInfoPath);
+
+    // Step 5: Optimize
+    console.log('\n[5/5] Optimizing indexes...');
     db.exec('CREATE INDEX IF NOT EXISTS idx_geonames_adm1_lookup ON geonames(country_code, admin1, feature_code)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_geonames_adm2_lookup ON geonames(country_code, admin1, admin2, feature_code)');
     db.exec("INSERT INTO names_fts(names_fts) VALUES('optimize')");
-    db.exec('PRAGMA journal_mode=DELETE'); // Switch back from WAL for portability
     console.log('  ✓ FTS index optimized');
 
     // Write metadata

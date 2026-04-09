@@ -25,22 +25,37 @@ export class GeonamesDb {
     private readonly db: DatabaseSync;
     private readonly searchStmt: ReturnType<DatabaseSync['prepare']>;
     private readonly resolveStmt: ReturnType<DatabaseSync['prepare']>;
+    private readonly hasAdmin2: boolean;
+    private readonly hasCountries: boolean;
+    private readonly baseSql: string;
+    // Lowercase country name → country code (e.g., "germany" → "DE")
+    private readonly countryNameToCode: Map<string, string> = new Map();
 
     private constructor(db: DatabaseSync) {
         this.db = db;
 
         // Detect whether admin2 column exists (for backwards compatibility with older DBs)
-        const hasAdmin2 = this.columnExists(db, 'geonames', 'admin2');
+        this.hasAdmin2 = this.columnExists(db, 'geonames', 'admin2');
 
-        const admin2Select = hasAdmin2 ? 'a2.name AS admin2_name' : 'NULL AS admin2_name';
-        const admin2Join = hasAdmin2
+        // Load country name → code mapping if countries table exists
+        // Multiple names can map to the same code (official + alternates)
+        this.hasCountries = this.tableExists(db, 'countries');
+        if (this.hasCountries) {
+            const rows = db.prepare('SELECT code, name FROM countries').all() as any[];
+            for (const row of rows) {
+                this.countryNameToCode.set(row.name.toLowerCase(), row.code);
+            }
+        }
+
+        const admin2Select = this.hasAdmin2 ? 'a2.name AS admin2_name' : 'NULL AS admin2_name';
+        const admin2Join = this.hasAdmin2
             ? `LEFT JOIN geonames a2 ON a2.country_code = g.country_code
                 AND a2.admin1 = g.admin1
                 AND a2.admin2 = g.admin2
                 AND a2.feature_code = 'ADM2'`
             : '';
 
-        const sql = `
+        this.baseSql = `
             SELECT
                 g.geonameid,
                 g.name AS primary_name,
@@ -61,6 +76,9 @@ export class GeonamesDb {
                 AND a.admin1 = g.admin1
                 AND a.feature_code = 'ADM1'
             ${admin2Join}
+        `;
+
+        const sql = this.baseSql + `
             WHERE names_fts MATCH ?
             ORDER BY
                 (CASE WHEN LOWER(f.name) = LOWER(?) THEN 0 ELSE 1 END),
@@ -79,6 +97,34 @@ export class GeonamesDb {
         try {
             const rows = db.prepare(`PRAGMA table_info(${table})`).all() as any[];
             return rows.some(r => r.name === column);
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Resolve a country name (or prefix) to a 2-letter country code.
+     * Supports exact match ("germany" → "DE") and prefix match ("great brit" → "GB").
+     * Returns null if no match.
+     */
+    private resolveCountryCode(nameLower: string): string | null {
+        // Exact match first
+        const exact = this.countryNameToCode.get(nameLower);
+        if (exact) return exact;
+
+        // Prefix match (e.g., "great brit" → "Great Britain" → "GB")
+        for (const [name, code] of this.countryNameToCode) {
+            if (name.startsWith(nameLower)) return code;
+        }
+        return null;
+    }
+
+    private tableExists(db: DatabaseSync, table: string): boolean {
+        try {
+            const rows = db.prepare(
+                `SELECT name FROM sqlite_master WHERE type='table' AND name=?`
+            ).all(table) as any[];
+            return rows.length > 0;
         } catch {
             return false;
         }
@@ -115,6 +161,80 @@ export class GeonamesDb {
             // Fetch extra rows to account for duplicates from alternate names
             const rows = this.searchStmt.all(ftsQuery, query, limit * 4) as any[];
             // Deduplicate by geonameid, keeping the first (best-ranked) row
+            const seen = new Set<number>();
+            const deduped: GeonamesRow[] = [];
+            for (const row of rows) {
+                const id = row.geonameid;
+                if (seen.has(id)) continue;
+                seen.add(id);
+                deduped.push(this.rowToGeonamesRow(row));
+                if (deduped.length >= limit) break;
+            }
+            return deduped;
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+     * Search with SQL-level region qualifiers. Each qualifier is matched against
+     * countryCode, admin1 code, admin1 name, or admin2 name directly in SQL,
+     * so results are filtered before the LIMIT is applied.
+     */
+    searchFiltered(query: string, qualifiers: string[], limit: number): GeonamesRow[] {
+        const ftsQuery = this.buildFtsQuery(query);
+        if (!ftsQuery) return [];
+
+        // Build a WHERE clause per qualifier. Each qualifier is matched against
+        // country code, country name (via lookup), admin1 code, admin1 name, or admin2 name.
+        const qualifierClauses: string[] = [];
+        const params: (string | number)[] = [ftsQuery];
+
+        for (const q of qualifiers) {
+            const ql = q.toLowerCase();
+
+            // Resolve country name to code (e.g., "germany" → "DE", "united states" → "US")
+            const resolvedCode = this.resolveCountryCode(ql);
+
+            const conditions = [
+                'LOWER(g.country_code) = ?',
+                '? LIKE LOWER(g.country_code) || \'%\'',
+                'LOWER(g.admin1) = ?',
+                'LOWER(a.name) LIKE ? || \'%\'',
+            ];
+            const condParams = [ql, ql, ql, ql];
+
+            // If we resolved a country code from the name, also match against it
+            if (resolvedCode) {
+                conditions.push('LOWER(g.country_code) = ?');
+                condParams.push(resolvedCode.toLowerCase());
+            }
+
+            if (this.hasAdmin2) {
+                conditions.push('LOWER(a2.name) LIKE ? || \'%\'');
+                condParams.push(ql);
+            }
+
+            qualifierClauses.push(`(${conditions.join(' OR ')})`);
+            params.push(...condParams);
+        }
+
+        const sql = this.baseSql + `
+            WHERE names_fts MATCH ?
+            AND ${qualifierClauses.join(' AND ')}
+            ORDER BY
+                (CASE WHEN LOWER(f.name) = LOWER(?) THEN 0 ELSE 1 END),
+                (CASE WHEN f.source_type = 'primary' THEN 0 ELSE 1 END),
+                (CASE WHEN g.feature_class = 'P' THEN 0 WHEN g.feature_class = 'A' THEN 1 ELSE 2 END),
+                -1 * CASE WHEN g.population > 0 THEN g.population ELSE 0 END,
+                rank
+            LIMIT ?
+        `;
+        params.push(query); // for ORDER BY LOWER(f.name) = LOWER(?)
+        params.push(limit * 4);
+
+        try {
+            const rows = this.db.prepare(sql).all(...params) as any[];
             const seen = new Set<number>();
             const deduped: GeonamesRow[] = [];
             for (const row of rows) {

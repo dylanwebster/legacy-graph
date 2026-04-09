@@ -43,8 +43,22 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
             tokenize = 'unicode61 remove_diacritics 2'
         );
 
+        CREATE TABLE countries (code TEXT NOT NULL, name TEXT NOT NULL, UNIQUE(code, name));
+
         CREATE TABLE db_meta (key TEXT PRIMARY KEY, value TEXT);
     `);
+
+    // Insert countries
+    const insertCountry = raw.prepare('INSERT INTO countries VALUES (?, ?)');
+    insertCountry.run('GB', 'United Kingdom');
+    insertCountry.run('GB', 'Great Britain');
+    insertCountry.run('US', 'United States');
+    insertCountry.run('CA', 'Canada');
+    insertCountry.run('RU', 'Russia');
+    insertCountry.run('SE', 'Sweden');
+    insertCountry.run('SK', 'Slovakia');
+    insertCountry.run('DE', 'Germany');
+
 
     // Insert test places
     const insertPlace = raw.prepare(
@@ -253,5 +267,24 @@ describe('GeonamesDb', () => {
         expect(results[0].primaryName).toBe('El Dorado County');
         expect(results[0].featureCode).toBe('ADM2');
         expect(results[0].admin1Name).toBe('California');
+    });
+
+    it('searchFiltered with country name resolves to country code', () => {
+        const results = db.searchFiltered('London', ['United Kingdom'], 5);
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].countryCode).toBe('GB');
+    });
+
+    it('searchFiltered with country name prefix works', () => {
+        const results = db.searchFiltered('London', ['United King'], 5);
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].countryCode).toBe('GB');
+    });
+
+    it('searchFiltered with admin1 name and country name', () => {
+        const results = db.searchFiltered('Grizzly Flat', ['California', 'United States'], 5);
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].admin1Name).toBe('California');
+        expect(results[0].countryCode).toBe('US');
     });
 });
