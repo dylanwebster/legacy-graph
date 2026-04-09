@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useUpdatePerson, useSearch, usePlacesSearch, useUploadEventMedia, useAssets, useDeleteGalleryAsset } from '@/api/hooks';
+import { useUpdatePerson, useSearch, useUploadEventMedia, useAssets, useDeleteGalleryAsset } from '@/api/hooks';
 import type { Place } from '@/api/people';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
 import { AssetPickerDialog } from '@/components/AssetPickerDialog';
 import type { PersonChipData } from '@/components/AssetSearchBar';
 import { AssetLightbox } from '@/components/AssetLightbox';
+import { PlaceSearchCombobox } from '@/components/PlaceSearchCombobox';
 import {
     Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
@@ -97,82 +98,6 @@ function PersonSearchCombobox({
     );
 }
 
-// Debounced place search combobox
-function PlaceSearchCombobox({
-    value,
-    onChange,
-    onSelect,
-}: {
-    value: string;
-    onChange: (query: string) => void;
-    onSelect: (place: Place) => void;
-}) {
-    const [debouncedQuery, setDebouncedQuery] = useState('');
-    const [showDropdown, setShowDropdown] = useState(false);
-    const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
-
-    useEffect(() => {
-        const t = setTimeout(() => setDebouncedQuery(value), 350);
-        return () => clearTimeout(t);
-    }, [value]);
-
-    const { data: places } = usePlacesSearch(debouncedQuery);
-
-    const handleSelect = (place: Place) => {
-        onChange(place.name);
-        setSelectedPlace(place);
-        onSelect(place);
-        setShowDropdown(false);
-    };
-
-    const handleChange = (query: string) => {
-        onChange(query);
-        setSelectedPlace(null);
-        setShowDropdown(true);
-    };
-
-    const displayLat = selectedPlace?.lat != null
-        ? `${Math.abs(selectedPlace.lat).toFixed(2)}°${selectedPlace.lat >= 0 ? 'N' : 'S'}, ${Math.abs(selectedPlace.lng ?? 0).toFixed(2)}°${(selectedPlace.lng ?? 0) >= 0 ? 'E' : 'W'}`
-        : null;
-
-    return (
-        <div className="relative">
-            <Input
-                placeholder="City, Country"
-                value={value}
-                onChange={(e) => handleChange(e.target.value)}
-                onFocus={() => setShowDropdown(true)}
-                onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
-                className="h-8 text-sm"
-            />
-            {showDropdown && debouncedQuery.length >= 2 && (places ?? []).length > 0 && (
-                <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-md max-h-48 overflow-auto">
-                    {(places ?? []).map((place, i) => (
-                        <button
-                            key={i}
-                            type="button"
-                            className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 text-left"
-                            onMouseDown={() => handleSelect(place)}
-                        >
-                            <span className="truncate flex-1">
-                                {place.name}
-                                {!!place.admin1Name && (
-                                    <span className="text-muted-foreground">, {place.admin1Name}</span>
-                                )}
-                            </span>
-                            {!!place.countryCode && (
-                                <span className="text-xs text-muted-foreground shrink-0">{place.countryCode}</span>
-                            )}
-                        </button>
-                    ))}
-                </div>
-            )}
-            {!!displayLat && (
-                <p className="text-xs text-green-600 dark:text-green-400 mt-1">{displayLat}</p>
-            )}
-        </div>
-    );
-}
 
 function getRequiredFields(type: EventType): string[] {
     switch (type) {

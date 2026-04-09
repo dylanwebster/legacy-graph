@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useUpdateAssetMeta, useLinkAsset, useUnlinkAsset, usePlacesSearch } from '@/api/hooks';
+import { useUpdateAssetMeta, useLinkAsset, useUnlinkAsset } from '@/api/hooks';
 import type { AssetListItem } from '@/api/client';
 import type { Place } from '@/api/people';
 import { assetType } from '@/lib/assetUtils';
@@ -18,75 +18,7 @@ import {
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 
-// Inline place search combobox (mirrors EventEditorDialog pattern)
-export function PlaceCombobox({
-    value,
-    onChange,
-    onSelect,
-}: {
-    value: string;
-    onChange: (q: string) => void;
-    onSelect: (p: Place) => void;
-}) {
-    const [debounced, setDebounced] = useState('');
-    const [open, setOpen] = useState(false);
-    const [resolved, setResolved] = useState<Place | null>(null);
-
-    useEffect(() => {
-        const t = setTimeout(() => setDebounced(value), 350);
-        return () => clearTimeout(t);
-    }, [value]);
-
-    const { data: places } = usePlacesSearch(debounced);
-
-    const handleSelect = (p: Place) => {
-        onChange(p.name);
-        setResolved(p);
-        onSelect(p);
-        setOpen(false);
-    };
-
-    const displayLat = resolved?.lat != null
-        ? `${Math.abs(resolved.lat).toFixed(2)}°${resolved.lat >= 0 ? 'N' : 'S'}, ${Math.abs(resolved.lng ?? 0).toFixed(2)}°${(resolved.lng ?? 0) >= 0 ? 'E' : 'W'}`
-        : null;
-
-    return (
-        <div className="relative">
-            <Input
-                placeholder="City, Country"
-                value={value}
-                onChange={(e) => { onChange(e.target.value); setResolved(null); setOpen(true); }}
-                onFocus={() => setOpen(true)}
-                onBlur={() => setTimeout(() => setOpen(false), 150)}
-                className="h-7 text-xs"
-                autoFocus
-            />
-            {open && debounced.length >= 2 && (places ?? []).length > 0 && (
-                <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-md max-h-40 overflow-auto">
-                    {(places ?? []).map((p, i) => (
-                        <button
-                            key={i}
-                            type="button"
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 text-left"
-                            onMouseDown={() => handleSelect(p)}
-                        >
-                            <span className="truncate flex-1">
-                                {p.name}
-                                {!!p.admin1Name && (
-                                    <span className="text-muted-foreground">, {p.admin1Name}</span>
-                                )}
-                            </span>
-                            {!!p.countryCode && <span className="text-muted-foreground shrink-0">{p.countryCode}</span>}
-                        </button>
-                    ))}
-                </div>
-            )}
-            {!!displayLat && (
-                <p className="text-[10px] text-green-600 dark:text-green-400 mt-0.5">{displayLat}</p>
-            )}
-        </div>
-    );
-}
+import { PlaceSearchCombobox } from '@/components/PlaceSearchCombobox';
 
 export interface AssetLightboxProps {
     filename: string;
@@ -445,10 +377,13 @@ export function AssetLightbox({
                             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Location</p>
                             {editingLocation ? (
                                 <div className="space-y-1">
-                                    <PlaceCombobox
+                                    <PlaceSearchCombobox
                                         value={locationQuery}
                                         onChange={(q) => { setLocationQuery(q); setLocationPlace(null); }}
                                         onSelect={(p) => setLocationPlace(p)}
+                                        inputClassName="h-7 text-xs"
+                                        size="sm"
+                                        autoFocus
                                     />
                                     <div className="flex gap-1">
                                         <Button size="sm" className="h-6 text-xs px-2" onClick={saveLocation}>Save</Button>

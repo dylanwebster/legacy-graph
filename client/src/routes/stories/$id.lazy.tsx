@@ -2,7 +2,7 @@ import {
     useState, useEffect, useRef, useCallback,
 } from 'react';
 import { createLazyFileRoute, useNavigate, useSearch as useRouterSearch, Link, useBlocker } from '@tanstack/react-router';
-import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia, useDeleteStoryMedia, usePlacesSearch, useDeleteStory } from '@/api/hooks';
+import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia, useDeleteStoryMedia, useDeleteStory } from '@/api/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import { storiesApi } from '@/api/stories';
 import {
@@ -13,15 +13,13 @@ import { PersonChip } from '@/components/PersonChip';
 import { MilkdownEditor } from '@/components/MilkdownEditor';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
     Pencil, Save, ArrowLeft, MapPin, CalendarDays,
-    X, Lock, Unlock, Loader2, ChevronLeft, ChevronRight, Star, Trash2,
+    X, Lock, Unlock, ChevronLeft, ChevronRight, Star, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { Place } from '@/api/people';
 import type { UpdateStoryInput, FullStory } from '@/api/stories';
 
 export const Route = createLazyFileRoute('/stories/$id')({
@@ -50,87 +48,22 @@ function extractMentionIds(content: string): string[] {
     return Array.from(ids);
 }
 
-// ── PlaceSearchCombobox ──────────────────────────────────────────────────────
+import { PlaceSearchCombobox as PlaceSearchComboboxBase } from '@/components/PlaceSearchCombobox';
 
-function PlaceSearchCombobox({
-    value,
-    onChange,
-}: {
-    value: string;
-    onChange: (name: string) => void;
-}) {
-    const [debouncedQuery, setDebouncedQuery] = useState('');
-    const [showDropdown, setShowDropdown] = useState(false);
-    const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
-
-    useEffect(() => {
-        const t = setTimeout(() => setDebouncedQuery(value), 200);
-        return () => clearTimeout(t);
-    }, [value]);
-
-    const { data: places, isFetching } = usePlacesSearch(debouncedQuery);
-
-    const handleSelect = (place: Place) => {
-        onChange(place.name);
-        setSelectedPlace(place);
-        setShowDropdown(false);
-    };
-
-    const handleChange = (query: string) => {
-        onChange(query);
-        setSelectedPlace(null);
-        setShowDropdown(true);
-    };
-
-    const displayLat = selectedPlace?.lat != null
-        ? `${Math.abs(selectedPlace.lat).toFixed(2)}°${selectedPlace.lat >= 0 ? 'N' : 'S'}, ${Math.abs(selectedPlace.lng ?? 0).toFixed(2)}°${(selectedPlace.lng ?? 0) >= 0 ? 'E' : 'W'}`
-        : null;
-
-    const isSearching = isFetching && debouncedQuery.length >= 2;
-
+// Story-specific wrapper: adds MapPin icon layout
+function PlaceSearchCombobox({ value, onChange }: { value: string; onChange: (name: string) => void }) {
     return (
-        <div>
-            <div className="flex items-center gap-1.5">
-                <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <div className="relative">
-                    <Input
-                        placeholder="Place (city, country…)"
-                        value={value}
-                        onChange={(e) => handleChange(e.target.value)}
-                        onFocus={() => setShowDropdown(true)}
-                        onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
-                        className="h-7 text-sm w-56 border-muted pr-7"
-                    />
-                    {isSearching && (
-                        <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 animate-spin text-muted-foreground" />
-                    )}
-                    {showDropdown && debouncedQuery.length >= 2 && (places ?? []).length > 0 && (
-                        <div className="absolute z-50 w-64 mt-1 bg-popover border border-border rounded-md shadow-md max-h-48 overflow-auto">
-                            {(places ?? []).map((place, i) => (
-                                <button
-                                    key={i}
-                                    type="button"
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 text-left"
-                                    onMouseDown={() => handleSelect(place)}
-                                >
-                                    <span className="truncate flex-1">
-                                        {place.name}
-                                        {!!place.admin1Name && (
-                                            <span className="text-muted-foreground">, {place.admin1Name}</span>
-                                        )}
-                                    </span>
-                                    {!!place.countryCode && (
-                                        <span className="text-muted-foreground shrink-0">{place.countryCode}</span>
-                                    )}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </div>
-            {!!displayLat && (
-                <p className="text-[10px] text-green-600 dark:text-green-400 mt-0.5 ml-5">{displayLat}</p>
-            )}
+        <div className="flex items-center gap-1.5">
+            <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <PlaceSearchComboboxBase
+                value={value}
+                onChange={onChange}
+                debounceMs={200}
+                placeholder="Place (city, country…)"
+                inputClassName="h-7 text-sm w-56 border-muted"
+                dropdownClassName="w-64"
+                size="sm"
+            />
         </div>
     );
 }
