@@ -12,6 +12,7 @@ export interface GeonamesRow {
     population: number;
     matchedName: string;
     sourceType: string; // 'primary' | 'alternate' | 'historic'
+    admin1Code: string | null;
     admin1Name: string | null;
     admin2Name: string | null;
 }
@@ -51,6 +52,7 @@ export class GeonamesDb {
                 g.population,
                 f.name AS matched_name,
                 f.source_type,
+                g.admin1 AS admin1_code,
                 a.name AS admin1_name,
                 ${admin2Select}
             FROM names_fts f
@@ -170,6 +172,7 @@ export class GeonamesDb {
             population: row.population,
             matchedName: row.matched_name,
             sourceType: row.source_type,
+            admin1Code: row.admin1_code ?? null,
             admin1Name: row.admin1_name ?? null,
             admin2Name: row.admin2_name ?? null,
         };
