@@ -421,6 +421,23 @@ describe('buildFamilyTree', () => {
         expect(sibling.hasHiddenAncestors).toBe(false);
         expect(sibling.hasHiddenDescendants).toBe(false);
     });
+
+    it('orders parents with father (M) first even when ID would sort mother first', () => {
+        // Create nodes where mother's ID sorts before father's alphabetically
+        const testNodes = [
+            { id: 'CHILD', label: 'Child', sex: 'U' },
+            { id: 'A_MOTHER', label: 'A Mother', sex: 'F' },
+            { id: 'Z_FATHER', label: 'Z Father', sex: 'M' },
+        ];
+        const testLinks = [
+            { source: 'CHILD', target: 'A_MOTHER', type: 'parent_child' },
+            { source: 'CHILD', target: 'Z_FATHER', type: 'parent_child' },
+        ];
+        const tree = buildFamilyTree(testNodes, testLinks, 'CHILD', 1, 0, new Set(), new Set(), new Set());
+        expect(tree.parents.length).toBe(2);
+        expect(tree.parents[0].id).toBe('Z_FATHER');
+        expect(tree.parents[1].id).toBe('A_MOTHER');
+    });
 });
 
 // ─── computeAdaptiveTreeLayout ───────────────────────────────────────────────

@@ -42,8 +42,8 @@ const BASE_R = 56;
 /**
  * Vertical offset applied to the fan's SVG transform so the 270° arc's visual
  * mass recenters in the viewport. Expressed as a fraction of container height.
- * Shared by both the render transform and the geometric hit-test inversion so
- * the two can never silently diverge.
+ * Kept in sync with related interaction math that depends on the same rendered
+ * placement, such as popover positioning and hover re-evaluation.
  */
 const FAN_OFFSET_Y_FRAC = 0.07;
 /**
@@ -170,7 +170,6 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
 }, ref) {
     const navigate = useNavigate();
     const containerRef = useRef<HTMLDivElement>(null);
-    const svgRef = useRef<SVGSVGElement>(null);
     // Last known cursor position inside the SVG — used to re-evaluate hover when the
     // geometry changes (pan, zoom, resize) without requiring cursor movement.
     const lastCursorRef = useRef<{ clientX: number; clientY: number } | null>(null);
@@ -348,10 +347,11 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     const cx = dims.width / 2;
     const cy = dims.height / 2;
 
-    // Arc lookup by ID — used to map native DOM events back to FanArc objects
-    // for the preview popover positioning.
-    const arcById = useMemo(
-        () => new Map(arcs.filter(a => a.slot.id).map(a => [a.slot.id!, a])),
+    // Arc lookup by unique key (gen:slotIndex) — used to map native DOM events
+    // back to FanArc objects. Uses slot coordinates rather than person ID to
+    // handle pedigree collapse (same ancestor in multiple slots).
+    const arcByKey = useMemo(
+        () => new Map(arcs.filter(a => a.slot.id).map(a => [`${a.slot.generation}:${a.slot.slotIndex}`, a])),
         [arcs],
     );
 
@@ -379,15 +379,15 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     const handleSvgClick = useCallback(
         (e: React.MouseEvent<SVGSVGElement>) => {
             if (isDraggingRef.current) return;
-            const arcId = arcIdFromTarget(e.target);
-            if (arcId) {
+            const arcKey = arcIdFromTarget(e.target);
+            if (arcKey) {
                 e.stopPropagation(); // prevent handleBackgroundClick from closing selectedArc
-                const arc = arcById.get(arcId);
+                const arc = arcByKey.get(arcKey);
                 if (arc) handleArcClick(arc);
             }
             // No arc hit — let the event bubble to the container's handleBackgroundClick.
         },
-        [arcIdFromTarget, arcById, handleArcClick],
+        [arcIdFromTarget, arcByKey, handleArcClick],
     );
 
     // Re-evaluate hover whenever the transform geometry changes (pan, zoom, resize)
@@ -432,7 +432,6 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
             onClick={handleBackgroundClick}
         >
             <svg
-                ref={svgRef}
                 width={dims.width}
                 height={dims.height}
                 data-testid="fan-chart-svg"
@@ -504,8 +503,9 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                         const labelR = (arc.innerR + arc.outerR) / 2;
                         const arcTangentialWidth = labelR * angleDelta; // px along arc midline
 
-                        const isSelected = !!arc.slot.id && arc.slot.id === selectedArc?.slot.id;
-                        const isHovered = !!arc.slot.id && arc.slot.id === hoveredArcId;
+                        const arcKey = `${arc.slot.generation}:${arc.slot.slotIndex}`;
+                        const isSelected = !!arc.slot.id && selectedArc?.slot.generation === arc.slot.generation && selectedArc?.slot.slotIndex === arc.slot.slotIndex;
+                        const isHovered = !!arc.slot.id && arcKey === hoveredArcId;
 
                         const gNode = arc.slot.id ? graphNodeMap.get(arc.slot.id) : undefined;
                         const yearsStr = buildYearsStr(gNode);
@@ -520,7 +520,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                                 <path
                                     className="fan-arc"
                                     d={arcPathStr(arc, 0, 0)}
-                                    data-arc-id={isEmpty ? undefined : arc.slot.id!}
+                                    data-arc-id={isEmpty ? undefined : arcKey}
                                     fill={isEmpty ? 'var(--muted)' : lineageColor(arc.slot, isDark)}
                                     stroke={isSelected ? 'var(--primary)' : isHovered ? 'rgba(255,255,255,0.55)' : 'var(--background)'}
                                     strokeWidth={isSelected ? 2.5 : isHovered ? 2 : 1.5}

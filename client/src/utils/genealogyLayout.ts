@@ -61,6 +61,17 @@ interface LinkRef {
     type: string;
 }
 
+/** Compare parent IDs: fathers (M) first, mothers (F) second, then by ID for stability. */
+function compareParentsBySexThenId(nodeMap: Map<string, NodeRef>, a: string, b: string): number {
+    const sexRank = (id: string) => {
+        const sex = nodeMap.get(id)?.sex;
+        if (sex === 'M') return 0;
+        if (sex === 'F') return 1;
+        return 2;
+    };
+    return sexRank(a) - sexRank(b) || a.localeCompare(b);
+}
+
 // ─── buildAncestorTree ────────────────────────────────────────────────────────
 
 /**
@@ -88,16 +99,9 @@ export function buildAncestorTree(
         if (!parentMap.has(childId)) parentMap.set(childId, []);
         parentMap.get(childId)!.push(parentId);
     }
-    // Sort parents: M (father) first, F (mother) second, then by ID for stability.
-    // This ensures Ahnentafel convention: even slots = father, odd slots = mother.
-    const sexOrder = (id: string) => {
-        const sex = nodeMap.get(id)?.sex;
-        if (sex === 'M') return 0;
-        if (sex === 'F') return 1;
-        return 2;
-    };
+    // Sort parents: father first, mother second (Ahnentafel: even slots = father, odd = mother).
     for (const [, parents] of parentMap) {
-        parents.sort((a, b) => sexOrder(a) - sexOrder(b) || a.localeCompare(b));
+        parents.sort((a, b) => compareParentsBySexThenId(nodeMap, a, b));
     }
 
     const result: AncestorSlot[] = [];
@@ -142,7 +146,7 @@ export function buildAncestorTree(
 
 // ─── computeFanArcLayout ──────────────────────────────────────────────────────
 
-/** Fan start angle: 135° (lower-left in SVG y-down). Shared with hit-test in FanChartPanel. */
+/** Fan start angle: 135° (lower-left in SVG y-down coordinates). */
 export const FAN_START_ANGLE = 0.75 * Math.PI;
 
 /**
@@ -360,15 +364,9 @@ export function buildFamilyTree(
         if (!childMap.has(parentId)) childMap.set(parentId, []);
         childMap.get(parentId)!.push(childId);
     }
-    // Sort parents: M (father) first, F (mother) second, then by ID for stability.
-    const sexOrder = (id: string) => {
-        const sex = nodeMap.get(id)?.sex;
-        if (sex === 'M') return 0;
-        if (sex === 'F') return 1;
-        return 2;
-    };
+    // Sort parents: father first, mother second.
     for (const [, ids] of parentMap) {
-        ids.sort((a, b) => sexOrder(a) - sexOrder(b) || a.localeCompare(b));
+        ids.sort((a, b) => compareParentsBySexThenId(nodeMap, a, b));
     }
     for (const [, ids] of childMap) ids.sort();
 
