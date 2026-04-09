@@ -453,7 +453,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                                 data-person-id={n.node.id}
                                 onClick={(e) => handleCardClick(n.node.id!, e)}
                                 className="cursor-pointer"
-                                style={{ pointerEvents: 'all', filter: 'url(#card-shadow)' }}
+                                style={{ filter: 'url(#card-shadow)' }}
                             >
                                 {/* Card background */}
                                 <rect
