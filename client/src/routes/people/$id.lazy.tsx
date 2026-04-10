@@ -62,6 +62,14 @@ const EVENT_ICONS: Record<string, typeof Calendar> = {
     generic: Calendar,
 };
 
+const EVENT_LABELS: Record<string, string> = {
+    birth: 'Birth', death: 'Death', marriage: 'Marriage', divorce: 'Divorce',
+    engagement: 'Engagement', residence: 'Residence', census: 'Census',
+    occupation: 'Occupation', education: 'Education', military_service: 'Military Service',
+    immigration: 'Immigration', emigration: 'Emigration', adoption: 'Adoption',
+    baptism: 'Baptism', burial: 'Burial', generic: 'Other',
+};
+
 const SEX_OPTIONS = ['M', 'F', 'I', 'U'] as const;
 const SEX_LABELS: Record<string, string> = { M: 'Male', F: 'Female', I: 'Intersex', U: 'Unknown' };
 
@@ -1059,7 +1067,7 @@ function VirtualizedTimeline({
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
-                                        <span className="font-medium text-sm capitalize">{String(details.type ?? item.type ?? '')}</span>
+                                        <span className="font-medium text-sm">{EVENT_LABELS[String(details.type ?? item.type ?? '')] ?? String(details.type ?? item.type ?? '')}</span>
                                         {!!details.date && (
                                             <span className="text-xs text-muted-foreground font-mono">{String(details.date)}</span>
                                         )}

@@ -13,16 +13,45 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { FileText, Link2, Trash2, Upload, X } from 'lucide-react';
+import {
+    Sunrise, Sunset, Heart, MapPin, GraduationCap, Briefcase, Church, Ship,
+    ScrollText, Users, FileText, Calendar, Leaf, ChevronDown, Check,
+    Link2, Trash2, Upload, X,
+} from 'lucide-react';
+import {
+    Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from '@/components/ui/command';
 import { assetType } from '@/lib/assetUtils';
 import { toast } from 'sonner';
 
-const EVENT_TYPES = [
-    'birth', 'death', 'marriage', 'divorce', 'engagement', 'residence',
-    'census', 'occupation', 'education', 'military_service',
-    'immigration', 'emigration', 'adoption', 'baptism', 'burial', 'generic',
-] as const;
-type EventType = typeof EVENT_TYPES[number];
+const EVENT_META = {
+    birth:            { icon: Sunrise,       label: 'Birth' },
+    death:            { icon: Sunset,        label: 'Death' },
+    marriage:         { icon: Heart,         label: 'Marriage' },
+    divorce:          { icon: Heart,         label: 'Divorce' },
+    engagement:       { icon: Heart,         label: 'Engagement' },
+    residence:        { icon: MapPin,        label: 'Residence' },
+    census:           { icon: FileText,      label: 'Census' },
+    occupation:       { icon: Briefcase,     label: 'Occupation' },
+    education:        { icon: GraduationCap, label: 'Education' },
+    military_service: { icon: ScrollText,    label: 'Military Service' },
+    immigration:      { icon: Ship,          label: 'Immigration' },
+    emigration:       { icon: Ship,          label: 'Emigration' },
+    adoption:         { icon: Users,         label: 'Adoption' },
+    baptism:          { icon: Church,        label: 'Baptism' },
+    burial:           { icon: Leaf,          label: 'Burial' },
+    generic:          { icon: Calendar,      label: 'Other' },
+} satisfies Record<string, { icon: typeof Calendar; label: string }>;
+
+type EventType = keyof typeof EVENT_META;
+
+const EVENT_CATEGORIES: Array<{ label: string; types: EventType[] }> = [
+    { label: 'Life',                types: ['birth', 'death', 'adoption', 'baptism', 'burial'] },
+    { label: 'Family',             types: ['marriage', 'divorce', 'engagement'] },
+    { label: 'Location',           types: ['residence', 'immigration', 'emigration'] },
+    { label: 'Career & Education', types: ['occupation', 'education', 'military_service'] },
+    { label: 'Records',            types: ['census', 'generic'] },
+];
 
 interface EventEditorDialogProps {
     isOpen: boolean;
@@ -99,6 +128,69 @@ function PersonSearchCombobox({
     );
 }
 
+
+// ── Event Type Selector ──────────────────────────────────────────────────────
+
+function EventTypeSelector({ value, onChange }: { value: EventType; onChange: (t: EventType) => void }) {
+    const [open, setOpen] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const meta = EVENT_META[value];
+    const Icon = meta.icon;
+
+    // Close on outside click
+    useEffect(() => {
+        if (!open) return;
+        const handler = (e: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [open]);
+
+    return (
+        <div ref={containerRef} className="relative">
+            <button
+                type="button"
+                onClick={() => setOpen(!open)}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md border border-input bg-transparent text-sm hover:bg-muted/50 transition-colors"
+            >
+                <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="flex-1 text-left font-medium">{meta.label}</span>
+                <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+            </button>
+            {open && (
+                <div className="absolute z-50 w-full mt-1 rounded-md border border-border bg-popover shadow-md">
+                    <Command className="rounded-md">
+                        <CommandInput placeholder="Search event types..." className="h-8 text-sm" />
+                        <CommandList className="max-h-56">
+                            <CommandEmpty>No event type found.</CommandEmpty>
+                            {EVENT_CATEGORIES.map((cat) => (
+                                <CommandGroup key={cat.label} heading={cat.label}>
+                                    {cat.types.map((t) => {
+                                        const m = EVENT_META[t];
+                                        const ItemIcon = m.icon;
+                                        return (
+                                            <CommandItem
+                                                key={t}
+                                                value={`${m.label} ${t}`}
+                                                onSelect={() => { onChange(t); setOpen(false); }}
+                                                className="flex items-center gap-2 cursor-pointer"
+                                            >
+                                                <ItemIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                                <span className="flex-1">{m.label}</span>
+                                                {t === value && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                                            </CommandItem>
+                                        );
+                                    })}
+                                </CommandGroup>
+                            ))}
+                        </CommandList>
+                    </Command>
+                </div>
+            )}
+        </div>
+    );
+}
 
 function getRequiredFields(type: EventType): string[] {
     switch (type) {
@@ -335,28 +427,8 @@ export function EventEditorDialog({
                 </DialogHeader>
 
                 <div className="space-y-4 py-2">
-                    {/* Event type */}
-                    <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                            Event Type
-                        </label>
-                        <div className="flex flex-wrap gap-1.5">
-                            {EVENT_TYPES.map((t) => (
-                                <button
-                                    key={t}
-                                    type="button"
-                                    onClick={() => setEventType(t)}
-                                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                                        eventType === t
-                                            ? 'bg-primary text-primary-foreground'
-                                            : 'bg-muted hover:bg-muted/80 text-muted-foreground'
-                                    }`}
-                                >
-                                    {t}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+                    {/* Event type selector */}
+                    <EventTypeSelector value={eventType} onChange={setEventType} />
 
                     {/* Date */}
                     <div className="space-y-1">
