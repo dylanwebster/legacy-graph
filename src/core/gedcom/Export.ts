@@ -8,6 +8,7 @@ export interface FamilyRecord {
     marriage?: {
         date: string;
         location: string;
+        site_name?: string;
     };
 }
 
@@ -90,6 +91,9 @@ export class GedcomExporter {
                 if (event.location?.name) {
                     lines.push(`2 PLAC ${event.location.name}`);
                 }
+                if (event.site_name) {
+                    lines.push(`2 ADDR ${event.site_name}`);
+                }
 
                 // Death cause
                 if (event.type === 'death' && 'cause' in event && event.cause) {
@@ -126,6 +130,9 @@ export class GedcomExporter {
                 }
                 if (event.location?.name) {
                     lines.push(`2 PLAC ${event.location.name}`);
+                }
+                if (event.site_name) {
+                    lines.push(`2 ADDR ${event.site_name}`);
                 }
             }
         });
@@ -208,27 +215,29 @@ export class GedcomExporter {
                     const wife = person.sex === 'F' ? person.id : partnerId;
                     
                     const familyKey = `${husband}_${wife}`;
-                    let family = familyMap.get(familyKey);
-                    
-                    if (!family) {
+                    const existing = familyMap.get(familyKey);
+
+                    if (!existing) {
                         // Create new family record
-                        family = {
+                        const family: FamilyRecord = {
                             id: `F${Math.random().toString(36).substring(2, 9)}`,
                             husband: husband,
                             wife: wife,
                             children: [],
                             marriage: {
                                 date: event.date || '',
-                                location: event.location?.name || ''
+                                location: event.location?.name || '',
+                                site_name: event.site_name || ''
                             }
                         };
                         familyMap.set(familyKey, family);
                         families.push(family);
-                    } else if (!family.marriage) {
+                    } else if (!existing.marriage) {
                         // Add marriage data to existing family
-                        family.marriage = {
+                        existing.marriage = {
                             date: event.date || '',
-                            location: event.location?.name || ''
+                            location: event.location?.name || '',
+                            site_name: event.site_name || ''
                         };
                     }
                 }
@@ -256,6 +265,9 @@ export class GedcomExporter {
             }
             if (family.marriage.location) {
                 lines.push(`2 PLAC ${family.marriage.location}`);
+            }
+            if (family.marriage.site_name) {
+                lines.push(`2 ADDR ${family.marriage.site_name}`);
             }
         }
         

@@ -229,6 +229,71 @@ describe('GedcomExporter', () => {
         expect(gedcom).toContain("1 BURI");
     });
 
+    it('should export site_name as ADDR tag', () => {
+        const person: Person = {
+            version: "5.0",
+            id: "N_site",
+            created: "2024-01-01T00:00:00.000Z",
+            last_modified: "2024-01-01T00:00:00.000Z",
+            names: [{ first: "Test", last: "Person", primary: true }],
+            sex: "M",
+            tags: [],
+            relationships: { parents: [] },
+            events: [
+                {
+                    id: "evt1",
+                    type: "baptism",
+                    date: "15 JAN 1920",
+                    sort_date: "1920-01-15",
+                    location: { name: "Chicopee, MA" },
+                    site_name: "Nativity Of The Blessed Virgin Mary Church",
+                    assets: []
+                }
+            ],
+            assets: [],
+            scrapbook_md: "",
+        };
+
+        const gedcom = exporter.exportPeople([person]);
+
+        expect(gedcom).toContain("1 CHR");
+        expect(gedcom).toContain("2 PLAC Chicopee, MA");
+        expect(gedcom).toContain("2 ADDR Nativity Of The Blessed Virgin Mary Church");
+    });
+
+    it('should export marriage site_name as ADDR in FAM record', () => {
+        const husband: Person = {
+            version: "5.0", id: "N_husb",
+            created: "2024-01-01T00:00:00.000Z", last_modified: "2024-01-01T00:00:00.000Z",
+            names: [{ first: "John", last: "Doe", primary: true }],
+            sex: "M", tags: [], relationships: { parents: [] },
+            events: [{
+                id: "m1", type: "marriage", date: "1950", sort_date: "1950-06-01",
+                location: { name: "Boston, MA" }, site_name: "St. Patrick Cathedral",
+                partner_id: "N_wife", status: "married", assets: []
+            }],
+            assets: [], scrapbook_md: "",
+        };
+        const wife: Person = {
+            version: "5.0", id: "N_wife",
+            created: "2024-01-01T00:00:00.000Z", last_modified: "2024-01-01T00:00:00.000Z",
+            names: [{ first: "Jane", last: "Doe", primary: true }],
+            sex: "F", tags: [], relationships: { parents: [] },
+            events: [{
+                id: "m2", type: "marriage", date: "1950", sort_date: "1950-06-01",
+                location: { name: "Boston, MA" }, site_name: "St. Patrick Cathedral",
+                partner_id: "N_husb", status: "married", assets: []
+            }],
+            assets: [], scrapbook_md: "",
+        };
+
+        const gedcom = exporter.exportPeople([husband, wife]);
+
+        expect(gedcom).toContain("1 MARR");
+        expect(gedcom).toContain("2 PLAC Boston, MA");
+        expect(gedcom).toContain("2 ADDR St. Patrick Cathedral");
+    });
+
     it('should produce valid GEDCOM 5.5.1 format', () => {
         const person: Person = {
             version: "5.0",

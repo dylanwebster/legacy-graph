@@ -10,6 +10,7 @@ const BaseEvent = z.object({
         z.string().transform((s): Place => ({ name: s })),
         PlaceSchema,
     ]).optional(),
+    site_name: z.string().optional(), // Specific building/street (church, hospital, cemetery, etc.)
     description: z.string().optional(),
     assets: z.array(z.string()).default([]) // List of filenames/IDs
 });

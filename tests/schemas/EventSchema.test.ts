@@ -101,4 +101,25 @@ describe('EventSchema', () => {
             expect(result.data.location).toBeUndefined();
         }
     });
+
+    it('site_name round-trips through schema', () => {
+        const evt = {
+            type: 'birth', date: '1920', sort_date: '1920-01-01',
+            site_name: "St. Mary's Hospital"
+        };
+        const result = EventSchema.safeParse(evt);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.site_name).toBe("St. Mary's Hospital");
+        }
+    });
+
+    it('event without site_name remains valid', () => {
+        const evt = { type: 'burial', date: '1980', sort_date: '1980-03-15' };
+        const result = EventSchema.safeParse(evt);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.site_name).toBeUndefined();
+        }
+    });
 });

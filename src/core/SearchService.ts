@@ -170,7 +170,7 @@ export class SearchService {
 
         // Flatten locations for full-text search
         const locations = p.events
-            .map(e => e.location?.name)
+            .map(e => [e.location?.name, e.site_name].filter(Boolean).join(' '))
             .filter(Boolean)
             .join(" ");
 

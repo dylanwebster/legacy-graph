@@ -302,6 +302,66 @@ describe('GedcomReader', () => {
         expect(p.names[0].first).toBe('Unknown');
     });
 
+    it('should import ADDR tag as site_name', async () => {
+        const GEDCOM = `
+0 HEAD
+1 SOUR Test
+0 @I1@ INDI
+1 NAME Maria /Rossi/
+1 SEX F
+1 BIRT
+2 DATE 5 MAR 1920
+2 PLAC Chicopee, MA
+2 ADDR Nativity Of The Blessed Virgin Mary Church
+1 BURI
+2 DATE 10 JAN 1995
+2 PLAC Chicopee, MA
+2 ADDR St. Stanislaus Cemetery
+0 TRLR
+`;
+        const reader = new GedcomReader();
+        const result = await reader.parse(GEDCOM);
+
+        const maria = result.people[0];
+        const birth = maria.events.find(e => e.type === 'birth');
+        expect(birth).toBeDefined();
+        expect(birth!.location?.name).toBe('Chicopee, MA');
+        expect(birth!.site_name).toBe('Nativity Of The Blessed Virgin Mary Church');
+
+        const burial = maria.events.find(e => e.type === 'burial');
+        expect(burial).toBeDefined();
+        expect(burial!.site_name).toBe('St. Stanislaus Cemetery');
+    });
+
+    it('should import ADDR on marriage events from FAM record', async () => {
+        const GEDCOM = `
+0 HEAD
+1 SOUR Test
+0 @I1@ INDI
+1 NAME John /Smith/
+1 SEX M
+0 @I2@ INDI
+1 NAME Mary /Jones/
+1 SEX F
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 MARR
+2 DATE 15 JUN 1950
+2 PLAC Boston, MA
+2 ADDR St. Patrick Cathedral
+0 TRLR
+`;
+        const reader = new GedcomReader();
+        const result = await reader.parse(GEDCOM);
+
+        const john = result.people.find(p => p.names[0].first === 'John');
+        const marriage = john!.events.find(e => e.type === 'marriage');
+        expect(marriage).toBeDefined();
+        expect(marriage!.location?.name).toBe('Boston, MA');
+        expect(marriage!.site_name).toBe('St. Patrick Cathedral');
+    });
+
     it('should produce valid sort_date for Ancestry non-standard date formats', async () => {
         const GEDCOM = `
 0 HEAD

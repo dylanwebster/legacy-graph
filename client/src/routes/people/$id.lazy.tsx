@@ -31,7 +31,7 @@ import {
 import {
     Calendar, MapPin, Heart, Sunrise, Sunset, Leaf, GraduationCap, Briefcase, Church,
     Ship, ScrollText, FileText, Plus, ChevronRight, Image, BookOpen, Code,
-    Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2, Crop, Link2,
+    Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2, Crop, Link2, Building2,
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -1068,6 +1068,12 @@ function VirtualizedTimeline({
                                                     ? String((details.location as Record<string, unknown>).name ?? '')
                                                     : String(details.location)}
                                             </span>
+                                        </div>
+                                    )}
+                                    {!!details.site_name && (
+                                        <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                                            <Building2 className="h-3 w-3" />
+                                            <span className="truncate">{String(details.site_name)}</span>
                                         </div>
                                     )}
                                     {!!details.description && (

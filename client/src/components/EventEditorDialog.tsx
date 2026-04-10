@@ -167,6 +167,7 @@ export function EventEditorDialog({
     const [institution, setInstitution] = useState((existingEvent?.institution as string) ?? '');
     const [degree, setDegree] = useState((existingEvent?.degree as string) ?? '');
     const [householdId, setHouseholdId] = useState((existingEvent?.household_id as string) ?? '');
+    const [siteName, setSiteName] = useState((existingEvent?.site_name as string) ?? '');
 
     // Reset when dialog opens with new event data
     useEffect(() => {
@@ -193,6 +194,7 @@ export function EventEditorDialog({
             setInstitution((existingEvent?.institution as string) ?? '');
             setDegree((existingEvent?.degree as string) ?? '');
             setHouseholdId((existingEvent?.household_id as string) ?? '');
+            setSiteName((existingEvent?.site_name as string) ?? '');
             setEventAssets((existingEvent?.assets as string[]) ?? []);
         }
     }, [isOpen, existingEvent, initialEventType]);
@@ -212,6 +214,7 @@ export function EventEditorDialog({
         } else if (locationQuery.trim()) {
             base.location = { name: locationQuery.trim() };
         }
+        if (siteName.trim()) base.site_name = siteName.trim();
         if (description) base.description = description;
 
         switch (eventType) {
@@ -242,7 +245,7 @@ export function EventEditorDialog({
         }
         return base;
     }, [
-        eventType, date, locationPlace, locationQuery, description,
+        eventType, date, locationPlace, locationQuery, siteName, description,
         partnerId, marriageStatus, cause, title, organization,
         institution, degree, householdId, eventAssets, existingEvent,
     ]);
@@ -353,11 +356,21 @@ export function EventEditorDialog({
                     </div>
 
                     <div className="space-y-1">
-                        <label className="text-xs font-medium">Location</label>
+                        <label className="text-xs font-medium">Place</label>
                         <PlaceSearchCombobox
                             value={locationQuery}
                             onChange={setLocationQuery}
                             onSelect={setLocationPlace}
+                        />
+                    </div>
+
+                    <div className="space-y-1">
+                        <label className="text-xs font-medium">Site Name</label>
+                        <Input
+                            placeholder="e.g. St. Mary's Church, Oak Hill Cemetery"
+                            value={siteName}
+                            onChange={(e) => setSiteName(e.target.value)}
+                            className="h-8 text-sm"
                         />
                     </div>
 
