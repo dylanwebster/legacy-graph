@@ -122,4 +122,88 @@ describe('EventSchema', () => {
             expect(result.data.site_name).toBeUndefined();
         }
     });
+
+    it('should validate an engagement event with partner_id', () => {
+        const evt = {
+            type: 'engagement', date: '1949', sort_date: '1949-03-15',
+            partner_id: 'N_PARTNER',
+        };
+        const result = EventSchema.safeParse(evt);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.type).toBe('engagement');
+            expect((result.data as any).partner_id).toBe('N_PARTNER');
+        }
+    });
+
+    it('should reject engagement without partner_id', () => {
+        const evt = { type: 'engagement', date: '1949', sort_date: '1949-03-15' };
+        expect(EventSchema.safeParse(evt).success).toBe(false);
+    });
+
+    it('should validate a military_service event with branch and rank', () => {
+        const evt = {
+            type: 'military_service', date: '1942', sort_date: '1942-06-01',
+            branch: 'US Army', rank: 'Sergeant',
+        };
+        const result = EventSchema.safeParse(evt);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.type).toBe('military_service');
+            expect((result.data as any).branch).toBe('US Army');
+            expect((result.data as any).rank).toBe('Sergeant');
+        }
+    });
+
+    it('should reject military_service without branch', () => {
+        const evt = { type: 'military_service', date: '1942', sort_date: '1942-06-01' };
+        expect(EventSchema.safeParse(evt).success).toBe(false);
+    });
+
+    it('should validate military_service without optional rank', () => {
+        const evt = { type: 'military_service', date: '1942', sort_date: '1942-06-01', branch: 'Navy' };
+        const result = EventSchema.safeParse(evt);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect((result.data as any).rank).toBeUndefined();
+        }
+    });
+
+    it('should validate an immigration event', () => {
+        const evt = {
+            type: 'immigration', date: '1910', sort_date: '1910-04-15',
+            location: 'New York, USA',
+        };
+        const result = EventSchema.safeParse(evt);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.type).toBe('immigration');
+            expect(result.data.location).toEqual({ name: 'New York, USA' });
+        }
+    });
+
+    it('should validate an emigration event', () => {
+        const evt = {
+            type: 'emigration', date: '1910', sort_date: '1910-04-15',
+            location: 'Hamburg, Germany',
+        };
+        const result = EventSchema.safeParse(evt);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.type).toBe('emigration');
+        }
+    });
+
+    it('should validate an adoption event', () => {
+        const evt = {
+            type: 'adoption', date: '1955', sort_date: '1955-08-20',
+            description: 'Adopted by the Smith family',
+        };
+        const result = EventSchema.safeParse(evt);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.type).toBe('adoption');
+            expect(result.data.description).toBe('Adopted by the Smith family');
+        }
+    });
 });

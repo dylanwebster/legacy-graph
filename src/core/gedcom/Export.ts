@@ -73,7 +73,10 @@ export class GedcomExporter {
             'census': 'CENS',
             'residence': 'RESI',
             'occupation': 'OCCU',
-            'education': 'EDUC'
+            'education': 'EDUC',
+            'emigration': 'EMIG',
+            'immigration': 'IMMI',
+            'adoption': 'ADOP'
         };
         
         person.events.forEach(event => {
@@ -119,6 +122,20 @@ export class GedcomExporter {
                         lines.push(`2 NOTE Degree: ${event.degree}`);
                     }
                 }
+            } else if (event.type === 'engagement') {
+                lines.push(`1 EVEN`);
+                lines.push(`2 TYPE Engagement`);
+                if (event.date) lines.push(`2 DATE ${event.date}`);
+                if (event.location?.name) lines.push(`2 PLAC ${event.location.name}`);
+                if (event.site_name) lines.push(`2 ADDR ${event.site_name}`);
+            } else if (event.type === 'military_service') {
+                lines.push(`1 EVEN`);
+                lines.push(`2 TYPE Military Service`);
+                if (event.date) lines.push(`2 DATE ${event.date}`);
+                if (event.location?.name) lines.push(`2 PLAC ${event.location.name}`);
+                if (event.site_name) lines.push(`2 ADDR ${event.site_name}`);
+                if ('branch' in event && event.branch) lines.push(`2 NOTE Branch: ${event.branch}`);
+                if ('rank' in event && event.rank) lines.push(`2 NOTE Rank: ${event.rank}`);
             } else if (event.type === 'generic') {
                 // Generic events as EVEN
                 lines.push(`1 EVEN`);

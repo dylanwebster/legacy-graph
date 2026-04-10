@@ -178,13 +178,12 @@ Events are typed objects acting as state reducers. They determine the "current s
 | `census`           | Census record. Field: `household_id` (string).                                        |
 | `occupation`       | Work history. Fields: `title`, `organization`.                                        |
 | `education`        | Academic history. Fields: `institution`, `degree`.                                    |
-| `graduation`       | Academic milestone. Fields: `institution`, `degree`.                                  |
 | `military_service` | Military service record. Fields: `branch`, `rank`.                                    |
-| `emigration`       | Emigration/immigration record.                                                        |
-| `adoption`         | Adoption event. Field: `adoptive_parent_ids` (string[]).                              |
+| `immigration`      | Immigration record. Location is the destination.                                      |
+| `emigration`       | Emigration record. Location is the origin.                                            |
+| `adoption`         | Adoption event.                                                                       |
 | `baptism`          | Religious event.                                                                      |
 | `burial`           | Final resting place.                                                                  |
-| `cremation`        | Cremation record.                                                                     |
 | `generic`          | Custom events. Field: `title`.                                                        |
 
 ### **3.3 Asset Index (`/_meta/assets.yaml`)**
@@ -639,11 +638,11 @@ Tabbed panel with three tabs:
 
 #### **6.5.5 Event Editor**
 
-Full modal-based event editor for creating and editing all 11 event types. This is the primary data entry surface.
+Full modal-based event editor for creating and editing all 16 event types. This is the primary data entry surface.
 
 - **Trigger**: "Add Event" button or clicking an existing event card.
 - **Layout**: Modal (`Dialog`) with:
-  - **Event Type Selector**: Dropdown with all 11 types. Selecting a type dynamically shows/hides type-specific fields (e.g., `partner_id` for marriage, `cause` for death, `institution`/`degree` for education).
+  - **Event Type Selector**: Dropdown with all 16 types. Selecting a type dynamically shows/hides type-specific fields (e.g., `partner_id` for marriage, `cause` for death, `institution`/`degree` for education, `branch`/`rank` for military_service).
   - **Common Fields**: `date` (free text, fuzzy — validated in real-time by the frontend `parseToISO()` function; parsed ISO preview shown below field; **Save disabled** if non-empty and unparseable; **strict token matching** — unrecognized word tokens cause validation failure even if a 4-digit year is present in the string, e.g., "15 Jeune 1776" must fail validation because "Jeune" is not a recognized month abbreviation and must not silently fall back to "1776-01-01"), `sort_date` (ISO `YYYY-MM-DD` — **Save disabled** if non-empty and invalid), `location` (type-ahead input querying `GET /api/places/search`, shows resolved coordinates when a candidate is selected), `description` (Markdown textarea), `assets` (file selector).
   - **Type-Specific Fields**: Rendered conditionally based on selected event type (see spec Section 3.2).
   - **Partner Selection** (marriage/divorce): Searchable person selector that queries the graph — type-ahead with `PersonChip` results.

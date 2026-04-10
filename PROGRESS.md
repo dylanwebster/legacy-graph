@@ -75,17 +75,17 @@
 3. Filter commands by query string (simple `includes` match on command label).
 4. Wire actions: navigation commands use `router.navigate()`, theme toggle calls Zustand, export triggers file download.
 
-#### 5.7 Additional Event Types
-Add to `EventSchema` discriminated union and Event Editor UI:
-- `cremation` (no extra fields)
-- `adoption` (field: `adoptive_parent_ids: string[]`)
+#### 5.7 Additional Event Types ✅
+Added to `EventSchema` discriminated union, Event Editor UI, GEDCOM import/export:
 - `engagement` (field: `partner_id: string`)
-- `emigration` (no extra fields beyond base — location is the destination)
 - `military_service` (fields: `branch: string`, `rank?: string`)
-- `graduation` (fields: `institution: string`, `degree: string`)
+- `immigration` (base fields — location is destination)
+- `emigration` (base fields — location is origin)
+- `adoption` (base fields)
 
-Update Event Editor type selector dropdown and conditional field rendering.
-TDD: `tests/schemas/EventSchema.test.ts` — new types parse, round-trip, export.
+Not implemented (intentionally removed from spec):
+- `graduation` — duplicative with `education`
+- `cremation` — too specific; use `generic` with title
 
 #### 5.8 Git History & Recovery
 

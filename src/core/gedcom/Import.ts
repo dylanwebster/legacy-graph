@@ -243,7 +243,8 @@ export class GedcomReader {
 
         // Simple event tags: GEDCOM tag -> LegacyGraph event type
         const simpleEventTags: Record<string, string> = {
-            'BIRT': 'birth', 'DEAT': 'death', 'CHR': 'baptism', 'BURI': 'burial', 'RESI': 'residence'
+            'BIRT': 'birth', 'DEAT': 'death', 'CHR': 'baptism', 'BURI': 'burial',
+            'RESI': 'residence', 'EMIG': 'emigration', 'IMMI': 'immigration', 'ADOP': 'adoption'
         };
 
         const ignoredTags = new Set(['NAME', 'SEX', 'FAMC', 'FAMS', 'SOUR', 'OBJE', 'CHAN', 'SUBM']);

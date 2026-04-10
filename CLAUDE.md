@@ -156,8 +156,8 @@ _computed: {
 ```
 Populated during hydration. Invalidated for a node + all immediate neighbors on every hot-patch or API write.
 
-### Events (discriminated union, 17 types)
-`birth`, `death`, `marriage` (has `partner_id`, `status`), `divorce` (has `partner_id`), `engagement` (has `partner_id`), `residence`, `census`, `occupation`, `education`, `graduation`, `military_service`, `emigration`, `adoption`, `baptism`, `burial`, `cremation`, `generic`.
+### Events (discriminated union, 16 types)
+`birth`, `death`, `marriage` (has `partner_id`, `status`), `divorce` (has `partner_id`), `engagement` (has `partner_id`), `residence`, `census`, `occupation`, `education`, `military_service` (has `branch`, `rank?`), `immigration`, `emigration`, `adoption`, `baptism`, `burial`, `generic`.
 
 All events support `witness_ids?: string[]` — persons present at the event. Witness events appear on both the subject's and witness's timelines.
 

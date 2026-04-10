@@ -31,7 +31,7 @@ import {
 import {
     Calendar, MapPin, Heart, Sunrise, Sunset, Leaf, GraduationCap, Briefcase, Church,
     Ship, ScrollText, FileText, Plus, ChevronRight, Image, BookOpen, Code,
-    Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2, Crop, Link2, Building2,
+    Pencil, X, Check, UserPlus, Users, Star, ZoomIn, Upload, Trash2, Crop, Link2, Building2,
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -48,17 +48,18 @@ const EVENT_ICONS: Record<string, typeof Calendar> = {
     death: Sunset,
     marriage: Heart,
     divorce: Heart,
+    engagement: Heart,
     education: GraduationCap,
     occupation: Briefcase,
     residence: MapPin,
     immigration: Ship,
-    military: ScrollText,
-    religious: Church,
+    emigration: Ship,
+    military_service: ScrollText,
+    adoption: Users,
     census: FileText,
     baptism: Church,
     burial: Leaf,
     generic: Calendar,
-    custom: Calendar,
 };
 
 const SEX_OPTIONS = ['M', 'F', 'I', 'U'] as const;
@@ -139,6 +140,9 @@ function PersonDetail() {
         setLightboxAsset(null);
         setShowCropDialog(false);
         setAvatarCrop(loadAvatarCrop(id));
+        // Reset virtualizer so it remounts and re-measures for the new person
+        timelineVirtualizerInited.current = false;
+        setTimelineKey(0);
     }, [id]);
 
 

@@ -18,8 +18,9 @@ import { assetType } from '@/lib/assetUtils';
 import { toast } from 'sonner';
 
 const EVENT_TYPES = [
-    'birth', 'death', 'marriage', 'divorce', 'residence',
-    'census', 'occupation', 'education', 'baptism', 'burial', 'generic',
+    'birth', 'death', 'marriage', 'divorce', 'engagement', 'residence',
+    'census', 'occupation', 'education', 'military_service',
+    'immigration', 'emigration', 'adoption', 'baptism', 'burial', 'generic',
 ] as const;
 type EventType = typeof EVENT_TYPES[number];
 
@@ -103,11 +104,14 @@ function getRequiredFields(type: EventType): string[] {
     switch (type) {
         case 'marriage':
         case 'divorce':
+        case 'engagement':
             return ['partner_id'];
         case 'occupation':
             return ['title'];
         case 'education':
             return ['institution'];
+        case 'military_service':
+            return ['branch'];
         default:
             return [];
     }
@@ -167,6 +171,8 @@ export function EventEditorDialog({
     const [institution, setInstitution] = useState((existingEvent?.institution as string) ?? '');
     const [degree, setDegree] = useState((existingEvent?.degree as string) ?? '');
     const [householdId, setHouseholdId] = useState((existingEvent?.household_id as string) ?? '');
+    const [branch, setBranch] = useState((existingEvent?.branch as string) ?? '');
+    const [rank, setRank] = useState((existingEvent?.rank as string) ?? '');
     const [siteName, setSiteName] = useState((existingEvent?.site_name as string) ?? '');
 
     // Reset when dialog opens with new event data
@@ -194,6 +200,8 @@ export function EventEditorDialog({
             setInstitution((existingEvent?.institution as string) ?? '');
             setDegree((existingEvent?.degree as string) ?? '');
             setHouseholdId((existingEvent?.household_id as string) ?? '');
+            setBranch((existingEvent?.branch as string) ?? '');
+            setRank((existingEvent?.rank as string) ?? '');
             setSiteName((existingEvent?.site_name as string) ?? '');
             setEventAssets((existingEvent?.assets as string[]) ?? []);
         }
@@ -223,6 +231,7 @@ export function EventEditorDialog({
                 base.status = marriageStatus;
                 break;
             case 'divorce':
+            case 'engagement':
                 base.partner_id = partnerId;
                 break;
             case 'death':
@@ -239,6 +248,10 @@ export function EventEditorDialog({
             case 'census':
                 if (householdId) base.household_id = householdId;
                 break;
+            case 'military_service':
+                base.branch = branch;
+                if (rank) base.rank = rank;
+                break;
             case 'generic':
                 if (title) base.title = title;
                 break;
@@ -247,7 +260,7 @@ export function EventEditorDialog({
     }, [
         eventType, date, locationPlace, locationQuery, siteName, description,
         partnerId, marriageStatus, cause, title, organization,
-        institution, degree, householdId, eventAssets, existingEvent,
+        institution, degree, householdId, branch, rank, eventAssets, existingEvent,
     ]);
 
     const handleDeleteEvent = () => setConfirmDelete(true);
@@ -270,7 +283,7 @@ export function EventEditorDialog({
     const handleSave = () => {
         const required = getRequiredFields(eventType);
         const eventData: Record<string, string | undefined> = {
-            partner_id: partnerId, title, institution,
+            partner_id: partnerId, title, institution, branch,
         };
         for (const field of required) {
             if (!eventData[field]) {
@@ -386,7 +399,7 @@ export function EventEditorDialog({
                     </div>
 
                     {/* Type-specific fields */}
-                    {(eventType === 'marriage' || eventType === 'divorce') && (
+                    {(eventType === 'marriage' || eventType === 'divorce' || eventType === 'engagement') && (
                         <div className="space-y-1">
                             <label className="text-xs font-medium">
                                 Partner <span className="text-destructive">*</span>
@@ -490,6 +503,31 @@ export function EventEditorDialog({
                                 className="h-8 text-sm"
                             />
                         </div>
+                    )}
+
+                    {eventType === 'military_service' && (
+                        <>
+                            <div className="space-y-1">
+                                <label className="text-xs font-medium">
+                                    Branch <span className="text-destructive">*</span>
+                                </label>
+                                <Input
+                                    placeholder="e.g. US Army, Royal Navy"
+                                    value={branch}
+                                    onChange={(e) => setBranch(e.target.value)}
+                                    className="h-8 text-sm"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-xs font-medium">Rank</label>
+                                <Input
+                                    placeholder="e.g. Sergeant, Captain"
+                                    value={rank}
+                                    onChange={(e) => setRank(e.target.value)}
+                                    className="h-8 text-sm"
+                                />
+                            </div>
+                        </>
                     )}
 
                     {/* Linked Assets */}
