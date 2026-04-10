@@ -132,6 +132,27 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     insertAlt.run(4, 5350964, 'Grizzly Flats', 'en', 0, 0);
     insertFts.run('Grizzly Flats', '5350964', 'alternate');
 
+    // ─── Italian admin regions (for qualifier matching tests) ───
+    insertCountry.run('IT', 'Italy');
+
+    // ADM1: Toscana (Tuscany)
+    insertPlace.run(3165361, 'Toscana', 'Toscana', 43.35, 11.02, 'A', 'ADM1', 'IT', '16', null, 0);
+    insertFts.run('Toscana', '3165361', 'primary');
+    insertAlt.run(10, 3165361, 'Tuscany', 'en', 0, 0);
+    insertFts.run('Tuscany', '3165361', 'alternate');
+
+    // ADM2: Provincia di Lucca
+    insertPlace.run(3174530, 'Provincia di Lucca', 'Provincia di Lucca', 44.00, 10.50, 'A', 'ADM2', 'IT', '16', 'LU', 0);
+    insertFts.run('Provincia di Lucca', '3174530', 'primary');
+    insertAlt.run(11, 3174530, 'Lucca', 'it', 0, 0);
+    insertFts.run('Lucca', '3174530', 'alternate');
+    insertAlt.run(12, 3174530, 'Province of Lucca', 'en', 0, 0);
+    insertFts.run('Province of Lucca', '3174530', 'alternate');
+
+    // Massarosa — town in Provincia di Lucca, Toscana, Italy
+    insertPlace.run(3173631, 'Massarosa', 'Massarosa', 43.87, 10.34, 'P', 'PPL', 'IT', '16', 'LU', 10082);
+    insertFts.run('Massarosa', '3173631', 'primary');
+
     return { db: GeonamesDb.fromConnection(raw), raw };
 }
 
@@ -286,5 +307,26 @@ describe('GeonamesDb', () => {
         expect(results.length).toBeGreaterThanOrEqual(1);
         expect(results[0].admin1Name).toBe('California');
         expect(results[0].countryCode).toBe('US');
+    });
+
+    it('searchFiltered matches short qualifier contained in admin2 name ("Lucca" → "Provincia di Lucca")', () => {
+        const results = db.searchFiltered('Massarosa', ['Lucca', 'Italy'], 5);
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].primaryName).toBe('Massarosa');
+        expect(results[0].admin2Name).toBe('Provincia di Lucca');
+    });
+
+    it('searchFiltered matches English alternate name for admin1 ("Tuscany" → "Toscana")', () => {
+        const results = db.searchFiltered('Massarosa', ['Provincia di Lucca', 'Tuscany'], 5);
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].primaryName).toBe('Massarosa');
+        expect(results[0].admin1Name).toBe('Toscana');
+    });
+
+    it('searchFiltered matches English alternate name for admin2 ("Province of Lucca" → "Provincia di Lucca")', () => {
+        const results = db.searchFiltered('Massarosa', ['Province of Lucca', 'Italy'], 5);
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].primaryName).toBe('Massarosa');
+        expect(results[0].admin2Name).toBe('Provincia di Lucca');
     });
 });

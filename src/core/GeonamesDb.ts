@@ -172,9 +172,12 @@ export class GeonamesDb {
                 'LOWER(g.country_code) = ?',
                 '? LIKE LOWER(g.country_code) || \'%\'',
                 'LOWER(g.admin1) = ?',
-                'LOWER(a.name) LIKE ? || \'%\'',
+                'LOWER(a.name) LIKE \'%\' || ? || \'%\'',
+                // Match qualifier against alternate names for the admin1 region
+                // (e.g. "Tuscany" → "Toscana" via English alternate name)
+                'EXISTS (SELECT 1 FROM alternate_names an1 WHERE an1.geonameid = a.geonameid AND LOWER(an1.name) LIKE \'%\' || ? || \'%\')',
             ];
-            const condParams = [ql, ql, ql, ql];
+            const condParams = [ql, ql, ql, ql, ql];
 
             // Match qualifier against country names in the countries table
             // This handles partial names like "Chi" → China, "United Sta" → United States
@@ -186,7 +189,11 @@ export class GeonamesDb {
             }
 
             if (this.hasAdmin2) {
-                conditions.push('LOWER(a2.name) LIKE ? || \'%\'');
+                conditions.push('LOWER(a2.name) LIKE \'%\' || ? || \'%\'');
+                condParams.push(ql);
+                // Match qualifier against alternate names for the admin2 region
+                // (e.g. "Province of Lucca" → "Provincia di Lucca" via English alternate name)
+                conditions.push('EXISTS (SELECT 1 FROM alternate_names an2 WHERE an2.geonameid = a2.geonameid AND LOWER(an2.name) LIKE \'%\' || ? || \'%\')');
                 condParams.push(ql);
             }
 
