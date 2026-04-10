@@ -60,34 +60,58 @@ export class GeocodingService {
         if (parts.length === 0) return [];
 
         // Try each part as the place name, with remaining parts as qualifiers.
-        // This handles overly-specific genealogy strings where the first parts
-        // (e.g. "Mountain") aren't real places but later parts are.
-        for (let i = 0; i < parts.length; i++) {
+        // Collect results from multiple interpretations so that overly-specific
+        // genealogy strings like "Mountain, Grizzly Flats, El Dorado, CA, USA"
+        // return both "Marble Mountain" (i=0) and "Grizzly Flats" (i=1).
+        // Once results are found, only try one more part to avoid treating
+        // admin/country qualifiers (e.g. "Michigan") as place names.
+        const collected: Place[] = [];
+        const seenGeonameIds = new Set<string>();
+        let firstFoundAt = -1;
+
+        for (let i = 0; i < parts.length && collected.length < limit; i++) {
+            // Stop searching after one part beyond the first successful match
+            if (firstFoundAt >= 0 && i > firstFoundAt + 1) break;
+
             const placeName = parts[i];
             const qualifiers = parts.slice(i + 1);
 
-            if (qualifiers.length === 0) {
-                const rows = this.geonamesDb.searchByName(placeName, limit);
-                if (rows.length > 0) {
-                    return this.deduplicatePlaces(rows.map(row => this.searchRowToPlace(row)), limit);
-                }
+            let rows: ReturnType<typeof this.geonamesDb.searchByName> = [];
+
+            if (qualifiers.length === 0 && i === 0) {
+                // Only search the last part standalone when it's the entire query
+                // (no commas). Otherwise "CA" or "FR" at the end would match
+                // unrelated places.
+                rows = this.geonamesDb.searchByName(placeName, limit);
+            } else if (qualifiers.length === 0) {
+                // Skip trailing parts with no qualifiers (e.g. "USA" in
+                // "Mountain, Grizzly Flats, El Dorado, CA, USA")
+                continue;
             } else {
                 // Try with all qualifiers first, then progressively drop the
                 // most-specific (leftmost) ones. This handles qualifiers that
                 // reference admin levels we don't support (e.g. ADM3 communes).
-                // "Acquaviva, Camaiore, Lucca, Italy" → try ["Camaiore","Lucca","Italy"],
-                // then ["Lucca","Italy"], then ["Italy"].
                 for (let q = 0; q < qualifiers.length; q++) {
                     const subset = qualifiers.slice(q);
-                    const rows = this.geonamesDb.searchFiltered(placeName, subset, limit);
-                    if (rows.length > 0) {
-                        return this.deduplicatePlaces(rows.map(row => this.searchRowToPlace(row)), limit);
-                    }
+                    rows = this.geonamesDb.searchFiltered(placeName, subset, limit);
+                    if (rows.length > 0) break;
                 }
+            }
+
+            if (rows.length > 0 && firstFoundAt < 0) {
+                firstFoundAt = i;
+            }
+
+            for (const row of rows) {
+                const key = String(row.geonameid);
+                if (seenGeonameIds.has(key)) continue;
+                seenGeonameIds.add(key);
+                collected.push(this.searchRowToPlace(row));
+                if (collected.length >= limit) break;
             }
         }
 
-        return [];
+        return this.deduplicatePlaces(collected, limit);
     }
 
     /**

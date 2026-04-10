@@ -172,10 +172,13 @@ export class GeonamesDb {
                 'LOWER(g.country_code) = ?',
                 '? LIKE LOWER(g.country_code) || \'%\'',
                 'LOWER(g.admin1) = ?',
-                'LOWER(a.name) LIKE \'%\' || ? || \'%\'',
+                // Admin1 uses prefix matching (state/region names don't have
+                // prefixes like admin2's "Provincia di..."). Contains would
+                // make single-char qualifiers like "V" match every state with a 'v'.
+                'LOWER(a.name) LIKE ? || \'%\'',
                 // Match qualifier against alternate names for the admin1 region
                 // (e.g. "Tuscany" → "Toscana" via English alternate name)
-                'EXISTS (SELECT 1 FROM alternate_names an1 WHERE an1.geonameid = a.geonameid AND LOWER(an1.name) LIKE \'%\' || ? || \'%\')',
+                'EXISTS (SELECT 1 FROM alternate_names an1 WHERE an1.geonameid = a.geonameid AND LOWER(an1.name) LIKE ? || \'%\')',
             ];
             const condParams = [ql, ql, ql, ql, ql];
 

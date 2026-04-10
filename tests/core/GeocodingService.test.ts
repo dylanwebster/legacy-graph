@@ -120,6 +120,14 @@ async function createTestGeonamesDb(dbPath: string): Promise<void> {
     insertPlace.run(5128581, 'New York City', 'New York City', 40.7128, -74.0060, 'P', 'PPL', 'US', 'NY', null, 8336817);
     insertFts.run('New York City', '5128581', 'primary');
 
+    // Grizzly Flats, El Dorado County, CA
+    insertPlace.run(5350964, 'Grizzly Flats', 'Grizzly Flats', 38.6449, -120.5227, 'P', 'PPL', 'US', 'CA', '017', 268);
+    insertFts.run('Grizzly Flats', '5350964', 'primary');
+
+    // Marble Mountain — a peak in El Dorado County matching "Mountain" prefix
+    insertPlace.run(5370001, 'Marble Mountain', 'Marble Mountain', 38.80, -120.30, 'P', 'PPL', 'US', 'CA', '017', 50);
+    insertFts.run('Marble Mountain', '5370001', 'primary');
+
     // Fresno, CA (in Fresno County)
     insertPlace.run(5350937, 'Fresno', 'Fresno', 36.7378, -119.7871, 'P', 'PPL', 'US', 'CA', '019', 542107);
     insertFts.run('Fresno', '5350937', 'primary');
@@ -284,7 +292,7 @@ describe('GeocodingService', () => {
         const svc = new GeocodingService(dataDir, { dbPath });
         const results = await svc.search('Fresno, Fresno County, CA', 5);
 
-        expect(results.length).toBe(1);
+        expect(results.length).toBeGreaterThanOrEqual(1);
         expect(results[0].name).toBe('Fresno');
         expect(results[0].admin2Name).toBe('Fresno County');
         expect(results[0].admin1Name).toBe('California');
@@ -379,13 +387,14 @@ describe('GeocodingService', () => {
         expect(results[0].countryCode).toBe('FR');
     });
 
-    it('overly-specific string falls back to valid place name', async () => {
+    it('overly-specific string includes results from multiple part interpretations', async () => {
         const svc = new GeocodingService(dataDir, { dbPath });
         const results = await svc.search('Mountain, Fresno, CA, United States', 5);
 
         expect(results.length).toBeGreaterThanOrEqual(1);
-        expect(results[0].name).toBe('Fresno');
-        expect(results[0].admin1Name).toBe('California');
+        // Fresno should appear (either as first result if "Mountain" has no match,
+        // or alongside "Marble Mountain" if it does)
+        expect(results.some(r => r.name === 'Fresno')).toBe(true);
     });
 
     it('overly-specific string skips multiple invalid prefixes', async () => {
@@ -394,6 +403,17 @@ describe('GeocodingService', () => {
 
         expect(results.length).toBeGreaterThanOrEqual(1);
         expect(results[0].name).toBe('Fresno');
+    });
+
+    it('search returns results from multiple part interpretations', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        // "Mountain" matches "Marble Mountain" at i=0, "Grizzly Flats" matches at i=1
+        const results = await svc.search('Mountain, Grizzly Flats, El Dorado, California, USA', 5);
+
+        expect(results.length).toBeGreaterThanOrEqual(2);
+        const names = results.map(r => r.name);
+        expect(names).toContain('Marble Mountain');
+        expect(names).toContain('Grizzly Flats');
     });
 
     it('search drops unrecognized qualifiers (ADM3 commune) to find the place', async () => {

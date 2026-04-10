@@ -337,4 +337,12 @@ describe('GeonamesDb', () => {
         expect(results[0].primaryName).toBe('Massarosa');
         expect(results[0].admin2Name).toBe('Provincia di Lucca');
     });
+
+    it('searchFiltered uses prefix matching for admin1 (single char "V" should not match "England")', () => {
+        // "V" should NOT match admin1 names that merely contain 'v' (e.g. "Nevada")
+        // but SHOULD match if admin1 actually starts with 'V'
+        const results = db.searchFiltered('London', ['V'], 5);
+        // London's admin1 is "England" which doesn't start with V
+        expect(results.length).toBe(0);
+    });
 });
