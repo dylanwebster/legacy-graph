@@ -416,6 +416,19 @@ describe('GeocodingService', () => {
         expect(names).toContain('Grizzly Flats');
     });
 
+    it('search skips short parts (≤3 chars) as place names to avoid slow FTS queries', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        // "CA" is a state code, not a place name — should not be searched as i>0
+        const results = await svc.search('Fresno, CA, United States', 5);
+
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].name).toBe('Fresno');
+        expect(results[0].admin1Name).toBe('California');
+        // Should NOT contain results from searching "CA" as a place name
+        // (e.g. "Camaiore" matching "CA"* prefix)
+        expect(results.length).toBeLessThanOrEqual(2);
+    });
+
     it('search drops unrecognized qualifiers (ADM3 commune) to find the place', async () => {
         const svc = new GeocodingService(dataDir, { dbPath });
         const results = await svc.search('Acquaviva, Camaiore, Lucca, Italy', 5);

@@ -87,6 +87,12 @@ export class GeocodingService {
                 // Skip trailing parts with no qualifiers (e.g. "USA" in
                 // "Mountain, Grizzly Flats, El Dorado, CA, USA")
                 continue;
+            } else if (i > 0 && placeName.length <= 3) {
+                // Skip short parts (≤3 chars) as place names when they follow
+                // the first part — these are almost always admin/country codes
+                // ("MA", "CA", "USA") and cause catastrophically slow FTS prefix
+                // queries against millions of rows.
+                continue;
             } else {
                 // Try with all qualifiers first, then progressively drop the
                 // most-specific (leftmost) ones. This handles qualifiers that
