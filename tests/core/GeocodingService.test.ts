@@ -362,4 +362,21 @@ describe('GeocodingService', () => {
         expect(results.length).toBe(1);
         expect(results[0].countryCode).toBe('FR');
     });
+
+    it('overly-specific string falls back to valid place name', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const results = await svc.search('Mountain, Fresno, CA, United States', 5);
+
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].name).toBe('Fresno');
+        expect(results[0].admin1Name).toBe('California');
+    });
+
+    it('overly-specific string skips multiple invalid prefixes', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const results = await svc.search('Farm, Rural Area, Fresno, CA', 5);
+
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].name).toBe('Fresno');
+    });
 });

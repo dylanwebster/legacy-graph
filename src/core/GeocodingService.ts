@@ -54,18 +54,28 @@ export class GeocodingService {
     public async search(query: string, limit = 5): Promise<Place[]> {
         if (!this.geonamesDb) return [];
 
-        // Parse comma-separated qualifiers: "Fresno, CA" → placeName="Fresno", qualifiers=["CA"]
+        // Parse comma-separated parts: "Mountain, Grizzly Flats, El Dorado, CA, USA"
+        // → ["Mountain", "Grizzly Flats", "El Dorado", "CA", "USA"]
         const parts = query.split(',').map(p => p.trim()).filter(Boolean);
-        const placeName = parts[0];
-        const qualifiers = parts.slice(1);
+        if (parts.length === 0) return [];
 
-        if (!placeName) return [];
+        // Try each part as the place name, with remaining parts as qualifiers.
+        // This handles overly-specific genealogy strings where the first parts
+        // (e.g. "Mountain") aren't real places but later parts are.
+        for (let i = 0; i < parts.length; i++) {
+            const placeName = parts[i];
+            const qualifiers = parts.slice(i + 1);
 
-        const rows = qualifiers.length === 0
-            ? this.geonamesDb.searchByName(placeName, limit)
-            : this.geonamesDb.searchFiltered(placeName, qualifiers, limit);
+            const rows = qualifiers.length === 0
+                ? this.geonamesDb.searchByName(placeName, limit)
+                : this.geonamesDb.searchFiltered(placeName, qualifiers, limit);
 
-        return this.deduplicatePlaces(rows.map(row => this.searchRowToPlace(row)), limit);
+            if (rows.length > 0) {
+                return this.deduplicatePlaces(rows.map(row => this.searchRowToPlace(row)), limit);
+            }
+        }
+
+        return [];
     }
 
     /**
