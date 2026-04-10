@@ -136,6 +136,22 @@ async function createTestGeonamesDb(dbPath: string): Promise<void> {
     insertPlace.run(3169070, 'Rome', 'Rome', 41.9028, 12.4964, 'P', 'PPLC', 'IT', '07', null, 2872800);
     insertFts.run('Rome', '3169070', 'primary');
 
+    // ─── Italian admin regions (for qualifier-dropping tests) ───
+    // ADM1: Toscana
+    insertPlace.run(3165361, 'Toscana', 'Toscana', 43.35, 11.02, 'A', 'ADM1', 'IT', '16', null, 0);
+    insertFts.run('Toscana', '3165361', 'primary');
+    // ADM2: Provincia di Lucca
+    insertPlace.run(3174530, 'Provincia di Lucca', 'Provincia di Lucca', 44.00, 10.50, 'A', 'ADM2', 'IT', '16', 'LU', 0);
+    insertFts.run('Provincia di Lucca', '3174530', 'primary');
+    insertAlt.run(10, 3174530, 'Lucca', 'it', 0, 0);
+    insertFts.run('Lucca', '3174530', 'alternate');
+    // ADM3: Camaiore (not stored in admin columns — only a geonames entry)
+    insertPlace.run(3180720, 'Camaiore', 'Camaiore', 43.94, 10.30, 'A', 'ADM3', 'IT', '16', 'LU', 0);
+    insertFts.run('Camaiore', '3180720', 'primary');
+    // Acquaviva — tiny village in Camaiore, Provincia di Lucca
+    insertPlace.run(8974018, 'Acquaviva', 'Acquaviva', 43.93, 10.33, 'P', 'PPL', 'IT', '16', 'LU', 23);
+    insertFts.run('Acquaviva', '8974018', 'primary');
+
     db.close();
 }
 
@@ -378,5 +394,14 @@ describe('GeocodingService', () => {
 
         expect(results.length).toBeGreaterThanOrEqual(1);
         expect(results[0].name).toBe('Fresno');
+    });
+
+    it('search drops unrecognized qualifiers (ADM3 commune) to find the place', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const results = await svc.search('Acquaviva, Camaiore, Lucca, Italy', 5);
+
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].name).toBe('Acquaviva');
+        expect(results[0].countryCode).toBe('IT');
     });
 });

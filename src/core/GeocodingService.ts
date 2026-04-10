@@ -66,12 +66,24 @@ export class GeocodingService {
             const placeName = parts[i];
             const qualifiers = parts.slice(i + 1);
 
-            const rows = qualifiers.length === 0
-                ? this.geonamesDb.searchByName(placeName, limit)
-                : this.geonamesDb.searchFiltered(placeName, qualifiers, limit);
-
-            if (rows.length > 0) {
-                return this.deduplicatePlaces(rows.map(row => this.searchRowToPlace(row)), limit);
+            if (qualifiers.length === 0) {
+                const rows = this.geonamesDb.searchByName(placeName, limit);
+                if (rows.length > 0) {
+                    return this.deduplicatePlaces(rows.map(row => this.searchRowToPlace(row)), limit);
+                }
+            } else {
+                // Try with all qualifiers first, then progressively drop the
+                // most-specific (leftmost) ones. This handles qualifiers that
+                // reference admin levels we don't support (e.g. ADM3 communes).
+                // "Acquaviva, Camaiore, Lucca, Italy" → try ["Camaiore","Lucca","Italy"],
+                // then ["Lucca","Italy"], then ["Italy"].
+                for (let q = 0; q < qualifiers.length; q++) {
+                    const subset = qualifiers.slice(q);
+                    const rows = this.geonamesDb.searchFiltered(placeName, subset, limit);
+                    if (rows.length > 0) {
+                        return this.deduplicatePlaces(rows.map(row => this.searchRowToPlace(row)), limit);
+                    }
+                }
             }
         }
 

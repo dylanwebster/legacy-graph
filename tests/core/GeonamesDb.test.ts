@@ -153,6 +153,14 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     insertPlace.run(3173631, 'Massarosa', 'Massarosa', 43.87, 10.34, 'P', 'PPL', 'IT', '16', 'LU', 10082);
     insertFts.run('Massarosa', '3173631', 'primary');
 
+    // ADM3: Camaiore (commune) — not stored in our admin columns, only geonames table
+    insertPlace.run(3180720, 'Camaiore', 'Camaiore', 43.94, 10.30, 'A', 'ADM3', 'IT', '16', 'LU', 0);
+    insertFts.run('Camaiore', '3180720', 'primary');
+
+    // Acquaviva — tiny village in Camaiore commune, Provincia di Lucca
+    insertPlace.run(8974018, 'Acquaviva', 'Acquaviva', 43.93, 10.33, 'P', 'PPL', 'IT', '16', 'LU', 23);
+    insertFts.run('Acquaviva', '8974018', 'primary');
+
     return { db: GeonamesDb.fromConnection(raw), raw };
 }
 
