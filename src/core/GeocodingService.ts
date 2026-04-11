@@ -23,7 +23,7 @@ export class GeocodingService {
 
         if (!this.geonamesDb) {
             console.warn(
-                `[GeocodingService] GeoNames database not found at ${dbPath}. ` +
+                `[GeocodingService] GeoNames database not found or incompatible at ${dbPath}. ` +
                 `Place search will return empty results. Run "npm run geonames:build" to create it.`
             );
         }

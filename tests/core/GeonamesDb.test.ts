@@ -14,7 +14,6 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
         CREATE TABLE geonames (
             geonameid INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
-            asciiname TEXT,
             lat REAL NOT NULL,
             lng REAL NOT NULL,
             feature_class TEXT NOT NULL,
@@ -27,20 +26,41 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
 
         CREATE TABLE alternate_names (
             id INTEGER PRIMARY KEY,
-            geonameid INTEGER NOT NULL REFERENCES geonames(geonameid),
+            geonameid INTEGER NOT NULL,
             name TEXT NOT NULL,
-            lang TEXT,
-            is_historic INTEGER DEFAULT 0,
-            is_preferred INTEGER DEFAULT 0
+            is_historic INTEGER DEFAULT 0
         );
         CREATE INDEX idx_altnames_geonameid ON alternate_names(geonameid);
-        CREATE INDEX idx_geonames_adm2_lookup ON geonames(country_code, admin1, admin2, feature_code);
+
+        CREATE TABLE admin1_names (
+            country_code TEXT NOT NULL,
+            admin1_code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            geonameid INTEGER NOT NULL,
+            PRIMARY KEY (country_code, admin1_code)
+        );
+
+        CREATE TABLE admin2_names (
+            country_code TEXT NOT NULL,
+            admin1_code TEXT NOT NULL,
+            admin2_code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            geonameid INTEGER NOT NULL,
+            PRIMARY KEY (country_code, admin1_code, admin2_code)
+        );
 
         CREATE VIRTUAL TABLE names_fts USING fts5(
             name,
-            geonameid UNINDEXED,
-            source_type UNINDEXED,
-            tokenize = 'unicode61 remove_diacritics 2'
+            tokenize = 'unicode61 remove_diacritics 2',
+            content='',
+            columnsize=0
+        );
+
+        CREATE TABLE fts_map (
+            rowid INTEGER PRIMARY KEY,
+            geonameid INTEGER NOT NULL,
+            source_type TEXT NOT NULL,
+            name TEXT NOT NULL
         );
 
         CREATE TABLE countries (code TEXT NOT NULL, name TEXT NOT NULL, UNIQUE(code, name));
@@ -62,104 +82,129 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
 
     // Insert test places
     const insertPlace = raw.prepare(
-        'INSERT INTO geonames VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO geonames VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const insertFts = raw.prepare(
-        'INSERT INTO names_fts (name, geonameid, source_type) VALUES (?, ?, ?)'
+        'INSERT INTO names_fts (rowid, name) VALUES (?, ?)'
+    );
+    const insertFtsMap = raw.prepare(
+        'INSERT INTO fts_map (rowid, geonameid, source_type, name) VALUES (?, ?, ?, ?)'
     );
     const insertAlt = raw.prepare(
-        'INSERT INTO alternate_names (id, geonameid, name, lang, is_historic, is_preferred) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO alternate_names (id, geonameid, name, is_historic) VALUES (?, ?, ?, ?)'
+    );
+    const insertAdmin1 = raw.prepare(
+        'INSERT INTO admin1_names VALUES (?, ?, ?, ?)'
+    );
+    const insertAdmin2 = raw.prepare(
+        'INSERT INTO admin2_names VALUES (?, ?, ?, ?, ?)'
     );
 
-    // ADM1 records (for admin1 name JOIN)
-    insertPlace.run(6269131, 'England', 'England', 52.16, -0.70, 'A', 'ADM1', 'GB', 'ENG', null, 0);
-    insertPlace.run(5332921, 'California', 'California', 37.25, -119.75, 'A', 'ADM1', 'US', 'CA', null, 0);
-    insertPlace.run(6093943, 'Ontario', 'Ontario', 50.00, -86.00, 'A', 'ADM1', 'CA', '08', null, 0);
-    insertPlace.run(5128638, 'New York', 'New York', 43.00, -75.50, 'A', 'ADM1', 'US', 'NY', null, 0);
+    let ftsRowId = 0;
+    const addFts = (name: string, geonameid: string, sourceType: string) => {
+        ftsRowId++;
+        insertFts.run(ftsRowId, name);
+        insertFtsMap.run(ftsRowId, parseInt(geonameid), sourceType, name);
+    };
 
-    // ADM2 records (for admin2/county name JOIN)
-    insertPlace.run(5344994, 'El Dorado County', 'El Dorado County', 38.74, -120.52, 'A', 'ADM2', 'US', 'CA', '017', 0);
-    insertFts.run('El Dorado County', '5344994', 'primary');
-    insertPlace.run(5391832, 'San Francisco County', 'San Francisco County', 37.78, -122.42, 'A', 'ADM2', 'US', 'CA', '075', 0);
+    // Admin1 lookup records (used for JOINs in queries)
+    insertAdmin1.run('GB', 'ENG', 'England', 6269131);
+    insertAdmin1.run('US', 'CA', 'California', 5332921);
+    insertAdmin1.run('CA', '08', 'Ontario', 6093943);
+    insertAdmin1.run('US', 'NY', 'New York', 5128638);
+    insertAdmin1.run('SE', '27', 'Skåne', 2692969);
+    insertAdmin1.run('RU', '23', 'Kaliningradskaya Oblast', 554234);
+    insertAdmin1.run('SK', '02', 'Bratislavský kraj', 3060972);
+
+    // Admin2 lookup records (used for JOINs in queries)
+    insertAdmin2.run('US', 'CA', '017', 'El Dorado County', 5344994);
+    insertAdmin2.run('US', 'CA', '075', 'San Francisco County', 5391832);
+
+    // ADM1/ADM2 also in geonames table so they're searchable as places
+    insertPlace.run(6269131, 'England', 52.16, -0.70, 'A', 'ADM1', 'GB', 'ENG', null, 0);
+    insertPlace.run(5332921, 'California', 37.25, -119.75, 'A', 'ADM1', 'US', 'CA', null, 0);
+    insertPlace.run(6093943, 'Ontario', 50.00, -86.00, 'A', 'ADM1', 'CA', '08', null, 0);
+    insertPlace.run(5128638, 'New York', 43.00, -75.50, 'A', 'ADM1', 'US', 'NY', null, 0);
+    insertPlace.run(5344994, 'El Dorado County', 38.74, -120.52, 'A', 'ADM2', 'US', 'CA', '017', 0);
+    addFts('El Dorado County', '5344994', 'primary');
+    insertPlace.run(5391832, 'San Francisco County', 37.78, -122.42, 'A', 'ADM2', 'US', 'CA', '075', 0);
 
     // London, UK — large city
-    insertPlace.run(2643743, 'London', 'London', 51.5074, -0.1278, 'P', 'PPLC', 'GB', 'ENG', null, 8982000);
-    insertFts.run('London', '2643743', 'primary');
+    insertPlace.run(2643743, 'London', 51.5074, -0.1278, 'P', 'PPLC', 'GB', 'ENG', null, 8982000);
+    addFts('London', '2643743', 'primary');
 
     // London, Ontario — smaller city
-    insertPlace.run(6058560, 'London', 'London', 42.9834, -81.2330, 'P', 'PPL', 'CA', '08', null, 383822);
-    insertFts.run('London', '6058560', 'primary');
+    insertPlace.run(6058560, 'London', 42.9834, -81.2330, 'P', 'PPL', 'CA', '08', null, 383822);
+    addFts('London', '6058560', 'primary');
 
     // Kaliningrad (formerly Königsberg)
-    insertPlace.run(554234, 'Kaliningrad', 'Kaliningrad', 54.7104, 20.4522, 'P', 'PPLA', 'RU', '23', null, 489359);
-    insertFts.run('Kaliningrad', '554234', 'primary');
-    // Historic alternate name
-    insertAlt.run(1, 554234, 'Königsberg', 'de', 1, 0);
-    insertFts.run('Königsberg', '554234', 'historic');
+    insertPlace.run(554234, 'Kaliningrad', 54.7104, 20.4522, 'P', 'PPLA', 'RU', '23', null, 489359);
+    addFts('Kaliningrad', '554234', 'primary');
+    // Historic alternate name (stored in alternate_names since it's used for admin lookup example;
+    // in production, only admin geonameids would be here)
+    insertAlt.run(1, 554234, 'Königsberg', 1);
+    addFts('Königsberg', '554234', 'historic');
 
     // New York City
-    insertPlace.run(5128581, 'New York City', 'New York City', 40.7128, -74.0060, 'P', 'PPL', 'US', 'NY', null, 8336817);
-    insertFts.run('New York City', '5128581', 'primary');
+    insertPlace.run(5128581, 'New York City', 40.7128, -74.0060, 'P', 'PPL', 'US', 'NY', null, 8336817);
+    addFts('New York City', '5128581', 'primary');
 
     // York, UK
-    insertPlace.run(2633352, 'York', 'York', 53.9591, -1.0815, 'P', 'PPL', 'GB', 'ENG', null, 144202);
-    insertFts.run('York', '2633352', 'primary');
+    insertPlace.run(2633352, 'York', 53.9591, -1.0815, 'P', 'PPL', 'GB', 'ENG', null, 144202);
+    addFts('York', '2633352', 'primary');
 
     // Malmö, Sweden (diacritics test)
-    insertPlace.run(2692969, 'Malmö', 'Malmo', 55.6059, 13.0007, 'P', 'PPLA', 'SE', '27', null, 301706);
-    insertFts.run('Malmö', '2692969', 'primary');
-    insertFts.run('Malmo', '2692969', 'alternate');
+    insertPlace.run(2692969, 'Malmö', 55.6059, 13.0007, 'P', 'PPLA', 'SE', '27', null, 301706);
+    addFts('Malmö', '2692969', 'primary');
+    addFts('Malmo', '2692969', 'alternate');
 
     // York Castle — structure (should rank below city)
-    insertPlace.run(9999901, 'York Castle', 'York Castle', 53.9570, -1.0790, 'S', 'CSTL', 'GB', 'ENG', null, 0);
-    insertFts.run('York Castle', '9999901', 'primary');
+    insertPlace.run(9999901, 'York Castle', 53.9570, -1.0790, 'S', 'CSTL', 'GB', 'ENG', null, 0);
+    addFts('York Castle', '9999901', 'primary');
 
     // Pressburg (historical name for Bratislava)
-    insertPlace.run(3060972, 'Bratislava', 'Bratislava', 48.1486, 17.1077, 'P', 'PPLC', 'SK', '02', null, 437725);
-    insertFts.run('Bratislava', '3060972', 'primary');
-    insertAlt.run(2, 3060972, 'Pressburg', 'de', 1, 0);
-    insertFts.run('Pressburg', '3060972', 'historic');
-    insertAlt.run(3, 3060972, 'Pozsony', 'hu', 1, 0);
-    insertFts.run('Pozsony', '3060972', 'historic');
+    insertPlace.run(3060972, 'Bratislava', 48.1486, 17.1077, 'P', 'PPLC', 'SK', '02', null, 437725);
+    addFts('Bratislava', '3060972', 'primary');
+    insertAlt.run(2, 3060972, 'Pressburg', 1);
+    addFts('Pressburg', '3060972', 'historic');
+    insertAlt.run(3, 3060972, 'Pozsony', 1);
+    addFts('Pozsony', '3060972', 'historic');
 
     // Historical populated place (no longer exists)
-    insertPlace.run(9999902, 'Dunwich', 'Dunwich', 52.2767, 1.6317, 'P', 'PPLH', 'GB', 'ENG', null, 0);
-    insertFts.run('Dunwich', '9999902', 'primary');
+    insertPlace.run(9999902, 'Dunwich', 52.2767, 1.6317, 'P', 'PPLH', 'GB', 'ENG', null, 0);
+    addFts('Dunwich', '9999902', 'primary');
 
     // Grizzly Flat — place in El Dorado County, CA (admin2 test)
-    insertPlace.run(5350964, 'Grizzly Flat', 'Grizzly Flat', 38.6449, -120.5227, 'P', 'PPL', 'US', 'CA', '017', 268);
-    insertFts.run('Grizzly Flat', '5350964', 'primary');
-    insertAlt.run(4, 5350964, 'Grizzly Flats', 'en', 0, 0);
-    insertFts.run('Grizzly Flats', '5350964', 'alternate');
+    insertPlace.run(5350964, 'Grizzly Flat', 38.6449, -120.5227, 'P', 'PPL', 'US', 'CA', '017', 268);
+    addFts('Grizzly Flat', '5350964', 'primary');
+    addFts('Grizzly Flats', '5350964', 'alternate');
 
     // ─── Italian admin regions (for qualifier matching tests) ───
     insertCountry.run('IT', 'Italy');
 
-    // ADM1: Toscana (Tuscany)
-    insertPlace.run(3165361, 'Toscana', 'Toscana', 43.35, 11.02, 'A', 'ADM1', 'IT', '16', null, 0);
-    insertFts.run('Toscana', '3165361', 'primary');
-    insertAlt.run(10, 3165361, 'Tuscany', 'en', 0, 0);
-    insertFts.run('Tuscany', '3165361', 'alternate');
+    // ADM1: Toscana (Tuscany) — in lookup table AND geonames (searchable)
+    insertAdmin1.run('IT', '16', 'Toscana', 3165361);
+    insertPlace.run(3165361, 'Toscana', 43.35, 11.02, 'A', 'ADM1', 'IT', '16', null, 0);
+    addFts('Toscana', '3165361', 'primary');
+    insertAlt.run(10, 3165361, 'Tuscany', 0);
+    addFts('Tuscany', '3165361', 'alternate');
 
-    // ADM2: Provincia di Lucca
-    insertPlace.run(3174530, 'Provincia di Lucca', 'Provincia di Lucca', 44.00, 10.50, 'A', 'ADM2', 'IT', '16', 'LU', 0);
-    insertFts.run('Provincia di Lucca', '3174530', 'primary');
-    insertAlt.run(11, 3174530, 'Lucca', 'it', 0, 0);
-    insertFts.run('Lucca', '3174530', 'alternate');
-    insertAlt.run(12, 3174530, 'Province of Lucca', 'en', 0, 0);
-    insertFts.run('Province of Lucca', '3174530', 'alternate');
+    // ADM2: Provincia di Lucca — in lookup table AND geonames (searchable)
+    insertAdmin2.run('IT', '16', 'LU', 'Provincia di Lucca', 3174530);
+    insertPlace.run(3174530, 'Provincia di Lucca', 44.00, 10.50, 'A', 'ADM2', 'IT', '16', 'LU', 0);
+    addFts('Provincia di Lucca', '3174530', 'primary');
+    insertAlt.run(11, 3174530, 'Lucca', 0);
+    addFts('Lucca', '3174530', 'alternate');
+    insertAlt.run(12, 3174530, 'Province of Lucca', 0);
+    addFts('Province of Lucca', '3174530', 'alternate');
 
     // Massarosa — town in Provincia di Lucca, Toscana, Italy
-    insertPlace.run(3173631, 'Massarosa', 'Massarosa', 43.87, 10.34, 'P', 'PPL', 'IT', '16', 'LU', 10082);
-    insertFts.run('Massarosa', '3173631', 'primary');
-
-    // ADM3: Camaiore (commune) — not stored in our admin columns, only geonames table
-    insertPlace.run(3180720, 'Camaiore', 'Camaiore', 43.94, 10.30, 'A', 'ADM3', 'IT', '16', 'LU', 0);
-    insertFts.run('Camaiore', '3180720', 'primary');
+    insertPlace.run(3173631, 'Massarosa', 43.87, 10.34, 'P', 'PPL', 'IT', '16', 'LU', 10082);
+    addFts('Massarosa', '3173631', 'primary');
 
     // Acquaviva — tiny village in Camaiore commune, Provincia di Lucca
-    insertPlace.run(8974018, 'Acquaviva', 'Acquaviva', 43.93, 10.33, 'P', 'PPL', 'IT', '16', 'LU', 23);
-    insertFts.run('Acquaviva', '8974018', 'primary');
+    insertPlace.run(8974018, 'Acquaviva', 43.93, 10.33, 'P', 'PPL', 'IT', '16', 'LU', 23);
+    addFts('Acquaviva', '8974018', 'primary');
 
     return { db: GeonamesDb.fromConnection(raw), raw };
 }

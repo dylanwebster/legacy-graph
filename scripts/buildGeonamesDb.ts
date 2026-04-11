@@ -36,13 +36,18 @@ const FILES = {
 
 // Feature classes/codes to include (genealogy-relevant)
 // P.* — all populated places (cities, towns, villages, historical settlements)
-// A.ADM1–ADM3 — administrative divisions (states, counties, districts; needed for admin1 name JOIN)
-// ADM4 excluded — too granular (sub-municipal), adds 225K rows of noise
-// S.* excluded entirely — structures (churches, cemeteries, castles, libraries, mines) are not
-//   useful for genealogy place search and add 573K rows + 937K FTS entries of noise
+// A.ADM1–ADM2 — administrative divisions (states, counties; used for admin name lookups)
+// ADM3/ADM4 excluded — too granular, adds noise without value for genealogy
+// S.* excluded entirely — structures (churches, cemeteries, castles) add noise
 const ALLOWED_FEATURE_CLASSES = new Set(['P', 'A']);
-const ALLOWED_A_CODES = new Set(['ADM1', 'ADM2', 'ADM3']);
-// Language codes to skip in alternate names (not useful for search)
+const ALLOWED_A_CODES = new Set(['ADM1', 'ADM2']);
+// Language codes to keep in alternate names (genealogy-relevant European languages + English)
+const ALLOW_LANG = new Set([
+    'en', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'pl', 'sv', 'no', 'da',
+    'fi', 'hu', 'cs', 'sk', 'ro', 'uk', 'lt', 'lv', 'et', 'hr', 'sr',
+    'bg', 'el', 'ga', 'cy', 'gd',
+]);
+// Pseudo-language codes to always skip (not real names)
 const SKIP_LANG = new Set(['link', 'wkdt', 'post', 'iata', 'icao', 'faac', 'fr_1793', 'abbr']);
 
 const BATCH_SIZE = 10_000;
@@ -109,7 +114,6 @@ function createSchema(db: DatabaseSync): void {
         CREATE TABLE IF NOT EXISTS geonames (
             geonameid INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
-            asciiname TEXT,
             lat REAL NOT NULL,
             lng REAL NOT NULL,
             feature_class TEXT NOT NULL,
@@ -120,22 +124,44 @@ function createSchema(db: DatabaseSync): void {
             population INTEGER DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS admin1_names (
+            country_code TEXT NOT NULL,
+            admin1_code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            geonameid INTEGER NOT NULL,
+            PRIMARY KEY (country_code, admin1_code)
+        );
+
+        CREATE TABLE IF NOT EXISTS admin2_names (
+            country_code TEXT NOT NULL,
+            admin1_code TEXT NOT NULL,
+            admin2_code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            geonameid INTEGER NOT NULL,
+            PRIMARY KEY (country_code, admin1_code, admin2_code)
+        );
+
         CREATE TABLE IF NOT EXISTS alternate_names (
             id INTEGER PRIMARY KEY,
             geonameid INTEGER NOT NULL,
             name TEXT NOT NULL,
-            lang TEXT,
-            is_historic INTEGER DEFAULT 0,
-            is_preferred INTEGER DEFAULT 0
+            is_historic INTEGER DEFAULT 0
         );
 
         CREATE INDEX IF NOT EXISTS idx_altnames_geonameid ON alternate_names(geonameid);
 
         CREATE VIRTUAL TABLE IF NOT EXISTS names_fts USING fts5(
             name,
-            geonameid UNINDEXED,
-            source_type UNINDEXED,
-            tokenize = 'unicode61 remove_diacritics 2'
+            tokenize = 'unicode61 remove_diacritics 2',
+            content='',
+            columnsize=0
+        );
+
+        CREATE TABLE IF NOT EXISTS fts_map (
+            rowid INTEGER PRIMARY KEY,
+            geonameid INTEGER NOT NULL,
+            source_type TEXT NOT NULL,
+            name TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS countries (
@@ -150,19 +176,30 @@ function createSchema(db: DatabaseSync): void {
 
 // ─── Import Functions ───────────────────────────────────────────────────────
 
-async function importAllCountries(db: DatabaseSync, tsvPath: string): Promise<{ placeCount: number; validIds: Set<number> }> {
+async function importAllCountries(db: DatabaseSync, tsvPath: string): Promise<{ placeCount: number; validIds: Set<number>; adminIds: Set<number> }> {
     console.log('\n[2/5] Importing allCountries.txt...');
 
     const insertPlace = db.prepare(
-        'INSERT OR IGNORE INTO geonames VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT OR IGNORE INTO geonames VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const insertFts = db.prepare(
-        'INSERT INTO names_fts (name, geonameid, source_type) VALUES (?, ?, ?)'
+        'INSERT INTO names_fts (rowid, name) VALUES (?, ?)'
+    );
+    const insertFtsMap = db.prepare(
+        'INSERT INTO fts_map (rowid, geonameid, source_type, name) VALUES (?, ?, ?, ?)'
+    );
+    const insertAdmin1 = db.prepare(
+        'INSERT OR IGNORE INTO admin1_names VALUES (?, ?, ?, ?)'
+    );
+    const insertAdmin2 = db.prepare(
+        'INSERT OR IGNORE INTO admin2_names VALUES (?, ?, ?, ?, ?)'
     );
 
     const validIds = new Set<number>();
+    const adminIds = new Set<number>();
     let placeCount = 0;
     let lineCount = 0;
+    let ftsRowId = 0;
 
     const stream = fs.createReadStream(tsvPath, { encoding: 'utf8' });
     const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
@@ -207,12 +244,37 @@ async function importAllCountries(db: DatabaseSync, tsvPath: string): Promise<{ 
         validIds.add(geonameid);
         placeCount++;
 
+        // Track admin geonameids for restricting alternate_names table
+        if (featureCode === 'ADM1' || featureCode === 'ADM2') {
+            adminIds.add(geonameid);
+        }
+
+        // Capture ftsRowId in closure
+        const currentFtsRowId = ++ftsRowId;
+        let asciiFtsRowId: number | null = null;
+        if (asciiname && asciiname !== name) {
+            asciiFtsRowId = ++ftsRowId;
+        }
+
         batch.push(() => {
-            insertPlace.run(geonameid, name, asciiname, lat, lng, featureClass, featureCode, countryCode, admin1, admin2, population);
-            insertFts.run(name, String(geonameid), 'primary');
+            // Insert into geonames table (all places including ADM1/ADM2)
+            insertPlace.run(geonameid, name, lat, lng, featureClass, featureCode, countryCode, admin1, admin2, population);
+
+            // Insert into admin lookup tables
+            if (featureCode === 'ADM1' && countryCode && admin1) {
+                insertAdmin1.run(countryCode, admin1, name, geonameid);
+            } else if (featureCode === 'ADM2' && countryCode && admin1 && admin2) {
+                insertAdmin2.run(countryCode, admin1, admin2, name, geonameid);
+            }
+
+            // Insert into contentless FTS + companion map
+            insertFts.run(currentFtsRowId, name);
+            insertFtsMap.run(currentFtsRowId, geonameid, 'primary', name);
+
             // Also index ASCII name if it differs
-            if (asciiname && asciiname !== name) {
-                insertFts.run(asciiname, String(geonameid), 'alternate');
+            if (asciiFtsRowId !== null) {
+                insertFts.run(asciiFtsRowId, asciiname);
+                insertFtsMap.run(asciiFtsRowId, geonameid, 'alternate', asciiname);
             }
         });
 
@@ -223,21 +285,32 @@ async function importAllCountries(db: DatabaseSync, tsvPath: string): Promise<{ 
     flushBatch();
 
     console.log(`  ✓ Imported ${placeCount.toLocaleString()} places from ${lineCount.toLocaleString()} lines`);
-    return { placeCount, validIds };
+    return { placeCount, validIds, adminIds };
 }
 
-async function importAlternateNames(db: DatabaseSync, tsvPath: string, validIds: Set<number>): Promise<number> {
+async function importAlternateNames(
+    db: DatabaseSync,
+    tsvPath: string,
+    validIds: Set<number>,
+    adminIds: Set<number>,
+    ftsRowIdStart: number,
+): Promise<{ altCount: number; ftsRowId: number }> {
     console.log('\n[3/5] Importing alternateNamesV2.txt...');
 
+    // alternate_names table only stores rows for admin geonameids (used for admin name matching)
     const insertAlt = db.prepare(
-        'INSERT OR IGNORE INTO alternate_names VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT OR IGNORE INTO alternate_names VALUES (?, ?, ?, ?)'
     );
     const insertFts = db.prepare(
-        'INSERT INTO names_fts (name, geonameid, source_type) VALUES (?, ?, ?)'
+        'INSERT INTO names_fts (rowid, name) VALUES (?, ?)'
+    );
+    const insertFtsMap = db.prepare(
+        'INSERT INTO fts_map (rowid, geonameid, source_type, name) VALUES (?, ?, ?, ?)'
     );
 
     let altCount = 0;
     let lineCount = 0;
+    let ftsRowId = ftsRowIdStart;
 
     const stream = fs.createReadStream(tsvPath, { encoding: 'utf8' });
     const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
@@ -271,17 +344,26 @@ async function importAlternateNames(db: DatabaseSync, tsvPath: string, validIds:
         if (lang && SKIP_LANG.has(lang)) continue;
         if (!validIds.has(geonameid)) continue;
 
-        const isPreferred = cols[4] === '1' ? 1 : 0;
-        const _isShort = cols[5] === '1' ? 1 : 0;
         // cols[6] = isColloquial, cols[7] = isHistoric
         const isHistoric = cols[7] === '1' ? 1 : 0;
 
+        // Language filter: keep null/empty, allowed languages, and historic names
+        if (lang && !ALLOW_LANG.has(lang) && !isHistoric) continue;
+
         altCount++;
         const sourceType = isHistoric ? 'historic' : 'alternate';
+        const isAdmin = adminIds.has(geonameid);
+        const currentFtsRowId = ++ftsRowId;
 
         batch.push(() => {
-            insertAlt.run(altId, geonameid, altName, lang, isHistoric, isPreferred);
-            insertFts.run(altName, String(geonameid), sourceType);
+            // Only store in alternate_names table if it's an admin geonameid
+            // (admin alternate names are needed for searchFiltered qualifier matching)
+            if (isAdmin) {
+                insertAlt.run(altId, geonameid, altName, isHistoric);
+            }
+            // Always index in FTS for search
+            insertFts.run(currentFtsRowId, altName);
+            insertFtsMap.run(currentFtsRowId, geonameid, sourceType, altName);
         });
 
         if (batch.length >= BATCH_SIZE) {
@@ -291,7 +373,7 @@ async function importAlternateNames(db: DatabaseSync, tsvPath: string, validIds:
     flushBatch();
 
     console.log(`  ✓ Imported ${altCount.toLocaleString()} alternate names from ${lineCount.toLocaleString()} lines`);
-    return altCount;
+    return { altCount, ftsRowId };
 }
 
 async function importCountryInfo(db: DatabaseSync, tsvPath: string): Promise<number> {
@@ -300,9 +382,10 @@ async function importCountryInfo(db: DatabaseSync, tsvPath: string): Promise<num
     const insertCountry = db.prepare(
         'INSERT OR IGNORE INTO countries VALUES (?, ?)'
     );
-    // Look up alternate names for a country geonameid
+    // Look up alternate names for a country geonameid from fts_map
+    // (alternate_names table only has admin geonameids; countries may not be there)
     const altNamesQuery = db.prepare(
-        'SELECT DISTINCT name FROM alternate_names WHERE geonameid = ? AND (lang = \'en\' OR lang IS NULL OR lang = \'\')'
+        'SELECT DISTINCT name FROM fts_map WHERE geonameid = ? AND source_type IN (\'alternate\', \'historic\')'
     );
 
     let nameCount = 0;
@@ -383,8 +466,13 @@ async function main() {
     db.exec('PRAGMA cache_size=-512000'); // 512MB cache
     createSchema(db);
 
-    // Step 2: Import allCountries
-    const { placeCount, validIds } = await importAllCountries(db, allCountriesTsv);
+    // Step 2: Import allCountries (also populates admin lookup tables)
+    const { placeCount, validIds, adminIds } = await importAllCountries(db, allCountriesTsv);
+
+    // Track the FTS rowid counter (importAllCountries uses sequential rowids)
+    // We need to count how many FTS entries were created to continue the sequence
+    const ftsCountResult = db.prepare('SELECT MAX(rowid) as maxRowId FROM fts_map').get() as any;
+    const ftsRowIdAfterPlaces = ftsCountResult?.maxRowId ?? 0;
 
     // Add country geonameids to validIds so their alternate names get imported
     const countryContent = fs.readFileSync(countryInfoPath, 'utf8');
@@ -398,25 +486,30 @@ async function main() {
     }
 
     // Step 3: Import alternate names
-    const altCount = await importAlternateNames(db, altNamesTsv, validIds);
+    const { altCount } = await importAlternateNames(db, altNamesTsv, validIds, adminIds, ftsRowIdAfterPlaces);
 
-    // Step 4: Import country info (uses alternate_names for country aliases)
+    // Step 4: Import country info (uses fts_map for country aliases)
     await importCountryInfo(db, countryInfoPath);
 
     // Step 5: Optimize
-    console.log('\n[5/5] Optimizing indexes...');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_geonames_adm1_lookup ON geonames(country_code, admin1, feature_code)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_geonames_adm2_lookup ON geonames(country_code, admin1, admin2, feature_code)');
+    console.log('\n[5/5] Optimizing...');
+    // No index on fts_map.geonameid — queries always enter via FTS rowid, not geonameid
     db.exec("INSERT INTO names_fts(names_fts) VALUES('optimize')");
     console.log('  ✓ FTS index optimized');
 
     // Write metadata
     const now = new Date().toISOString();
     const metaInsert = db.prepare('INSERT OR REPLACE INTO db_meta VALUES (?, ?)');
-    metaInsert.run('version', '1.0');
+    metaInsert.run('version', '2.0');
     metaInsert.run('built_at', now);
     metaInsert.run('place_count', String(placeCount));
     metaInsert.run('alt_name_count', String(altCount));
+
+    // Compact the database — checkpoint WAL and vacuum
+    console.log('  ⊙ Compacting database...');
+    db.exec('PRAGMA journal_mode=DELETE');
+    db.exec('VACUUM');
+    console.log('  ✓ Database compacted');
 
     db.close();
 

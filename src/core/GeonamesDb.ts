@@ -25,26 +25,14 @@ export class GeonamesDb {
     private readonly db: DatabaseSync;
     private readonly searchStmt: ReturnType<DatabaseSync['prepare']>;
     private readonly resolveStmt: ReturnType<DatabaseSync['prepare']>;
-    private readonly hasAdmin2: boolean;
     private readonly hasCountries: boolean;
     private readonly baseSql: string;
 
     private constructor(db: DatabaseSync) {
         this.db = db;
 
-        // Detect whether admin2 column exists (for backwards compatibility with older DBs)
-        this.hasAdmin2 = this.columnExists(db, 'geonames', 'admin2');
-
         // Detect whether countries table exists (for country name matching in qualifiers)
         this.hasCountries = this.tableExists(db, 'countries');
-
-        const admin2Select = this.hasAdmin2 ? 'a2.name AS admin2_name' : 'NULL AS admin2_name';
-        const admin2Join = this.hasAdmin2
-            ? `LEFT JOIN geonames a2 ON a2.country_code = g.country_code
-                AND a2.admin1 = g.admin1
-                AND a2.admin2 = g.admin2
-                AND a2.feature_code = 'ADM2'`
-            : '';
 
         this.baseSql = `
             SELECT
@@ -56,24 +44,26 @@ export class GeonamesDb {
                 g.feature_class,
                 g.feature_code,
                 g.population,
-                f.name AS matched_name,
-                f.source_type,
+                fm.name AS matched_name,
+                fm.source_type,
                 g.admin1 AS admin1_code,
                 a.name AS admin1_name,
-                ${admin2Select}
+                a2.name AS admin2_name
             FROM names_fts f
-            JOIN geonames g ON g.geonameid = CAST(f.geonameid AS INTEGER)
-            LEFT JOIN geonames a ON a.country_code = g.country_code
-                AND a.admin1 = g.admin1
-                AND a.feature_code = 'ADM1'
-            ${admin2Join}
+            JOIN fts_map fm ON fm.rowid = f.rowid
+            JOIN geonames g ON g.geonameid = fm.geonameid
+            LEFT JOIN admin1_names a ON a.country_code = g.country_code
+                AND a.admin1_code = g.admin1
+            LEFT JOIN admin2_names a2 ON a2.country_code = g.country_code
+                AND a2.admin1_code = g.admin1
+                AND a2.admin2_code = g.admin2
         `;
 
         const sql = this.baseSql + `
             WHERE names_fts MATCH ?
             ORDER BY
-                (CASE WHEN LOWER(f.name) = LOWER(?) THEN 0 ELSE 1 END),
-                (CASE WHEN f.source_type = 'primary' THEN 0 ELSE 1 END),
+                (CASE WHEN LOWER(fm.name) = LOWER(?) THEN 0 ELSE 1 END),
+                (CASE WHEN fm.source_type = 'primary' THEN 0 ELSE 1 END),
                 (CASE WHEN g.feature_class = 'P' THEN 0 WHEN g.feature_class = 'A' THEN 1 ELSE 2 END),
                 -1 * CASE WHEN g.population > 0 THEN g.population ELSE 0 END,
                 rank
@@ -82,15 +72,6 @@ export class GeonamesDb {
 
         this.searchStmt = db.prepare(sql);
         this.resolveStmt = db.prepare(sql);
-    }
-
-    private columnExists(db: DatabaseSync, table: string, column: string): boolean {
-        try {
-            const rows = db.prepare(`PRAGMA table_info(${table})`).all() as any[];
-            return rows.some(r => r.name === column);
-        } catch {
-            return false;
-        }
     }
 
     private tableExists(db: DatabaseSync, table: string): boolean {
@@ -105,14 +86,20 @@ export class GeonamesDb {
     }
 
     /**
-     * Open a GeoNames database from a file path. Returns null if file doesn't exist.
+     * Open a GeoNames database from a file path. Returns null if file doesn't exist
+     * or the database schema is incompatible (missing required tables like fts_map).
      */
     static fromFile(dbPath: string): GeonamesDb | null {
         if (!fs.existsSync(dbPath)) {
             return null;
         }
-        const db = new DatabaseSync(dbPath, { readOnly: true });
-        return new GeonamesDb(db);
+        try {
+            const db = new DatabaseSync(dbPath, { readOnly: true });
+            return new GeonamesDb(db);
+        } catch {
+            // Schema incompatible (e.g. missing fts_map table from v1 DB)
+            return null;
+        }
     }
 
     /**
@@ -179,24 +166,18 @@ export class GeonamesDb {
                 // Match qualifier against alternate names for the admin1 region
                 // (e.g. "Tuscany" → "Toscana" via English alternate name)
                 'EXISTS (SELECT 1 FROM alternate_names an1 WHERE an1.geonameid = a.geonameid AND LOWER(an1.name) LIKE ? || \'%\')',
+                // Admin2 name (substring match for "Provincia di..." patterns)
+                'LOWER(a2.name) LIKE \'%\' || ? || \'%\'',
+                // Match qualifier against alternate names for the admin2 region
+                'EXISTS (SELECT 1 FROM alternate_names an2 WHERE an2.geonameid = a2.geonameid AND LOWER(an2.name) LIKE \'%\' || ? || \'%\')',
             ];
-            const condParams = [ql, ql, ql, ql, ql];
+            const condParams = [ql, ql, ql, ql, ql, ql, ql];
 
             // Match qualifier against country names in the countries table
-            // This handles partial names like "Chi" → China, "United Sta" → United States
             if (this.hasCountries) {
                 conditions.push(
                     'EXISTS (SELECT 1 FROM countries c WHERE c.code = g.country_code AND LOWER(c.name) LIKE ? || \'%\')'
                 );
-                condParams.push(ql);
-            }
-
-            if (this.hasAdmin2) {
-                conditions.push('LOWER(a2.name) LIKE \'%\' || ? || \'%\'');
-                condParams.push(ql);
-                // Match qualifier against alternate names for the admin2 region
-                // (e.g. "Province of Lucca" → "Provincia di Lucca" via English alternate name)
-                conditions.push('EXISTS (SELECT 1 FROM alternate_names an2 WHERE an2.geonameid = a2.geonameid AND LOWER(an2.name) LIKE \'%\' || ? || \'%\')');
                 condParams.push(ql);
             }
 
@@ -208,8 +189,8 @@ export class GeonamesDb {
             WHERE names_fts MATCH ?
             AND ${qualifierClauses.join(' AND ')}
             ORDER BY
-                (CASE WHEN LOWER(f.name) = LOWER(?) THEN 0 ELSE 1 END),
-                (CASE WHEN f.source_type = 'primary' THEN 0 ELSE 1 END),
+                (CASE WHEN LOWER(fm.name) = LOWER(?) THEN 0 ELSE 1 END),
+                (CASE WHEN fm.source_type = 'primary' THEN 0 ELSE 1 END),
                 (CASE WHEN g.feature_class = 'P' THEN 0 WHEN g.feature_class = 'A' THEN 1 ELSE 2 END),
                 -1 * CASE WHEN g.population > 0 THEN g.population ELSE 0 END,
                 rank
