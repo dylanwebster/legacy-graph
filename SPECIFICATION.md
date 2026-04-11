@@ -186,17 +186,18 @@ Events are typed objects acting as state reducers. They determine the "current s
 | `burial`           | Final resting place.                                                                  |
 | `generic`          | Custom events. Field: `title`.                                                        |
 
-### **3.3 Asset Index (`/_meta/assets.yaml`)**
+### **3.3 Asset Metadata (`/_meta/assets.yaml`)**
 
-To avoid scanning thousands of binaries on boot, metadata is cached.
+Metadata cache for binary assets, indexed by filename.
 
 - **Structure**: Map of `Filename -> Metadata`.
 - **Metadata**:
   - `id`: NanoID.
-  - `caption`: String.
+  - `description`: String. (Legacy `caption` fields auto-migrated via Zod `.transform()`.)
   - `date_taken`: ISO-8601.
   - `location`: String.
   - `type`: `image | video | pdf`.
+- **Single source of truth**: Person-asset associations live exclusively in `person.assets[]`. The asset metadata index does **not** track `tagged_people` — that field was removed in Phase 5.4b.
 
 ### **3.4 Place Schema & Geo-tagging**
 
@@ -219,13 +220,14 @@ Event locations are structured objects rather than freeform strings, enabling ma
 
 **Geocoding Service** (`src/core/GeocodingService.ts`):
 
-- **Provider**: Nominatim (OpenStreetMap) — free, no API key required, supports historical names.
-- **Endpoint**: `https://nominatim.openstreetmap.org/search?q={name}&format=jsonv2&addressdetails=1&limit=1`.
-- **Historical Names**: Nominatim covers major name changes (e.g., "Königsberg" → "Kaliningrad"). The user's original input is preserved in `historicalName`; `name` holds the modern resolved form.
-- **Caching**: Results cached in `/_meta/.geocode-cache.json` (keyed by normalized place name) to avoid redundant API calls across sessions.
-- **Rate Limiting**: Nominatim requires ≤1 request/second. `GeocodingService` enforces this via an internal queue with a 1-second minimum interval.
-- **Fallback**: If geocoding fails (network error, unknown place), the Place object is stored with only `name` populated. Unresolved places are eligible for retry on next access.
-- **`resolve(name: string): Promise<Place>`**: Primary public method. Returns cached result if available, otherwise queues an HTTP request.
+- **Provider**: Offline GeoNames SQLite database (`~/.legacy-graph/geonames.db`). Built via `npm run geonames:build`. No network calls at runtime.
+- **GeonamesDb** (`src/core/GeonamesDb.ts`): Read-only SQLite wrapper. Forward search via FTS5 (`searchByName`, `searchFiltered`). Reverse geocoding via spatial index (`reverseGeocode` — two-tier radius, cosine-corrected distance).
+- **Caching**: Results cached in `/_meta/.geocode-cache.json` (keyed by normalized place name) to avoid redundant DB queries across sessions. In-memory cache layer on top.
+- **Fallback**: If DB is missing or place not found, the Place object is stored with only `name` populated.
+- **`resolve(name: string): Promise<Place>`**: Primary public method. Returns cached result if available, otherwise queries GeonamesDb.
+- **`search(query: string): Promise<Place[]>`**: Type-ahead search. Parses comma-separated qualifiers for genealogy-style place strings (e.g., "Mountain, Grizzly Flats, CA").
+- **`reverseGeocode(lat, lng): Place | null`**: Spatial lookup for EXIF GPS coordinates. Used by `reverseGeocodeExifGps()` in `src/core/assetMetaUtils.ts` during asset uploads.
+- **Graceful degradation**: If DB is missing, search returns empty, reverse geocode returns null. No errors thrown.
 
 **New API Endpoints**:
 
@@ -357,7 +359,7 @@ Pre-computes the "Integrated Feed" for the UI Person Detail page.
 **Base URL**: `/api`.
 **Errors**: Standard JSON: `{ error: string, code: string, details?: any }`.
 
-**Route Plugin Architecture**: The server is decomposed into Fastify route plugins (`src/api/routes/`): `people.ts`, `system.ts`, `search.ts`, `auth.ts`, `gedcom.ts`. Shared services (`GraphEngine`, `TransactionManager`, `AuthConfig`) are bound to the Fastify instance via `server.decorate('appServices', ...)` — eliminating module-level singletons and ensuring clean lifecycle management across test runs. The server orchestrator (`server.ts`) handles only plugin registration, Fastify decoration, and lifecycle hooks (~95 lines).
+**Route Plugin Architecture**: The server is decomposed into Fastify route plugins (`src/api/routes/`): `people.ts`, `stories.ts`, `assets.ts`, `system.ts`, `search.ts`, `auth.ts`, `gedcom.ts`. Shared services (`GraphEngine`, `TransactionManager`, `AuthConfig`) are bound to the Fastify instance via `server.decorate('appServices', ...)` — eliminating module-level singletons and ensuring clean lifecycle management across test runs. The server orchestrator (`server.ts`) handles only plugin registration, Fastify decoration, and lifecycle hooks (~95 lines).
 
 ### **5.1 Entity Endpoints**
 
@@ -723,7 +725,7 @@ The landing page. Overview of the family graph.
 - **Snapshot**: "Create Snapshot" → `POST /system/snapshot`. Input for snapshot name.
 - **Authentication** (when active): Current user display, logout button.
 
-### **6.9 Stories Pages**
+### **6.9 Stories Pages** *(implemented — Phase 5.1)*
 
 #### **6.9.1 Stories Feed (`/stories`)**
 
@@ -746,22 +748,11 @@ Blog-feed view of all story Markdown files. Entry point from sidebar.
 Clean reading experience for a single story.
 
 - **Layout**: Centered column (max 720px), wide margins. Typography: `Merriweather` serif.
-- **Header**: Title, date range, tagged places (as links to `/map?place=`), tagged people as `PersonChip` row.
-- **Body**: Rendered Markdown via `react-markdown` + `remark-gfm`. `@N_xxx` mentions rendered as inline `PersonChip`. `[[wikilink]]` mentions rendered as inline `PersonChip`.
+- **Header**: Title, date range, tagged places, tagged people as `PersonChip` row (from `people` frontmatter, auto-populated from @mentions on save).
+- **Body**: Rendered Markdown via `react-markdown` + `remark-gfm`. `@N_xxx` and `[[N_xxx]]` mentions rendered as `InlinePersonMention` — inline-flex chips with person's display name and HoverCard preview.
 - **Filmstrip**: Horizontal scrollable strip of all story assets at the bottom. Each image: square thumbnail, `object-cover`. Click → lightbox (full `object-contain`).
 - **Edit Button**: "Edit Story" in top-right → switches to editor mode (same URL, `?mode=edit`).
-- **Back Navigation**: Breadcrumb `Stories / [Title]` in Top Bar.
-
-#### **6.9.2 Story Reader (`/stories/:id` — view mode)** (updated)
-
-- **Body**: `@N_xxx` and `[[N_xxx]]` mentions rendered as `InlinePersonMention` — inline-flex chips with person's display name and HoverCard preview. No block-level avatar; renders inline within prose text.
-- **People header**: Shows people derived from `people` frontmatter field (auto-populated from @mentions on save).
-
-#### **6.9.1 Stories Feed (`/stories`)** (updated)
-
-- **Whole-card click**: Entire `StoryFeedCard` container navigates to the story (not just title).
-- **Sort/filter persistence**: Filter text and sort order persisted in Zustand (`storiesFeedFilter`, `storiesFeedSort`) — restored when user navigates back from a story.
-- **Excerpts**: Plain text only — markdown formatting (bold, headings, lists, etc.) stripped server-side before truncation.
+- **Breadcrumb**: `← Stories / [Title]` — "Stories" link navigates back to feed (restoring persisted filter/sort). The top-bar static "Home > Current Page" breadcrumb has been removed from `TopBar.tsx`.
 
 #### **6.9.3 Story Editor (`/stories/:id?mode=edit` or `/stories/new`)**
 
@@ -779,42 +770,39 @@ Rich WYSIWYG editing experience powered by **Milkdown Crepe**.
 - **Auto-save**: Debounced 3-second auto-save while editing.
 - **Navigation**: Breadcrumb `Stories / [Title]` in story header — "Stories" is a clickable link back to the feed.
 
-#### **6.9.2 Story Reader (`/stories/:id` — view mode)** (updated)
+#### **6.9.4 Stories Feed behavior**
 
-- **Body**: `@N_xxx` and `[[N_xxx]]` mentions rendered as `InlinePersonMention` — inline-flex chips with person's display name and HoverCard preview.
-- **Breadcrumb**: `← Stories / [Title]` — "Stories" link navigates back to feed (restoring persisted filter/sort).
-- **No global breadcrumb**: The top-bar static "Home > Current Page" breadcrumb has been removed from `TopBar.tsx`.
+- **Whole-card click**: Entire `StoryFeedCard` container navigates to the story (not just title).
+- **Sort/filter persistence**: Filter text and sort order persisted in Zustand (`storiesFeedFilter`, `storiesFeedSort`) — restored when user navigates back from a story.
+- **Excerpts**: Plain text only — markdown formatting stripped server-side before truncation.
 
-#### **6.9.4 Notebook Tab (Person Detail)**
+#### **6.9.5 Notebook Tab (Person Detail)**
 
 - Milkdown Crepe editor (readonly until "Edit" is clicked). Renders via Crepe in readonly mode when not editing.
 
 ---
 
-### **6.10 Asset Gallery Page (`/assets`)**
+### **6.10 Asset Gallery Page (`/assets`)** *(implemented — Phase 5.4/5.4b/5.4c)*
 
 Universal gallery of all files in the `/assets` directory.
 
-- **Layout**: Masonry or fixed-grid of thumbnails. Toggle between grid (compact) and list (detailed) views.
-- **Each asset card**:
-  - Thumbnail (`object-cover`, square)
-  - Filename
-  - File type badge (image / video / pdf)
-  - Size
-  - Referenced by: list of people/story names that reference this file (linked)
-  - Caption (editable inline)
-- **Orphan Detection**:
-  - Assets not referenced by any YAML `assets[]` array or story Markdown are flagged with an **"Orphaned"** warning badge.
-  - "Show only orphans" filter toggle.
-  - Orphaned assets can be bulk-deleted with confirmation dialog.
-- **Upload**: Drag-and-drop zone or file picker — uploads to `/assets/` (not attached to a specific person).
-- **Search/Filter**: Filter by type (image / video / pdf), referenced/orphaned, filename.
-- **Click**: Opens lightbox (images) or download (PDFs/videos).
-- **API**: Requires new `GET /api/assets` endpoint returning `{ filename, size, mimeType, referencedBy: string[] }[]` (see Section 6.11).
+- **Layout**: Fixed 3-column grid of 4:3 aspect ratio cards (`object-contain`). Virtualized via `@tanstack/react-virtual`.
+- **Each asset card**: Thumbnail, filename overlay.
+- **AssetDetailModal**: Click card to open left image + right metadata panel. Keyboard navigation (←/→). Description edit, date_taken edit, person tag/untag via `PersonSearchCombobox`, orphan delete.
+- **Toolbar**: Type filter (`all`/`image`/`document`), sort (name/size/date) with asc/desc toggle, backend-driven search (`?q=` searches filename, description, person names, story titles).
+- **Orphan Detection**: Assets not in any `person.assets[]` or story Markdown flagged as orphaned. `DELETE /api/assets/:filename` only allowed for orphans (guard).
+- **Bulk Upload** (`BulkUploadDialog`): Drag-drop zone, image previews, shared metadata form (description, date, location via PlaceCombobox, people tagging). `POST /api/assets/upload` (multipart, multi-file, EXIF seed, dedup).
+- **API**:
+  - `GET /api/assets` — `?q=`, `?type=image|document|all`, `?sort=name|size|date`, `?order=asc|desc`
+  - `PUT /api/assets/:fn/meta` — `description` + `date_taken` (`caption` accepted as legacy alias)
+  - `DELETE /api/assets/:fn` — file deletion (orphan guard)
+  - `POST /api/people/:id/assets/link` — link existing asset to person
+  - `DELETE /api/people/:id/assets/link/:filename` — unlink asset from person (removes from `person.assets[]` and `event.assets[]`)
+  - `POST /api/assets/upload` — bulk upload with EXIF metadata extraction
 
 ---
 
-### **6.11 Map View (`/map`)**
+### **6.11 Map View (`/map`)** *(not yet implemented — Phase 5.2)*
 
 Interactive world map of all geocoded event locations.
 
@@ -833,7 +821,7 @@ Interactive world map of all geocoded event locations.
 
 ---
 
-### **6.12 Settings Page — Git History & Recovery**
+### **6.12 Settings Page — Git History & Recovery** *(not yet implemented — Phase 5.8)*
 
 The Settings page is the primary surface for the git history/recovery UX. It is restructured into four sections:
 
@@ -907,7 +895,7 @@ The Settings sidebar entry is enhanced:
 
 ---
 
-### **6.14 Private Mode & Guest Mode**
+### **6.14 Private Mode & Guest Mode** *(not yet implemented — Phase 5.6)*
 
 - **Private toggle**: Each person has a `private: boolean` field (default `false`). Set via the lock icon badge in the Identity Panel.
 - **Authenticated view** (normal): All people visible regardless of `private` flag.
