@@ -37,6 +37,10 @@ async function setupGit() {
     }
 }
 
+const PEOPLE_DIR = path.join(TEST_DATA_DIR, 'people');
+// Fixture people that must survive cleanup
+const FIXTURE_PEOPLE = new Set(['N_test-import-2000-fixture.yaml']);
+
 function cleanupTestAssets() {
     if (fs.existsSync(ASSETS_DIR)) {
         const files = fs.readdirSync(ASSETS_DIR).filter(f => f.startsWith('test-asset'));
@@ -47,6 +51,14 @@ function cleanupTestAssets() {
     const metaAssetsYaml = path.join(META_DIR, 'assets.yaml');
     if (fs.existsSync(metaAssetsYaml)) {
         try { fs.unlinkSync(metaAssetsYaml); } catch { /* ignore */ }
+    }
+    // Clean up person YAML files created by tests (prevents cross-test contamination)
+    if (fs.existsSync(PEOPLE_DIR)) {
+        for (const file of fs.readdirSync(PEOPLE_DIR)) {
+            if (!FIXTURE_PEOPLE.has(file)) {
+                try { fs.unlinkSync(path.join(PEOPLE_DIR, file)); } catch { /* ignore */ }
+            }
+        }
     }
 }
 

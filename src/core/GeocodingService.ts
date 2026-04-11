@@ -148,7 +148,8 @@ export class GeocodingService {
 
         await this.ensureCacheLoaded();
 
-        const key = `reverse:${lat.toFixed(3)},${lng.toFixed(3)}`;
+        // v3: population-weighted distance — bump version when reverse query logic changes
+        const key = `reverse:v3:${lat.toFixed(3)},${lng.toFixed(3)}`;
         if (this.cache.has(key)) {
             return this.cache.get(key)!;
         }

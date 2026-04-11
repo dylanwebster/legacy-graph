@@ -98,8 +98,15 @@ export class GeonamesDb {
                 AND a2.admin2_code = g.admin2
             WHERE g.lat BETWEEN ? AND ?
               AND g.lng BETWEEN ? AND ?
+              AND g.feature_code NOT IN ('PPLH', 'PPLQ', 'PPLW')
             ORDER BY
-                ((g.lat - ?) * (g.lat - ?) + (g.lng - ?) * (g.lng - ?) * ? * ?),
+                ((g.lat - ?) * (g.lat - ?) + (g.lng - ?) * (g.lng - ?) * ? * ?) /
+                (CASE
+                    WHEN g.population >= 10000 THEN 2.0
+                    WHEN g.population >= 1000  THEN 1.5
+                    WHEN g.population >= 100   THEN 1.2
+                    ELSE 1.0
+                END),
                 (CASE WHEN g.feature_class = 'P' THEN 0 ELSE 1 END),
                 -1 * CASE WHEN g.population > 0 THEN g.population ELSE 0 END
             LIMIT 1

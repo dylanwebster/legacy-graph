@@ -176,6 +176,14 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     insertPlace.run(9999902, 'Dunwich', 52.2767, 1.6317, 'P', 'PPLH', 'GB', 'ENG', null, 0);
     addFts('Dunwich', '9999902', 'primary');
 
+    // Abandoned populated place
+    insertPlace.run(9999903, 'Pripyat', 51.4045, 30.0542, 'P', 'PPLQ', 'UA', null, null, 0);
+    addFts('Pripyat', '9999903', 'primary');
+
+    // Destroyed populated place
+    insertPlace.run(9999904, 'Pompeii', 40.7508, 14.4869, 'P', 'PPLW', 'IT', null, null, 0);
+    addFts('Pompeii', '9999904', 'primary');
+
     // Grizzly Flat — place in El Dorado County, CA (admin2 test)
     insertPlace.run(5350964, 'Grizzly Flat', 38.6449, -120.5227, 'P', 'PPL', 'US', 'CA', '017', 268);
     addFts('Grizzly Flat', '5350964', 'primary');
@@ -426,12 +434,33 @@ describe('GeonamesDb', () => {
         expect(result!.admin2Name).toBe('El Dorado County');
     });
 
-    it('reverseGeocode uses wide box when narrow box has no results', () => {
-        // Dunwich is at 52.2767, 1.6317 — offset by ~0.2° to miss narrow box
-        // but still within 0.5° wide box
-        const result = db.reverseGeocode(52.40, 1.63);
-        expect(result).not.toBeNull();
-        expect(result!.primaryName).toBe('Dunwich');
+    it('reverseGeocode excludes defunct places (PPLH, PPLQ, PPLW)', () => {
+        // Dunwich (PPLH), Pripyat (PPLQ), Pompeii (PPLW) — all should be
+        // excluded from reverse geocode since images are modern.
+        for (const [lat, lng, code] of [
+            [52.2767, 1.6317, 'PPLH'],   // Dunwich — no longer exists
+            [51.4045, 30.0542, 'PPLQ'],   // Pripyat — abandoned
+            [40.7508, 14.4869, 'PPLW'],   // Pompeii — destroyed
+        ] as const) {
+            const result = db.reverseGeocode(lat, lng);
+            expect(
+                result === null || result.featureCode !== code,
+                `reverseGeocode should not return ${code} place at ${lat},${lng}`
+            ).toBe(true);
+        }
+    });
+
+    it('forward search still finds defunct places (PPLH, PPLQ, PPLW)', () => {
+        for (const [name, code] of [
+            ['Dunwich', 'PPLH'],
+            ['Pripyat', 'PPLQ'],
+            ['Pompeii', 'PPLW'],
+        ]) {
+            const results = db.searchByName(name, 5);
+            expect(results.length).toBeGreaterThanOrEqual(1);
+            expect(results[0].primaryName).toBe(name);
+            expect(results[0].featureCode).toBe(code);
+        }
     });
 
     it('reverseGeocode matched_name and source_type are set for reverse results', () => {
