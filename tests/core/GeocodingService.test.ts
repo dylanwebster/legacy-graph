@@ -70,6 +70,8 @@ async function createTestGeonamesDb(dbPath: string): Promise<void> {
         CREATE TABLE countries (code TEXT NOT NULL, name TEXT NOT NULL, UNIQUE(code, name));
 
         CREATE TABLE db_meta (key TEXT PRIMARY KEY, value TEXT);
+
+        CREATE INDEX idx_geonames_lat_lng ON geonames(lat, lng);
     `);
 
     // Insert countries
@@ -488,5 +490,52 @@ describe('GeocodingService', () => {
         expect(results.length).toBeGreaterThanOrEqual(1);
         expect(results[0].name).toBe('Acquaviva');
         expect(results[0].countryCode).toBe('IT');
+    });
+
+    // ── Reverse geocoding ──────────────────────────────────────────────
+
+    it('reverseGeocode returns Place with name, coords, countryCode, admin1Name', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.reverseGeocode(51.51, -0.13);
+
+        expect(result).not.toBeNull();
+        expect(result!.name).toBe('London');
+        expect(result!.lat).toBeCloseTo(51.5074, 3);
+        expect(result!.lng).toBeCloseTo(-0.1278, 3);
+        expect(result!.countryCode).toBe('GB');
+        expect(result!.admin1Name).toBe('England');
+    });
+
+    it('reverseGeocode returns null for ocean coordinates', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.reverseGeocode(0, 0);
+
+        expect(result).toBeNull();
+    });
+
+    it('reverseGeocode cache hit on second call with same rounded coords', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const r1 = await svc.reverseGeocode(51.5074, -0.1278);
+        const r2 = await svc.reverseGeocode(51.5075, -0.1279); // rounds to same key at 3dp
+
+        expect(r1).not.toBeNull();
+        expect(r2).not.toBeNull();
+        expect(r1!.name).toBe(r2!.name);
+    });
+
+    it('reverseGeocode with missing DB returns null gracefully', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath: '/nonexistent/geonames.db' });
+        const result = await svc.reverseGeocode(51.5074, -0.1278);
+
+        expect(result).toBeNull();
+    });
+
+    it('reverseGeocode sets resolvedAt', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.reverseGeocode(51.5074, -0.1278);
+
+        expect(result).not.toBeNull();
+        expect(result!.resolvedAt).toBeDefined();
+        expect(new Date(result!.resolvedAt!).toISOString()).toBe(result!.resolvedAt);
     });
 });

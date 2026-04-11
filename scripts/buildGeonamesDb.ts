@@ -497,10 +497,14 @@ async function main() {
     db.exec("INSERT INTO names_fts(names_fts) VALUES('optimize')");
     console.log('  ✓ FTS index optimized');
 
+    // Spatial index for reverse geocoding (lat/lng → nearest place)
+    db.exec('CREATE INDEX IF NOT EXISTS idx_geonames_lat_lng ON geonames(lat, lng)');
+    console.log('  ✓ Spatial index created');
+
     // Write metadata
     const now = new Date().toISOString();
     const metaInsert = db.prepare('INSERT OR REPLACE INTO db_meta VALUES (?, ?)');
-    metaInsert.run('version', '2.0');
+    metaInsert.run('version', '2.1');
     metaInsert.run('built_at', now);
     metaInsert.run('place_count', String(placeCount));
     metaInsert.run('alt_name_count', String(altCount));

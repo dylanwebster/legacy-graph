@@ -139,7 +139,43 @@ export class GeocodingService {
         return result;
     }
 
+    /**
+     * Reverse geocode: find the nearest place to the given coordinates.
+     * Returns null if no match or no DB available. Cached by rounded coords.
+     */
+    public async reverseGeocode(lat: number, lng: number): Promise<Place | null> {
+        if (!this.geonamesDb) return null;
+
+        await this.ensureCacheLoaded();
+
+        const key = `reverse:${lat.toFixed(3)},${lng.toFixed(3)}`;
+        if (this.cache.has(key)) {
+            return this.cache.get(key)!;
+        }
+
+        const row = this.geonamesDb.reverseGeocode(lat, lng);
+        if (!row) return null;
+
+        const place = this.reverseRowToPlace(row);
+        this.cache.set(key, place);
+        await this.persistCache();
+        return place;
+    }
+
     // ─── Private ────────────────────────────────────────────────────────────
+
+    private reverseRowToPlace(row: { primaryName: string; lat: number; lng: number; countryCode: string | null; admin1Name?: string | null; admin2Name?: string | null }): Place {
+        const place: Place = {
+            name: row.primaryName,
+            lat: row.lat,
+            lng: row.lng,
+        };
+        if (row.countryCode) place.countryCode = row.countryCode;
+        if (row.admin1Name) place.admin1Name = row.admin1Name;
+        if (row.admin2Name) place.admin2Name = row.admin2Name;
+        place.resolvedAt = new Date().toISOString();
+        return place;
+    }
 
     private resolveFromDb(name: string): Place {
         if (!this.geonamesDb) return { name };

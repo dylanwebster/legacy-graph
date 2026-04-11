@@ -28,6 +28,8 @@ export class GeonamesDb {
     private readonly hasCountries: boolean;
     private readonly baseSql: string;
 
+    private readonly reverseStmt: ReturnType<DatabaseSync['prepare']>;
+
     private constructor(db: DatabaseSync) {
         this.db = db;
 
@@ -72,6 +74,37 @@ export class GeonamesDb {
 
         this.searchStmt = db.prepare(sql);
         this.resolveStmt = db.prepare(sql);
+
+        const reverseSql = `
+            SELECT
+                g.geonameid,
+                g.name AS primary_name,
+                g.lat,
+                g.lng,
+                g.country_code,
+                g.feature_class,
+                g.feature_code,
+                g.population,
+                g.name AS matched_name,
+                'primary' AS source_type,
+                g.admin1 AS admin1_code,
+                a.name AS admin1_name,
+                a2.name AS admin2_name
+            FROM geonames g
+            LEFT JOIN admin1_names a ON a.country_code = g.country_code
+                AND a.admin1_code = g.admin1
+            LEFT JOIN admin2_names a2 ON a2.country_code = g.country_code
+                AND a2.admin1_code = g.admin1
+                AND a2.admin2_code = g.admin2
+            WHERE g.lat BETWEEN ? AND ?
+              AND g.lng BETWEEN ? AND ?
+            ORDER BY
+                ((g.lat - ?) * (g.lat - ?) + (g.lng - ?) * (g.lng - ?) * ? * ?),
+                (CASE WHEN g.feature_class = 'P' THEN 0 ELSE 1 END),
+                -1 * CASE WHEN g.population > 0 THEN g.population ELSE 0 END
+            LIMIT 1
+        `;
+        this.reverseStmt = db.prepare(reverseSql);
     }
 
     private tableExists(db: DatabaseSync, table: string): boolean {
@@ -230,6 +263,33 @@ export class GeonamesDb {
         } catch {
             return null;
         }
+    }
+
+    /**
+     * Reverse geocode: find the nearest place to the given coordinates.
+     * Uses a bounding box query with cosine-corrected distance sorting.
+     * Returns null if no place is found within ~55km.
+     */
+    reverseGeocode(lat: number, lng: number): GeonamesRow | null {
+        const cosLat = Math.cos(lat * Math.PI / 180);
+
+        // Try narrow box first (±0.1° ≈ 11km), then widen (±0.5° ≈ 55km)
+        for (const radius of [0.1, 0.5]) {
+            try {
+                const rows = this.reverseStmt.all(
+                    lat - radius, lat + radius,
+                    lng - radius, lng + radius,
+                    lat, lat, lng, lng, cosLat, cosLat,
+                ) as any[];
+                if (rows.length > 0) {
+                    return this.rowToGeonamesRow(rows[0]);
+                }
+            } catch {
+                return null;
+            }
+        }
+
+        return null;
     }
 
     /**

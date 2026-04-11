@@ -6,6 +6,7 @@ import exifReader from 'exif-reader';
 import { Mutex } from 'async-mutex';
 import { AssetIndexSchema } from '../schemas/AssetSchema';
 import type { Place } from '../schemas/PlaceSchema';
+import type { GeocodingService } from './GeocodingService';
 
 // Serializes all load → modify → save cycles for assets.yaml to prevent lost updates under concurrent uploads.
 const assetIndexMutex = new Mutex();
@@ -121,6 +122,33 @@ export async function extractExifDate(filepath: string): Promise<string | null> 
     } catch {
         return null;
     }
+}
+
+/**
+ * Extract EXIF GPS coordinates and reverse-geocode them to a full Place.
+ * Falls back to raw coordinate Place if no service or no match.
+ * Returns null if image has no GPS data.
+ */
+export async function reverseGeocodeExifGps(
+    filepath: string,
+    geocodingService: GeocodingService | null,
+): Promise<Place | null> {
+    const rawPlace = await extractExifGps(filepath);
+    if (!rawPlace) return null;
+
+    if (!geocodingService || rawPlace.lat == null || rawPlace.lng == null) {
+        return rawPlace;
+    }
+
+    const resolved = await geocodingService.reverseGeocode(rawPlace.lat, rawPlace.lng);
+    if (!resolved) return rawPlace;
+
+    // Use reverse-geocoded name/admin/country but keep EXIF lat/lng (actual photo location)
+    return {
+        ...resolved,
+        lat: rawPlace.lat,
+        lng: rawPlace.lng,
+    };
 }
 
 /**

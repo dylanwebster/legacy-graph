@@ -66,6 +66,8 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
         CREATE TABLE countries (code TEXT NOT NULL, name TEXT NOT NULL, UNIQUE(code, name));
 
         CREATE TABLE db_meta (key TEXT PRIMARY KEY, value TEXT);
+
+        CREATE INDEX idx_geonames_lat_lng ON geonames(lat, lng);
     `);
 
     // Insert countries
@@ -389,5 +391,53 @@ describe('GeonamesDb', () => {
         const results = db.searchFiltered('London', ['V'], 5);
         // London's admin1 is "England" which doesn't start with V
         expect(results.length).toBe(0);
+    });
+
+    // ─── reverseGeocode ────────────────────────────────────────────────
+
+    it('reverseGeocode returns nearest place for exact coordinates', () => {
+        // London UK exact coords
+        const result = db.reverseGeocode(51.5074, -0.1278);
+        expect(result).not.toBeNull();
+        expect(result!.primaryName).toBe('London');
+        expect(result!.countryCode).toBe('GB');
+        expect(result!.admin1Name).toBe('England');
+    });
+
+    it('reverseGeocode returns nearest place for slightly offset coordinates', () => {
+        // Slightly offset from London
+        const result = db.reverseGeocode(51.51, -0.13);
+        expect(result).not.toBeNull();
+        expect(result!.primaryName).toBe('London');
+    });
+
+    it('reverseGeocode returns null for coordinates with no nearby places', () => {
+        // Middle of Gulf of Guinea — no places nearby
+        const result = db.reverseGeocode(0, 0);
+        expect(result).toBeNull();
+    });
+
+    it('reverseGeocode returns admin1Name and admin2Name', () => {
+        // Near Grizzly Flat, CA
+        const result = db.reverseGeocode(38.6449, -120.5227);
+        expect(result).not.toBeNull();
+        expect(result!.primaryName).toBe('Grizzly Flat');
+        expect(result!.admin1Name).toBe('California');
+        expect(result!.admin2Name).toBe('El Dorado County');
+    });
+
+    it('reverseGeocode uses wide box when narrow box has no results', () => {
+        // Dunwich is at 52.2767, 1.6317 — offset by ~0.2° to miss narrow box
+        // but still within 0.5° wide box
+        const result = db.reverseGeocode(52.40, 1.63);
+        expect(result).not.toBeNull();
+        expect(result!.primaryName).toBe('Dunwich');
+    });
+
+    it('reverseGeocode matched_name and source_type are set for reverse results', () => {
+        const result = db.reverseGeocode(51.5074, -0.1278);
+        expect(result).not.toBeNull();
+        expect(result!.matchedName).toBe('London');
+        expect(result!.sourceType).toBe('primary');
     });
 });

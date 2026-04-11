@@ -53,6 +53,24 @@ find ./data/stories -name 'synthetic-family-*.md' -delete
 - Synthetic IDs use the format `N_SYN_00001` (not the production `N_[first]-[last]-[year]-[nanoid8]` format). The `N_SYN_` prefix is intentional — it's what `--clean-synthetic` (default) uses to identify and delete only generated files.
 - Generated files are tagged `synthetic` and `generation-N` for easy filtering.
 
+### GeoNames Database
+```bash
+npm run geonames:build    # Build/rebuild the offline GeoNames SQLite database
+                          # Downloads ~580 MB, builds to ~/.legacy-graph/geonames.db (~900 MB)
+                          # Caches downloads in /tmp/geonames-download-cache (reused on rebuild)
+```
+
+**What it does:** Downloads GeoNames `allCountries.zip` + `alternateNamesV2.zip`, filters to populated places (P.*) and admin divisions (ADM1/ADM2), builds FTS5 full-text index + spatial index on (lat, lng), and writes a single SQLite file.
+
+**When to rebuild:** After changes to `scripts/buildGeonamesDb.ts` (schema changes, new indexes, filter changes). The `db_meta.version` field tracks schema version (currently `2.1`).
+
+**How it's used at runtime:**
+- `GeonamesDb` (`src/core/GeonamesDb.ts`) — read-only SQLite wrapper. Forward search via FTS5 (`searchByName`, `searchFiltered`, `resolveByName`). Reverse geocoding via spatial index (`reverseGeocode`).
+- `GeocodingService` (`src/core/GeocodingService.ts`) — high-level service with in-memory + disk cache (`_meta/.geocode-cache.json`). Provides `resolve(name)`, `search(query)`, and `reverseGeocode(lat, lng)`.
+- Asset uploads automatically reverse-geocode EXIF GPS coordinates to place names via `reverseGeocodeExifGps()` in `src/core/assetMetaUtils.ts`.
+
+**DB path resolution:** `GEONAMES_DB` env var → `~/.legacy-graph/geonames.db` (default). Gracefully degrades if DB is missing (place search returns empty, reverse geocode returns null).
+
 ---
 
 ## Rules
@@ -92,7 +110,8 @@ src/
     TimelineSlicer.ts      # Merged event+story+witness timeline with gap detection
     TransactionManager.ts  # Debounced git commits (5s window) via isomorphic-git
     Thumbnailer.ts         # Sharp → WebP thumbnails
-    GeocodingService.ts    # Nominatim geocoding, cache, rate limiter (Phase 3.15)
+    GeocodingService.ts    # Forward + reverse geocoding, cache (Phase 3.15)
+    GeonamesDb.ts          # Read-only SQLite wrapper for GeoNames FTS5 + spatial queries
     gedcom/
       Import.ts            # GEDCOM 5.5.1/7.0 → YAML
       Export.ts            # YAML → GEDCOM 5.5.1

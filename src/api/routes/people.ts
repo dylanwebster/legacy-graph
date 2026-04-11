@@ -10,7 +10,7 @@ import { Person, PersonSchema, SlimPerson, toSlimPerson } from '../../schemas/Pe
 import { sliceTimeline } from '../../core/TimelineSlicer';
 import { invalidateComputed } from '../../core/GraphLogic';
 import type { AppInstance } from '../types';
-import { loadAssetIndex, saveAssetIndex, upsertAssetEntry, extractExifDate, extractExifGps } from '../../core/assetMetaUtils';
+import { loadAssetIndex, saveAssetIndex, upsertAssetEntry, extractExifDate, reverseGeocodeExifGps } from '../../core/assetMetaUtils';
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif', '.svg']);
 const ALLOWED_EXTS = new Set([...IMAGE_EXTS, '.pdf', '.txt', '.md']);
@@ -327,9 +327,10 @@ export async function peopleRoutes(server: FastifyInstance) {
 
             // Seed assets.yaml with created_at + EXIF capture date + GPS location (best-effort, never blocks upload)
             const now = new Date().toISOString();
+            const { geocodingService } = (server as AppInstance).appServices;
             const [exifDate, exifGps] = await Promise.all([
                 extractExifDate(filepath),
-                extractExifGps(filepath),
+                reverseGeocodeExifGps(filepath, geocodingService),
             ]);
             await upsertAssetEntry(dataDir, uniqueFilename, {
                 created_at: now,

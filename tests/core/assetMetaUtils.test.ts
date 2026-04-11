@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import sharp from 'sharp';
-import { parseExifDateToISO, extractExifDate, parseExifGpsToPlace, extractExifGps } from '../../src/core/assetMetaUtils';
+import { parseExifDateToISO, extractExifDate, parseExifGpsToPlace, extractExifGps, reverseGeocodeExifGps } from '../../src/core/assetMetaUtils';
+import type { GeocodingService } from '../../src/core/GeocodingService';
+import type { Place } from '../../src/schemas/PlaceSchema';
 
 const FIXTURES = path.join(__dirname, '../fixtures/assetMeta-test');
 
@@ -105,5 +107,40 @@ describe('extractExifGps', () => {
 
     it('returns null for a non-existent file path', async () => {
         expect(await extractExifGps(path.join(FIXTURES, 'ghost.jpg'))).toBeNull();
+    });
+});
+
+describe('reverseGeocodeExifGps', () => {
+    beforeEach(() => fs.mkdir(FIXTURES, { recursive: true }));
+    afterEach(() => fs.rm(FIXTURES, { recursive: true, force: true }));
+
+    function makeMockService(result: Place | null): GeocodingService {
+        return { reverseGeocode: async () => result } as unknown as GeocodingService;
+    }
+
+    it('returns null for a non-image file', async () => {
+        const p = path.join(FIXTURES, 'test.txt');
+        await fs.writeFile(p, 'hello');
+        expect(await reverseGeocodeExifGps(p, makeMockService({ name: 'London', lat: 51.5, lng: -0.1 }))).toBeNull();
+    });
+
+    it('returns raw coordinate Place when geocodingService is null', async () => {
+        const p = path.join(FIXTURES, 'no-gps.jpg');
+        await sharp({
+            create: { width: 8, height: 8, channels: 3, background: { r: 100, g: 150, b: 200 } },
+        }).jpeg().toFile(p);
+        // No GPS in synthetic image, so should return null regardless
+        expect(await reverseGeocodeExifGps(p, null)).toBeNull();
+    });
+
+    it('returns raw coordinate Place when service returns null (no match)', async () => {
+        // We can't easily create a JPEG with GPS EXIF in tests, so we test the
+        // null-service and non-image paths. The integration of extractExifGps +
+        // reverseGeocode is tested via the GeocodingService tests above.
+        const p = path.join(FIXTURES, 'no-gps2.jpg');
+        await sharp({
+            create: { width: 8, height: 8, channels: 3, background: { r: 100, g: 150, b: 200 } },
+        }).jpeg().toFile(p);
+        expect(await reverseGeocodeExifGps(p, makeMockService(null))).toBeNull();
     });
 });

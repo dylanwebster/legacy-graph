@@ -8,7 +8,7 @@ import { pipeline } from 'stream/promises';
 import { AssetMetadataSchema } from '../../schemas/AssetSchema';
 import { PersonSchema, toSlimPerson } from '../../schemas/PersonSchema';
 import type { AppInstance } from '../types';
-import { loadAssetIndex, saveAssetIndex, upsertAssetEntry, extractExifDate, extractExifGps } from '../../core/assetMetaUtils';
+import { loadAssetIndex, saveAssetIndex, upsertAssetEntry, extractExifDate, reverseGeocodeExifGps } from '../../core/assetMetaUtils';
 import type { Place } from '../../schemas/PlaceSchema';
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif', '.svg']);
@@ -452,9 +452,10 @@ export async function assetsRoutes(server: FastifyInstance) {
 
             // Seed assets.yaml with created_at + EXIF capture date + GPS location (best-effort, never blocks upload)
             const now = new Date().toISOString();
+            const { geocodingService } = (server as AppInstance).appServices;
             const [exifDate, exifGps] = await Promise.all([
                 extractExifDate(uniqueFilepath),
-                extractExifGps(uniqueFilepath),
+                reverseGeocodeExifGps(uniqueFilepath, geocodingService),
             ]);
             await upsertAssetEntry(dataDir, uniqueFilename, {
                 created_at: now,
@@ -538,7 +539,7 @@ export async function assetsRoutes(server: FastifyInstance) {
                 const now = new Date().toISOString();
                 const [exifDate, exifGps] = await Promise.all([
                     extractExifDate(destPath),
-                    extractExifGps(destPath),
+                    reverseGeocodeExifGps(destPath, (server as AppInstance).appServices.geocodingService),
                 ]);
                 await upsertAssetEntry(dataDir, uniqueFilename, {
                     created_at: now,
