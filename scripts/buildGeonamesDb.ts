@@ -37,10 +37,11 @@ const FILES = {
 // Feature classes/codes to include (genealogy-relevant)
 // P.* — all populated places (cities, towns, villages, historical settlements)
 // A.ADM1–ADM2 — administrative divisions (states, counties; used for admin name lookups)
+// A.PCLI/PCL* — countries (users search for "Italy", "Germany", historic names)
 // ADM3/ADM4 excluded — too granular, adds noise without value for genealogy
 // S.* excluded entirely — structures (churches, cemeteries, castles) add noise
 const ALLOWED_FEATURE_CLASSES = new Set(['P', 'A']);
-const ALLOWED_A_CODES = new Set(['ADM1', 'ADM2']);
+const ALLOWED_A_CODES = new Set(['ADM1', 'ADM2', 'PCLI', 'PCL', 'PCLD', 'PCLS', 'PCLF', 'PCLIX']);
 // Language codes to keep in alternate names (genealogy-relevant European languages + English)
 const ALLOW_LANG = new Set([
     'en', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'pl', 'sv', 'no', 'da',
@@ -504,7 +505,7 @@ async function main() {
     // Write metadata
     const now = new Date().toISOString();
     const metaInsert = db.prepare('INSERT OR REPLACE INTO db_meta VALUES (?, ?)');
-    metaInsert.run('version', '2.1');
+    metaInsert.run('version', '2.2');
     metaInsert.run('built_at', now);
     metaInsert.run('place_count', String(placeCount));
     metaInsert.run('alt_name_count', String(altCount));

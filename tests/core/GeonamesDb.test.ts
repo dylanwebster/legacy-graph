@@ -80,6 +80,7 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     insertCountry.run('SE', 'Sweden');
     insertCountry.run('SK', 'Slovakia');
     insertCountry.run('DE', 'Germany');
+    insertCountry.run('IT', 'Italy');
 
 
     // Insert test places
@@ -203,8 +204,22 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     insertPlace.run(5367440, 'Marble Mountain', 38.80, -120.35, 'T', 'MT', 'US', 'CA', '017', 0);
     addFts('Marble Mountain', '5367440', 'primary');
 
+    // ─── Countries (PCLI) ───
+    // Italy — country-level place
+    insertPlace.run(3175395, 'Italia', 42.83, 12.83, 'A', 'PCLI', 'IT', null, null, 60461826);
+    addFts('Italia', '3175395', 'primary');
+    addFts('Italy', '3175395', 'alternate');
+    insertAlt.run(20, 3175395, 'Italy', 0);
+
+    // Germany — country-level place
+    insertPlace.run(2921044, 'Bundesrepublik Deutschland', 51.50, 10.50, 'A', 'PCLI', 'DE', null, null, 83783942);
+    addFts('Bundesrepublik Deutschland', '2921044', 'primary');
+    addFts('Germany', '2921044', 'alternate');
+    insertAlt.run(21, 2921044, 'Germany', 0);
+    addFts('Deutschland', '2921044', 'alternate');
+    insertAlt.run(22, 2921044, 'Deutschland', 0);
+
     // ─── Italian admin regions (for qualifier matching tests) ───
-    insertCountry.run('IT', 'Italy');
 
     // ADM1: Toscana (Tuscany) — in lookup table AND geonames (searchable)
     insertAdmin1.run('IT', '16', 'Toscana', 3165361);
@@ -405,6 +420,28 @@ describe('GeonamesDb', () => {
         expect(results.length).toBeGreaterThanOrEqual(1);
         expect(results[0].primaryName).toBe('Massarosa');
         expect(results[0].admin2Name).toBe('Provincia di Lucca');
+    });
+
+    it('country search by English name ("Italy")', () => {
+        const results = db.searchByName('Italy', 5);
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].primaryName).toBe('Italia');
+        expect(results[0].matchedName).toBe('Italy');
+        expect(results[0].countryCode).toBe('IT');
+        expect(results[0].featureCode).toBe('PCLI');
+    });
+
+    it('country search by native name ("Deutschland")', () => {
+        const results = db.searchByName('Deutschland', 5);
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].primaryName).toBe('Bundesrepublik Deutschland');
+        expect(results[0].countryCode).toBe('DE');
+    });
+
+    it('country search by English name prefix ("Germ")', () => {
+        const results = db.searchByName('Germ', 5);
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].countryCode).toBe('DE');
     });
 
     it('exact-match ADM1 state ranks above small towns with same name', () => {
