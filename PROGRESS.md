@@ -17,8 +17,6 @@
 | 5.5 | Dashboard Viz Modes: Fan Chart (360 SVG, Ahnentafel, lineage colors, gen depth 3-6), Pedigree Chart (bidirectional Reingold-Tilford, progressive disclosure, popover/bottom sheet), mode toggle, state persistence |
 | TS6 | TypeScript 6 upgrade (typescript ^6.0.2, typescript-eslint ^8.58.0) |
 
-**Current:** 524 unit tests (38 files) + 20 E2E tests, all passing.
-
 ---
 
 ## Remaining Work
