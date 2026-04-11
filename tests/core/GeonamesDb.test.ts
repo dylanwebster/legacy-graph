@@ -184,6 +184,10 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     insertPlace.run(9999904, 'Pompeii', 40.7508, 14.4869, 'P', 'PPLW', 'IT', null, null, 0);
     addFts('Pompeii', '9999904', 'primary');
 
+    // New York — tiny village in England (ranking test: should rank below NYC)
+    insertPlace.run(9999905, 'New York', 53.08, -0.15, 'P', 'PPL', 'GB', 'ENG', null, 0);
+    addFts('New York', '9999905', 'primary');
+
     // Grizzly Flat — place in El Dorado County, CA (admin2 test)
     insertPlace.run(5350964, 'Grizzly Flat', 38.6449, -120.5227, 'P', 'PPL', 'US', 'CA', '017', 268);
     addFts('Grizzly Flat', '5350964', 'primary');
@@ -395,6 +399,15 @@ describe('GeonamesDb', () => {
         expect(results.length).toBeGreaterThanOrEqual(1);
         expect(results[0].primaryName).toBe('Massarosa');
         expect(results[0].admin2Name).toBe('Provincia di Lucca');
+    });
+
+    it('high-population prefix match ranks above low-population exact match', () => {
+        // "New York" should return NYC (8.3M, name "New York City") above
+        // tiny UK village named exactly "New York" (pop 0)
+        const results = db.searchByName('New York', 5);
+        expect(results.length).toBeGreaterThanOrEqual(2);
+        expect(results[0].primaryName).toBe('New York City');
+        expect(results[0].population).toBe(8336817);
     });
 
     it('anchored FTS does not match place name in the middle ("Mountain" should not match "Marble Mountain")', () => {

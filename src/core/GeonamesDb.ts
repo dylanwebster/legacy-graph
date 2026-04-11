@@ -64,7 +64,11 @@ export class GeonamesDb {
         const sql = this.baseSql + `
             WHERE names_fts MATCH ?
             ORDER BY
-                (CASE WHEN LOWER(fm.name) = LOWER(?) THEN 0 ELSE 1 END),
+                (CASE
+                    WHEN LOWER(fm.name) = LOWER(?) THEN 0
+                    WHEN g.population >= 100000 THEN 0
+                    ELSE 1
+                END),
                 (CASE WHEN fm.source_type = 'primary' THEN 0 ELSE 1 END),
                 (CASE WHEN g.feature_class = 'P' THEN 0 WHEN g.feature_class = 'A' THEN 1 ELSE 2 END),
                 -1 * CASE WHEN g.population > 0 THEN g.population ELSE 0 END,
@@ -229,7 +233,11 @@ export class GeonamesDb {
             WHERE names_fts MATCH ?
             AND ${qualifierClauses.join(' AND ')}
             ORDER BY
-                (CASE WHEN LOWER(fm.name) = LOWER(?) THEN 0 ELSE 1 END),
+                (CASE
+                    WHEN LOWER(fm.name) = LOWER(?) THEN 0
+                    WHEN g.population >= 100000 THEN 0
+                    ELSE 1
+                END),
                 (CASE WHEN fm.source_type = 'primary' THEN 0 ELSE 1 END),
                 (CASE WHEN g.feature_class = 'P' THEN 0 WHEN g.feature_class = 'A' THEN 1 ELSE 2 END),
                 -1 * CASE WHEN g.population > 0 THEN g.population ELSE 0 END,
