@@ -1,9 +1,10 @@
 import { apiFetch } from './client';
+import type { Place } from './people';
 
 export interface StoryMetadata {
     title: string;
     date?: string;
-    place?: string;
+    place?: Place;
     private: boolean;
     people: string[];
     tags: string[];
@@ -16,7 +17,7 @@ export interface StoryFeedItem {
     id: string;
     title: string;
     date?: string;
-    place?: string;
+    place?: Place;
     people: string[];
     excerpt: string;
     firstAsset?: string;
@@ -41,7 +42,7 @@ export interface CreateStoryInput {
     title: string;
     content?: string;
     date?: string;
-    place?: string;
+    place?: Place;
     people?: string[];
     tags?: string[];
     private?: boolean;
@@ -51,7 +52,7 @@ export interface UpdateStoryInput {
     title?: string;
     content?: string;
     date?: string;
-    place?: string;
+    place?: Place;
     people?: string[];
     tags?: string[];
     assets?: string[];

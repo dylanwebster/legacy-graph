@@ -22,6 +22,7 @@ import {
     Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from '@/components/ui/command';
 import { assetType } from '@/lib/assetUtils';
+import { formatPlaceDisplay } from '@/lib/placeUtils';
 import { toast } from 'sonner';
 
 const EVENT_META = {
@@ -243,7 +244,7 @@ export function EventEditorDialog({
     const [locationQuery, setLocationQuery] = useState(() => {
         const loc = existingEvent?.location;
         if (!loc) return '';
-        if (typeof loc === 'object' && loc !== null && 'name' in loc) return (loc as Place).name;
+        if (typeof loc === 'object' && loc !== null && 'name' in loc) return formatPlaceDisplay(loc as Place);
         if (typeof loc === 'string') return loc;
         return '';
     });
@@ -274,7 +275,7 @@ export function EventEditorDialog({
             setDate((existingEvent?.date as string) ?? '');
             const loc = existingEvent?.location;
             if (loc && typeof loc === 'object' && 'name' in loc) {
-                setLocationQuery((loc as Place).name);
+                setLocationQuery(formatPlaceDisplay(loc as Place));
                 setLocationPlace(loc as Place);
             } else if (typeof loc === 'string') {
                 setLocationQuery(loc);
@@ -446,6 +447,7 @@ export function EventEditorDialog({
                             value={locationQuery}
                             onChange={setLocationQuery}
                             onSelect={setLocationPlace}
+                            initialPlace={locationPlace}
                         />
                     </div>
 

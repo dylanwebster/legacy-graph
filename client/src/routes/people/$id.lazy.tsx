@@ -6,6 +6,7 @@ import { AssetPickerDialog } from '@/components/AssetPickerDialog';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { loadAvatarCrop, saveAvatarCrop, clearAvatarCrop } from '@/lib/avatarCrop';
 import { assetType, primaryImageAsset } from '@/lib/assetUtils';
+import { formatPlaceDisplay } from '@/lib/placeUtils';
 import { PersonChip } from '@/components/PersonChip';
 import { EventEditorDialog } from '@/components/EventEditorDialog';
 import { RelationshipEditorDialog } from '@/components/RelationshipEditorDialog';
@@ -1077,7 +1078,7 @@ function VirtualizedTimeline({
                                             <MapPin className="h-3 w-3" />
                                             <span className="truncate">
                                                 {typeof details.location === 'object' && details.location !== null
-                                                    ? String((details.location as Record<string, unknown>).name ?? '')
+                                                    ? formatPlaceDisplay(details.location as import('@/api/people').Place)
                                                     : String(details.location)}
                                             </span>
                                         </div>

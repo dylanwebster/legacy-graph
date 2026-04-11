@@ -4,6 +4,7 @@ import * as fs from 'fs/promises';
 import { Person, SlimPerson } from '../schemas/PersonSchema';
 import { Story } from './StoryLoader';
 import { CACHE_SPEC_VERSION } from './GraphCache';
+import { formatPlaceDisplay } from '../schemas/PlaceSchema';
 
 export interface SearchResult {
     id: string;
@@ -217,7 +218,7 @@ export class SearchService {
         this.storyIndex.add({
             id: story.id,
             title: story.metadata.title,
-            place: story.metadata.place ?? '',
+            place: formatPlaceDisplay(story.metadata.place) || '',
             content: story.content
         });
         this.trackStory(story.id);

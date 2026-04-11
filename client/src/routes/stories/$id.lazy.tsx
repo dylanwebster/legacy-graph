@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { UpdateStoryInput, FullStory } from '@/api/stories';
+import type { Place } from '@/api/people';
+import { formatPlaceDisplay, formatCoordinates } from '@/lib/placeUtils';
 
 export const Route = createLazyFileRoute('/stories/$id')({
     component: StoryPage,
@@ -31,7 +33,7 @@ export const Route = createLazyFileRoute('/stories/$id')({
 interface FrontmatterState {
     title: string;
     date: string;
-    place: string;
+    place: Place | undefined;
     isPrivate: boolean;
 }
 
@@ -51,13 +53,15 @@ function extractMentionIds(content: string): string[] {
 import { PlaceSearchCombobox as PlaceSearchComboboxBase } from '@/components/PlaceSearchCombobox';
 
 // Story-specific wrapper: adds MapPin icon layout
-function PlaceSearchCombobox({ value, onChange }: { value: string; onChange: (name: string) => void }) {
+function PlaceSearchCombobox({ value, onChange, onSelect, initialPlace }: { value: string; onChange: (name: string) => void; onSelect?: (place: import('@/api/people').Place) => void; initialPlace?: import('@/api/people').Place | null }) {
     return (
         <div className="flex items-center gap-1.5">
             <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <PlaceSearchComboboxBase
                 value={value}
                 onChange={onChange}
+                onSelect={onSelect}
+                initialPlace={initialPlace}
                 debounceMs={200}
                 placeholder="Place (city, country…)"
                 inputClassName="h-7 text-sm w-56 border-muted"
@@ -142,7 +146,7 @@ function StoryPage() {
     const [fm, setFm] = useState<FrontmatterState>({
         title: '',
         date: '',
-        place: '',
+        place: undefined,
         isPrivate: false,
     });
 
@@ -184,7 +188,7 @@ function StoryPage() {
             fm: {
                 title: story.metadata.title ?? '',
                 date: story.metadata.date ?? '',
-                place: story.metadata.place ?? '',
+                place: story.metadata.place,
                 isPrivate: story.metadata.private ?? false,
             },
         };
@@ -241,7 +245,7 @@ function StoryPage() {
         setFm({
             title: story.metadata.title ?? '',
             date: story.metadata.date ?? '',
-            place: story.metadata.place ?? '',
+            place: story.metadata.place,
             isPrivate: story.metadata.private ?? false,
         });
         if (!isEditModeRef.current) {
@@ -667,8 +671,10 @@ function StoryPage() {
 
                                 {/* Place */}
                                 <PlaceSearchCombobox
-                                    value={fm.place}
-                                    onChange={(name) => { setFm((p) => ({ ...p, place: name })); setIsDirty(true); }}
+                                    value={formatPlaceDisplay(fm.place)}
+                                    onChange={(text) => { setFm((p) => ({ ...p, place: text ? { name: text } : undefined })); setIsDirty(true); }}
+                                    onSelect={(place) => { setFm((p) => ({ ...p, place })); setIsDirty(true); }}
+                                    initialPlace={fm.place}
                                 />
 
                                 {/* Private toggle */}
@@ -696,9 +702,14 @@ function StoryPage() {
                                     </span>
                                 )}
                                 {!!fm.place && (
-                                    <span className="h-7 flex items-center gap-1 text-sm text-muted-foreground">
+                                    <span className="flex items-center gap-1 text-sm text-muted-foreground">
                                         <MapPin className="h-3.5 w-3.5 shrink-0" />
-                                        {fm.place}
+                                        <span>
+                                            {formatPlaceDisplay(fm.place)}
+                                            {!!formatCoordinates(fm.place) && (
+                                                <span className="ml-1.5 text-xs text-green-600 dark:text-green-400">{formatCoordinates(fm.place)}</span>
+                                            )}
+                                        </span>
                                     </span>
                                 )}
                                 {!!fm.isPrivate && (

@@ -8,6 +8,7 @@ import { pipeline } from 'stream/promises';
 import { remark } from 'remark';
 import { visit } from 'unist-util-visit';
 import { StorySchema, StoryFeedItem, FullStory } from '../../schemas/StorySchema';
+import { formatPlaceDisplay } from '../../schemas/PlaceSchema';
 import type { AppInstance } from '../types';
 
 /** Strip `.md` from a filename to get the API-facing story id. */
@@ -217,7 +218,7 @@ export async function storiesRoutes(server: FastifyInstance) {
 
             feedItems = feedItems.filter(s =>
                 allWordsIn(s.title) ||
-                (s.place != null && allWordsIn(s.place)) ||
+                (s.place != null && allWordsIn(formatPlaceDisplay(s.place))) ||
                 allWordsIn(s.excerpt) ||
                 (matchingPersonIds.size > 0 && s.people.some(pid => matchingPersonIds.has(pid)))
             );

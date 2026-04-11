@@ -2,11 +2,14 @@ import { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { usePlacesSearch } from '@/api/hooks';
 import type { Place } from '@/api/people';
+import { formatPlaceDisplay, formatCoordinates } from '@/lib/placeUtils';
 
 export interface PlaceSearchComboboxProps {
     value: string;
     onChange: (query: string) => void;
     onSelect?: (place: Place) => void;
+    /** Pre-populate with an existing Place so coordinates show immediately */
+    initialPlace?: Place | null;
     /** Debounce delay in ms (default 350) */
     debounceMs?: number;
     /** Input placeholder (default "City, Country") */
@@ -25,6 +28,7 @@ export function PlaceSearchCombobox({
     value,
     onChange,
     onSelect,
+    initialPlace,
     debounceMs = 350,
     placeholder = 'City, Country',
     inputClassName = 'h-8 text-sm',
@@ -34,7 +38,12 @@ export function PlaceSearchCombobox({
 }: PlaceSearchComboboxProps) {
     const [debouncedQuery, setDebouncedQuery] = useState('');
     const [showDropdown, setShowDropdown] = useState(false);
-    const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
+    const [selectedPlace, setSelectedPlace] = useState<Place | null>(initialPlace ?? null);
+
+    // Sync when parent provides a new initial place (e.g. dialog reopened with different event)
+    useEffect(() => {
+        setSelectedPlace(initialPlace ?? null);
+    }, [initialPlace]);
 
     useEffect(() => {
         const t = setTimeout(() => setDebouncedQuery(value), debounceMs);
@@ -44,7 +53,7 @@ export function PlaceSearchCombobox({
     const { data: places } = usePlacesSearch(debouncedQuery);
 
     const handleSelect = (place: Place) => {
-        onChange(place.name);
+        onChange(formatPlaceDisplay(place));
         setSelectedPlace(place);
         onSelect?.(place);
         setShowDropdown(false);
@@ -56,9 +65,7 @@ export function PlaceSearchCombobox({
         setShowDropdown(true);
     };
 
-    const displayLat = selectedPlace?.lat != null
-        ? `${Math.abs(selectedPlace.lat).toFixed(2)}°${selectedPlace.lat >= 0 ? 'N' : 'S'}, ${Math.abs(selectedPlace.lng ?? 0).toFixed(2)}°${(selectedPlace.lng ?? 0) >= 0 ? 'E' : 'W'}`
-        : null;
+    const displayLat = formatCoordinates(selectedPlace);
 
     const itemTextClass = size === 'sm' ? 'text-xs' : 'text-sm';
     const coordClass = size === 'sm'

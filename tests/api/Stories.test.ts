@@ -112,7 +112,7 @@ describe('Stories API', () => {
             content: 'A wartime story.',
         });
         expect(res.status).toBe(201);
-        expect(res.body.metadata.place).toBe('London, England');
+        expect(res.body.metadata.place).toEqual({ name: 'London, England' });
         expect(res.body.metadata.date).toBe('1939-1945');
     });
 

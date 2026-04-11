@@ -23,6 +23,7 @@ import { Plus, Trash2, MapPin, Users, CalendarDays, ArrowUpDown, ArrowUp, ArrowD
 import { toast } from 'sonner';
 import { useUIStore } from '@/store/uiStore';
 import type { StoriesSortKey } from '@/store/uiStore';
+import { formatPlaceDisplay } from '@/lib/placeUtils';
 
 export const Route = createLazyFileRoute('/stories/')({
     component: StoriesFeed,
@@ -318,10 +319,10 @@ function StoryFeedCard({
                             {story.date}
                         </span>
                     )}
-                    {story.place && (
+                    {!!story.place && (
                         <span className="flex items-center gap-1">
                             <MapPin className="h-3 w-3" />
-                            {story.place}
+                            {formatPlaceDisplay(story.place)}
                         </span>
                     )}
                     {story.private && (

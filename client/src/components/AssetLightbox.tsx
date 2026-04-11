@@ -5,6 +5,7 @@ import { useUpdateAssetMeta, useLinkAsset, useUnlinkAsset } from '@/api/hooks';
 import type { AssetListItem } from '@/api/client';
 import type { Place } from '@/api/people';
 import { assetType } from '@/lib/assetUtils';
+import { formatPlaceDisplay, formatCoordinates } from '@/lib/placeUtils';
 import { PersonChip } from '@/components/PersonChip';
 import { PersonSearchCombobox } from '@/components/PersonSearchCombobox';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
@@ -66,7 +67,7 @@ export function AssetLightbox({
     const [dateVal, setDateVal] = useState(assetData?.metadata.date ?? '');
     const [editingDate, setEditingDate] = useState(false);
     const [editingDesc, setEditingDesc] = useState(false);
-    const [locationQuery, setLocationQuery] = useState(assetData?.metadata.location?.name ?? '');
+    const [locationQuery, setLocationQuery] = useState(formatPlaceDisplay(assetData?.metadata.location) || '');
     const [locationPlace, setLocationPlace] = useState<Place | null>(assetData?.metadata.location ?? null);
     const [editingLocation, setEditingLocation] = useState(false);
     const [textContent, setTextContent] = useState<string | null>(null);
@@ -76,7 +77,7 @@ export function AssetLightbox({
         setAssetName(assetData?.metadata.name ?? '');
         setDescription(assetData?.metadata.description ?? '');
         setDateVal(assetData?.metadata.date ?? '');
-        setLocationQuery(assetData?.metadata.location?.name ?? '');
+        setLocationQuery(formatPlaceDisplay(assetData?.metadata.location) || '');
         setLocationPlace(assetData?.metadata.location ?? null);
         setEditingName(false);
         setEditingDate(false);
@@ -381,6 +382,7 @@ export function AssetLightbox({
                                         value={locationQuery}
                                         onChange={(q) => { setLocationQuery(q); setLocationPlace(null); }}
                                         onSelect={(p) => setLocationPlace(p)}
+                                        initialPlace={locationPlace}
                                         inputClassName="h-7 text-xs"
                                         size="sm"
                                         autoFocus
@@ -392,7 +394,7 @@ export function AssetLightbox({
                                             variant="outline"
                                             className="h-6 text-xs px-2"
                                             onClick={() => {
-                                                setLocationQuery(assetData?.metadata.location?.name ?? '');
+                                                setLocationQuery(formatPlaceDisplay(assetData?.metadata.location) || '');
                                                 setLocationPlace(assetData?.metadata.location ?? null);
                                                 setEditingLocation(false);
                                             }}
@@ -407,12 +409,11 @@ export function AssetLightbox({
                                     <MapPin className="h-3 w-3 text-muted-foreground mt-0.5 shrink-0 opacity-60" />
                                     <div className="flex-1 min-w-0">
                                         <span className="text-xs truncate block">
-                                            {locationQuery || <span className="text-muted-foreground italic">Add location…</span>}
+                                            {formatPlaceDisplay(locationPlace) || locationQuery || <span className="text-muted-foreground italic">Add location…</span>}
                                         </span>
-                                        {locationPlace?.lat != null && (
+                                        {!!formatCoordinates(locationPlace) && (
                                             <span className="text-[9px] text-green-600 dark:text-green-400">
-                                                {Math.abs(locationPlace.lat).toFixed(2)}°{locationPlace.lat >= 0 ? 'N' : 'S'},{' '}
-                                                {Math.abs(locationPlace.lng ?? 0).toFixed(2)}°{(locationPlace.lng ?? 0) >= 0 ? 'E' : 'W'}
+                                                {formatCoordinates(locationPlace)}
                                             </span>
                                         )}
                                     </div>
