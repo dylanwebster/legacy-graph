@@ -60,11 +60,10 @@ export class GeocodingService {
         if (parts.length === 0) return [];
 
         // Try each part as the place name, with remaining parts as qualifiers.
-        // Collect results from multiple interpretations so that overly-specific
-        // genealogy strings like "Mountain, Grizzly Flats, El Dorado, CA, USA"
-        // return both "Marble Mountain" (i=0) and "Grizzly Flats" (i=1).
-        // Once results are found, only try one more part to avoid treating
-        // admin/country qualifiers (e.g. "Michigan") as place names.
+        // Overly-specific genealogy strings like "Mountain, Grizzly Flats, El
+        // Dorado, CA, USA" will skip "Mountain" (no match with tight qualifiers)
+        // and find "Grizzly Flats" at i=1. Once results are found, only try one
+        // more part to avoid treating admin/country qualifiers as place names.
         const collected: Place[] = [];
         const seenGeonameIds = new Set<string>();
         let firstFoundAt = -1;
@@ -94,10 +93,12 @@ export class GeocodingService {
                 // queries against millions of rows.
                 continue;
             } else {
-                // Try with all qualifiers first, then progressively drop the
-                // most-specific (leftmost) ones. This handles qualifiers that
-                // reference admin levels we don't support (e.g. ADM3 communes).
-                for (let q = 0; q < qualifiers.length; q++) {
+                // Try with all qualifiers first, then drop at most one from the
+                // left. This handles a single unrecognized admin level (e.g.
+                // ADM3 communes) without discarding meaningful geographic
+                // context like locality names.
+                const maxDrop = Math.min(1, qualifiers.length - 1);
+                for (let q = 0; q <= maxDrop; q++) {
                     const subset = qualifiers.slice(q);
                     rows = this.geonamesDb.searchFiltered(placeName, subset, limit);
                     if (rows.length > 0) break;

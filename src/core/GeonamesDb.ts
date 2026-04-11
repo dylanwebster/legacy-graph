@@ -309,8 +309,9 @@ export class GeonamesDb {
 
         // Escape double quotes in input
         const escaped = trimmed.replace(/"/g, '""');
-        // Phrase prefix search: "new yor"* matches "New York City"
-        return `"${escaped}"*`;
+        // Anchored phrase prefix: ^ requires match at start of name,
+        // so "Mountain"* matches "Mountain View" but not "Marble Mountain"
+        return `^ "${escaped}"*`;
     }
 
     private rowToGeonamesRow(row: any): GeonamesRow {

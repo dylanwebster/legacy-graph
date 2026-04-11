@@ -189,6 +189,10 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     addFts('Grizzly Flat', '5350964', 'primary');
     addFts('Grizzly Flats', '5350964', 'alternate');
 
+    // Marble Mountain — place in El Dorado County, CA (anchored FTS test)
+    insertPlace.run(5367440, 'Marble Mountain', 38.80, -120.35, 'T', 'MT', 'US', 'CA', '017', 0);
+    addFts('Marble Mountain', '5367440', 'primary');
+
     // ─── Italian admin regions (for qualifier matching tests) ───
     insertCountry.run('IT', 'Italy');
 
@@ -391,6 +395,11 @@ describe('GeonamesDb', () => {
         expect(results.length).toBeGreaterThanOrEqual(1);
         expect(results[0].primaryName).toBe('Massarosa');
         expect(results[0].admin2Name).toBe('Provincia di Lucca');
+    });
+
+    it('anchored FTS does not match place name in the middle ("Mountain" should not match "Marble Mountain")', () => {
+        const results = db.searchFiltered('Mountain', ['El Dorado', 'California', 'United States'], 5);
+        expect(results.every(r => r.primaryName !== 'Marble Mountain')).toBe(true);
     });
 
     it('searchFiltered uses prefix matching for admin1 (single char "V" should not match "England")', () => {

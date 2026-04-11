@@ -441,14 +441,14 @@ describe('GeocodingService', () => {
         expect(results[0].countryCode).toBe('FR');
     });
 
-    it('overly-specific string includes results from multiple part interpretations', async () => {
+    it('overly-specific string skips unrecognized prefix and finds real place', async () => {
         const svc = new GeocodingService(dataDir, { dbPath });
         const results = await svc.search('Mountain, Fresno, CA, United States', 5);
 
         expect(results.length).toBeGreaterThanOrEqual(1);
-        // Fresno should appear (either as first result if "Mountain" has no match,
-        // or alongside "Marble Mountain" if it does)
-        expect(results.some(r => r.name === 'Fresno')).toBe(true);
+        // "Mountain" finds nothing (no place starting with "Mountain" in Fresno/CA/US),
+        // so "Fresno" is found at i=1
+        expect(results[0].name).toBe('Fresno');
     });
 
     it('overly-specific string skips multiple invalid prefixes', async () => {
@@ -459,15 +459,16 @@ describe('GeocodingService', () => {
         expect(results[0].name).toBe('Fresno');
     });
 
-    it('search returns results from multiple part interpretations', async () => {
+    it('overly-specific string finds locality, not noise from first part', async () => {
         const svc = new GeocodingService(dataDir, { dbPath });
-        // "Mountain" matches "Marble Mountain" at i=0, "Grizzly Flats" matches at i=1
+        // "Mountain" is an overly-specific genealogy descriptor — should not produce
+        // noise results. "Grizzly Flats" should be the primary result.
         const results = await svc.search('Mountain, Grizzly Flats, El Dorado, California, USA', 5);
 
-        expect(results.length).toBeGreaterThanOrEqual(2);
-        const names = results.map(r => r.name);
-        expect(names).toContain('Marble Mountain');
-        expect(names).toContain('Grizzly Flats');
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].name).toBe('Grizzly Flats');
+        // Should NOT contain unrelated "Mountain*" places
+        expect(results.every(r => !r.name!.startsWith('Mountain'))).toBe(true);
     });
 
     it('search skips short parts (≤3 chars) as place names to avoid slow FTS queries', async () => {
