@@ -125,11 +125,17 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     // ADM1/ADM2 also in geonames table so they're searchable as places
     insertPlace.run(6269131, 'England', 52.16, -0.70, 'A', 'ADM1', 'GB', 'ENG', null, 0);
     insertPlace.run(5332921, 'California', 37.25, -119.75, 'A', 'ADM1', 'US', 'CA', null, 0);
+    addFts('California', '5332921', 'primary');
     insertPlace.run(6093943, 'Ontario', 50.00, -86.00, 'A', 'ADM1', 'CA', '08', null, 0);
     insertPlace.run(5128638, 'New York', 43.00, -75.50, 'A', 'ADM1', 'US', 'NY', null, 0);
+    addFts('New York', '5128638', 'primary');
     insertPlace.run(5344994, 'El Dorado County', 38.74, -120.52, 'A', 'ADM2', 'US', 'CA', '017', 0);
     addFts('El Dorado County', '5344994', 'primary');
     insertPlace.run(5391832, 'San Francisco County', 37.78, -122.42, 'A', 'ADM2', 'US', 'CA', '075', 0);
+
+    // California — tiny PPL town (ranking test: ADM1 state should rank above small town)
+    insertPlace.run(9999906, 'California', 38.40, -79.42, 'P', 'PPL', 'US', 'NY', null, 184);
+    addFts('California', '9999906', 'primary');
 
     // London, UK — large city
     insertPlace.run(2643743, 'London', 51.5074, -0.1278, 'P', 'PPLC', 'GB', 'ENG', null, 8982000);
@@ -399,6 +405,22 @@ describe('GeonamesDb', () => {
         expect(results.length).toBeGreaterThanOrEqual(1);
         expect(results[0].primaryName).toBe('Massarosa');
         expect(results[0].admin2Name).toBe('Provincia di Lucca');
+    });
+
+    it('exact-match ADM1 state ranks above small towns with same name', () => {
+        // "California" the state (ADM1, pop 0) should rank above
+        // a tiny town also named "California" (PPL, pop 184)
+        const results = db.searchByName('California', 5);
+        expect(results.length).toBeGreaterThanOrEqual(2);
+        expect(results[0].featureCode).toBe('ADM1');
+        expect(results[0].primaryName).toBe('California');
+    });
+
+    it('New York state appears in results alongside New York City', () => {
+        const results = db.searchByName('New York', 5);
+        const names = results.map(r => `${r.primaryName}:${r.featureClass}`);
+        expect(names).toContain('New York City:P');
+        expect(names).toContain('New York:A');
     });
 
     it('high-population prefix match ranks above low-population exact match', () => {

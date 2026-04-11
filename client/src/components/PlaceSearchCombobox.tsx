@@ -98,7 +98,7 @@ export function PlaceSearchCombobox({
                                     {!!place.admin2Name && place.admin2Name !== place.name && (
                                         <span className="text-muted-foreground">, {place.admin2Name}</span>
                                     )}
-                                    {!!place.admin1Name && (
+                                    {!!place.admin1Name && place.admin1Name !== place.name && (
                                         <span className="text-muted-foreground">, {place.admin1Name}</span>
                                     )}
                                 </span>

@@ -65,12 +65,18 @@ export class GeonamesDb {
             WHERE names_fts MATCH ?
             ORDER BY
                 (CASE
-                    WHEN LOWER(fm.name) = LOWER(?) THEN 0
                     WHEN g.population >= 100000 THEN 0
-                    ELSE 1
+                    WHEN LOWER(fm.name) = LOWER(?) AND g.feature_class = 'A' THEN 0
+                    WHEN LOWER(fm.name) = LOWER(?) THEN 1
+                    ELSE 2
                 END),
                 (CASE WHEN fm.source_type = 'primary' THEN 0 ELSE 1 END),
-                (CASE WHEN g.feature_class = 'P' THEN 0 WHEN g.feature_class = 'A' THEN 1 ELSE 2 END),
+                (CASE
+                    WHEN g.feature_class = 'P' THEN 0
+                    WHEN g.feature_class = 'A' AND LOWER(fm.name) = LOWER(?) THEN 0
+                    WHEN g.feature_class = 'A' THEN 1
+                    ELSE 2
+                END),
                 -1 * CASE WHEN g.population > 0 THEN g.population ELSE 0 END,
                 rank
             LIMIT ?
@@ -164,7 +170,7 @@ export class GeonamesDb {
 
         try {
             // Fetch extra rows to account for duplicates from alternate names
-            const rows = this.searchStmt.all(ftsQuery, query, limit * 4) as any[];
+            const rows = this.searchStmt.all(ftsQuery, query, query, query, limit * 4) as any[];
             // Deduplicate by geonameid, keeping the first (best-ranked) row
             const seen = new Set<number>();
             const deduped: GeonamesRow[] = [];
@@ -234,17 +240,25 @@ export class GeonamesDb {
             AND ${qualifierClauses.join(' AND ')}
             ORDER BY
                 (CASE
-                    WHEN LOWER(fm.name) = LOWER(?) THEN 0
                     WHEN g.population >= 100000 THEN 0
-                    ELSE 1
+                    WHEN LOWER(fm.name) = LOWER(?) AND g.feature_class = 'A' THEN 0
+                    WHEN LOWER(fm.name) = LOWER(?) THEN 1
+                    ELSE 2
                 END),
                 (CASE WHEN fm.source_type = 'primary' THEN 0 ELSE 1 END),
-                (CASE WHEN g.feature_class = 'P' THEN 0 WHEN g.feature_class = 'A' THEN 1 ELSE 2 END),
+                (CASE
+                    WHEN g.feature_class = 'P' THEN 0
+                    WHEN g.feature_class = 'A' AND LOWER(fm.name) = LOWER(?) THEN 0
+                    WHEN g.feature_class = 'A' THEN 1
+                    ELSE 2
+                END),
                 -1 * CASE WHEN g.population > 0 THEN g.population ELSE 0 END,
                 rank
             LIMIT ?
         `;
-        params.push(query); // for ORDER BY LOWER(f.name) = LOWER(?)
+        params.push(query); // for relevance tier (ADM exact match)
+        params.push(query); // for relevance tier (exact match)
+        params.push(query); // for feature_class promotion
         params.push(limit * 4);
 
         try {
@@ -272,7 +286,7 @@ export class GeonamesDb {
         if (!ftsQuery) return null;
 
         try {
-            const rows = this.resolveStmt.all(ftsQuery, name, 1) as any[];
+            const rows = this.resolveStmt.all(ftsQuery, name, name, name, 1) as any[];
             if (rows.length === 0) return null;
             return this.rowToGeonamesRow(rows[0]);
         } catch {

@@ -192,7 +192,7 @@ export class GeocodingService {
      * Convert a search result row to a Place, using the matched alternate name
      * as the place name so search results reflect what the user typed.
      */
-    private searchRowToPlace(row: { primaryName: string; lat: number; lng: number; countryCode: string | null; admin1Name?: string | null; admin2Name?: string | null; matchedName: string; sourceType: string }): Place {
+    private searchRowToPlace(row: { primaryName: string; lat: number; lng: number; countryCode: string | null; featureCode: string; admin1Name?: string | null; admin2Name?: string | null; matchedName: string; sourceType: string }): Place {
         const place: Place = { name: row.matchedName };
 
         place.lat = row.lat;
@@ -202,11 +202,17 @@ export class GeocodingService {
             place.countryCode = row.countryCode;
         }
 
-        if (row.admin1Name) {
+        // Suppress admin fields that would redundantly echo the place itself
+        // (e.g. ADM1 "Piemonte" has admin1Name "Piemonte", ADM2 "Provincia di Lucca"
+        // has admin2Name "Provincia di Lucca")
+        const isAdm1 = row.featureCode?.startsWith('ADM1');
+        const isAdm2 = row.featureCode?.startsWith('ADM2');
+
+        if (row.admin1Name && !isAdm1) {
             place.admin1Name = row.admin1Name;
         }
 
-        if (row.admin2Name) {
+        if (row.admin2Name && !isAdm2) {
             place.admin2Name = row.admin2Name;
         }
 
