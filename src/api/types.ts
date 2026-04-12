@@ -3,6 +3,7 @@ import { GraphEngine } from '../core/GraphEngine';
 import { TransactionManager } from '../core/TransactionManager';
 import { AuthConfig } from '../schemas/AuthSchema';
 import type { GeocodingService } from '../core/GeocodingService';
+import type { JobManager } from '../core/JobManager';
 
 export interface AppServices {
     graphEngine: GraphEngine;
@@ -10,6 +11,7 @@ export interface AppServices {
     authConfig: AuthConfig | null;
     dataDir: string;
     geocodingService: GeocodingService;
+    jobManager: JobManager;
 }
 
 export type AppInstance = FastifyInstance & {

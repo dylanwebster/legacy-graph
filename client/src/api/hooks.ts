@@ -4,9 +4,8 @@ import type { CreatePersonInput, PersonDetail, SlimPersonSummary } from './peopl
 import {
     apiFetch, deleteAsset, deleteAssetPermanently, searchPlaces, resolvePlace,
     getAssets, updateAssetMeta, deleteGalleryAsset, uploadEventMedia, linkAssetToPerson,
-    unlinkAssetFromPerson, uploadGalleryAssets, batchGeocode, applyBatchGeocode,
+    unlinkAssetFromPerson, uploadGalleryAssets,
 } from './client';
-import type { BatchGeocodeResponse, BatchGeocodeUpdate, BatchApplyResponse } from './client';
 import type { AssetListResponse, AssetListItem, AssetsQueryParams, UploadGalleryAssetsResult } from './client';
 import type { Place } from './people';
 import { storiesApi } from './stories';
@@ -411,22 +410,3 @@ export const useUnlinkAsset = () => {
     });
 };
 
-// ── Batch Geocoding ───────────────────────────────────────────────────────
-
-export const useBatchGeocode = () => {
-    return useMutation<BatchGeocodeResponse>({
-        mutationFn: () => batchGeocode(),
-    });
-};
-
-export const useApplyBatchGeocode = () => {
-    const queryClient = useQueryClient();
-    return useMutation<BatchApplyResponse, Error, BatchGeocodeUpdate[]>({
-        mutationFn: (updates) => applyBatchGeocode(updates),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['people'] });
-            queryClient.invalidateQueries({ queryKey: ['person'] });
-            queryClient.invalidateQueries({ queryKey: ['search'] });
-        },
-    });
-};

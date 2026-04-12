@@ -7,6 +7,7 @@ import * as path from 'path';
 import { GraphEngine } from './core/GraphEngine';
 import { TransactionManager } from './core/TransactionManager';
 import { GeocodingService } from './core/GeocodingService';
+import { JobManager } from './core/JobManager';
 import { loadAuthConfig, registerAuthGuard } from './api/middleware/auth';
 import { systemRoutes } from './api/routes/system';
 import { authRoutes } from './api/routes/auth';
@@ -69,8 +70,10 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         dbPath: config.geonamesDb,
     });
 
+    const jobManager = new JobManager();
+
     // Decorate server with services so route plugins can access them
-    const appServices: AppServices = { graphEngine, txManager, authConfig, dataDir: config.dataDir, geocodingService };
+    const appServices: AppServices = { graphEngine, txManager, authConfig, dataDir: config.dataDir, geocodingService, jobManager };
     server.decorate('appServices', appServices);
 
     // 503 Loading Gate (spec 2.3C)
