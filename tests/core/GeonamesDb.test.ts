@@ -82,6 +82,7 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     insertCountry.run('DE', 'Germany');
     insertCountry.run('IT', 'Italy');
     insertCountry.run('IN', 'India');
+    insertCountry.run('IE', 'Ireland');
 
 
     // Insert test places
@@ -119,6 +120,7 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     insertAdmin1.run('SE', '27', 'Skåne', 2692969);
     insertAdmin1.run('RU', '23', 'Kaliningradskaya Oblast', 554234);
     insertAdmin1.run('SK', '02', 'Bratislavský kraj', 3060972);
+    insertAdmin1.run('GB', 'NIR', 'Northern Ireland', 2641364);
 
     // Admin2 lookup records (used for JOINs in queries)
     insertAdmin2.run('US', 'CA', '017', 'El Dorado County', 5344994);
@@ -245,6 +247,16 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     // Acquaviva — tiny village in Camaiore commune, Provincia di Lucca
     insertPlace.run(8974018, 'Acquaviva', 43.93, 10.33, 'P', 'PPL', 'IT', '16', 'LU', 23);
     addFts('Acquaviva', '8974018', 'primary');
+
+    // ─── Belfast / Northern Ireland (admin1 substring matching test) ───
+    insertPlace.run(2641364, 'Northern Ireland', 54.75, -6.65, 'A', 'ADM1', 'GB', 'NIR', null, 0);
+    addFts('Northern Ireland', '2641364', 'primary');
+    insertPlace.run(2655984, 'Belfast', 54.5964, -5.9301, 'P', 'PPLC', 'GB', 'NIR', null, 274770);
+    addFts('Belfast', '2655984', 'primary');
+
+    // Ireland — country (IE)
+    insertPlace.run(2963597, 'Ireland', 53.0, -8.0, 'A', 'PCLI', 'IE', null, null, 4937786);
+    addFts('Ireland', '2963597', 'primary');
 
     // ─── India + Mumbai/Bombay (alternate name prefix variant test) ───
     insertAdmin1.run('IN', '16', 'State of Mahārāshtra', 1264418);
@@ -487,6 +499,14 @@ describe('GeonamesDb', () => {
     it('anchored FTS does not match place name in the middle ("Mountain" should not match "Marble Mountain")', () => {
         const results = db.searchFiltered('Mountain', ['El Dorado', 'California', 'United States'], 5);
         expect(results.every(r => r.primaryName !== 'Marble Mountain')).toBe(true);
+    });
+
+    it('searchFiltered matches qualifier as substring of admin1 name ("Ireland" → "Northern Ireland")', () => {
+        const results = db.searchFiltered('Belfast', ['Ireland'], 5);
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].primaryName).toBe('Belfast');
+        expect(results[0].countryCode).toBe('GB');
+        expect(results[0].admin1Name).toBe('Northern Ireland');
     });
 
     it('searchFiltered uses prefix matching for admin1 (single char "V" should not match "England")', () => {

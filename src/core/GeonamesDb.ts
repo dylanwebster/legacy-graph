@@ -204,6 +204,9 @@ export class GeonamesDb {
                 // Reverse direction requires min length 4 on the name to avoid short aliases.
                 'LOWER(a.name) LIKE ? || \'%\'',
                 '(LENGTH(a.name) >= 4 AND ? LIKE LOWER(a.name) || \'%\')',
+                // Admin1: substring matching so "Ireland" matches "Northern Ireland".
+                // Requires qualifier length >= 4 to avoid "CA" matching broadly.
+                '(LENGTH(?) >= 4 AND LOWER(a.name) LIKE \'%\' || ? || \'%\')',
                 // Match qualifier against alternate names for the admin1 region
                 // (e.g. "Tuscany" → "Toscana" via English alternate name).
                 // Require qualifier length >= 4 for prefix matching to avoid "CA" matching "Carolina del Sur"
@@ -213,7 +216,7 @@ export class GeonamesDb {
                 // Match qualifier against alternate names for the admin2 region
                 'EXISTS (SELECT 1 FROM alternate_names an2 WHERE an2.geonameid = a2.geonameid AND LOWER(an2.name) LIKE \'%\' || ? || \'%\')',
             ];
-            const condParams = [ql, ql, ql, ql, ql, ql, ql, ql, ql, ql, ql];
+            const condParams = [ql, ql, ql, ql, ql, ql, ql, ql, ql, ql, ql, ql, ql];
 
             // Match qualifier against country names in the countries table (bidirectional).
             // Reverse direction requires min length 4 on the country name to avoid short

@@ -100,7 +100,7 @@ test.describe('CUJ 5: Geocoding — Place Search & Reverse Geocoding', () => {
         await expect(page.locator('span.truncate').filter({ hasText: 'London' })).toBeVisible({ timeout: 10_000 });
     });
 
-    test('image upload with EXIF GPS auto-populates location via reverse geocoding', async ({ request, page }) => {
+    test('image upload with EXIF GPS auto-populates location via reverse geocoding', async ({ page }) => {
         // Verify the fixture exists
         expect(fs.existsSync(GPS_JPG_PATH)).toBe(true);
 

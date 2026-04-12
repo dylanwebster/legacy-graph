@@ -224,6 +224,11 @@ async function createTestGeonamesDb(dbPath: string): Promise<void> {
     insertPlace.run(2655984, 'Belfast', 54.5973, -5.9301, 'P', 'PPL', 'GB', 'NIR', null, 274770);
     addFts('Belfast', '2655984', 'primary');
 
+    // Ireland country (PCLI) — needed for "Belfast, Ireland" qualifier matching
+    insertCountry.run('IE', 'Ireland');
+    insertPlace.run(2963597, 'Ireland', 53.0, -8.0, 'A', 'PCLI', 'IE', null, null, 4937786);
+    addFts('Ireland', '2963597', 'primary');
+
     // ── Additional test data for batch geocoding confidence scoring ──
 
     // US country (PCLI)
@@ -633,6 +638,23 @@ describe('GeocodingService', () => {
         expect(result.place!.name).toBe('Belfast');
         expect(result.confidence).toBe('medium');
         expect(result.droppedParts).toEqual(['14 BROWNS ROW']);
+    });
+
+    it('searchWithMetadata: "Belfast, Ireland" matches Belfast in Northern Ireland via admin1 substring', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('Belfast, Ireland');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('Belfast');
+        expect(result.confidence).not.toBe('none');
+    });
+
+    it('search (type-ahead): "Belfast, Ireland" returns Belfast in Northern Ireland', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const results = await svc.search('Belfast, Ireland');
+
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].name).toBe('Belfast');
     });
 
     it('searchWithMetadata: no match returns none confidence', async () => {
