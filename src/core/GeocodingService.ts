@@ -305,15 +305,13 @@ export class GeocodingService {
 
         const topRow = bestRows[0];
         const place = this.searchRowToPlace(topRow);
-        // For batch geocoding, use the canonical primary name if the matched name
-        // is just a prefix variant (e.g., "Bombaya" matched for "Bombay" but primary is "Mumbai")
-        if (place.name !== topRow.primaryName &&
-            place.name.toLowerCase() !== searchTerm) {
+        // If the matched name is a prefix variant (e.g., "Bombaya" matched for search
+        // term "Bombay"), use the canonical primary name and set historicalName to what
+        // the user wrote (if different). This matches resolve()'s behavior.
+        if (place.name.toLowerCase() !== searchTerm &&
+            topRow.primaryName.toLowerCase() !== searchTerm) {
             place.name = topRow.primaryName;
-            // Set historicalName if the search term differs from the primary name
-            if (topRow.primaryName.toLowerCase() !== searchTerm) {
-                place.historicalName = parts[firstFoundAt];
-            }
+            place.historicalName = parts[firstFoundAt];
         }
         const droppedParts = firstFoundAt > 0 ? parts.slice(0, firstFoundAt) : [];
 
