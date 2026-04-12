@@ -209,26 +209,26 @@ export class GeonamesDb {
                 'LOWER(g.country_code) = ?',
                 '? LIKE LOWER(g.country_code) || \'%\'',
                 'LOWER(g.admin1) = ?',
-                // Admin1 uses prefix matching (state/region names don't have
-                // prefixes like admin2's "Provincia di..."). Contains would
-                // make single-char qualifiers like "V" match every state with a 'v'.
+                // Admin1: prefix matching in both directions so "United States of America"
+                // matches "United States" and "Calif" matches "California"
                 'LOWER(a.name) LIKE ? || \'%\'',
+                '? LIKE LOWER(a.name) || \'%\'',
                 // Match qualifier against alternate names for the admin1 region
                 // (e.g. "Tuscany" → "Toscana" via English alternate name)
-                'EXISTS (SELECT 1 FROM alternate_names an1 WHERE an1.geonameid = a.geonameid AND LOWER(an1.name) LIKE ? || \'%\')',
+                'EXISTS (SELECT 1 FROM alternate_names an1 WHERE an1.geonameid = a.geonameid AND (LOWER(an1.name) LIKE ? || \'%\' OR ? LIKE LOWER(an1.name) || \'%\'))',
                 // Admin2 name (substring match for "Provincia di..." patterns)
                 'LOWER(a2.name) LIKE \'%\' || ? || \'%\'',
                 // Match qualifier against alternate names for the admin2 region
                 'EXISTS (SELECT 1 FROM alternate_names an2 WHERE an2.geonameid = a2.geonameid AND LOWER(an2.name) LIKE \'%\' || ? || \'%\')',
             ];
-            const condParams = [ql, ql, ql, ql, ql, ql, ql];
+            const condParams = [ql, ql, ql, ql, ql, ql, ql, ql, ql];
 
-            // Match qualifier against country names in the countries table
+            // Match qualifier against country names in the countries table (bidirectional)
             if (this.hasCountries) {
                 conditions.push(
-                    'EXISTS (SELECT 1 FROM countries c WHERE c.code = g.country_code AND LOWER(c.name) LIKE ? || \'%\')'
+                    'EXISTS (SELECT 1 FROM countries c WHERE c.code = g.country_code AND (LOWER(c.name) LIKE ? || \'%\' OR ? LIKE LOWER(c.name) || \'%\'))'
                 );
-                condParams.push(ql);
+                condParams.push(ql, ql);
             }
 
             qualifierClauses.push(`(${conditions.join(' OR ')})`);
@@ -319,6 +319,87 @@ export class GeonamesDb {
         }
 
         return null;
+    }
+
+    /**
+     * Look up an admin1 region by its code (e.g., "VA" → Virginia).
+     * US-first: if no countryCode specified, tries US first, then any country.
+     */
+    lookupAdmin1ByCode(code: string, countryCode?: string): GeonamesRow | null {
+        const sql = `
+            SELECT g.geonameid, g.name AS primary_name, g.lat, g.lng,
+                g.country_code, g.feature_class, g.feature_code, g.population,
+                g.name AS matched_name, 'primary' AS source_type,
+                g.admin1 AS admin1_code, a.name AS admin1_name, NULL AS admin2_name
+            FROM admin1_names a
+            JOIN geonames g ON g.geonameid = a.geonameid
+            WHERE UPPER(a.admin1_code) = UPPER(?)
+            ${countryCode ? 'AND UPPER(a.country_code) = UPPER(?)' : ''}
+            ORDER BY g.population DESC
+            LIMIT 1
+        `;
+        try {
+            const params: string[] = [code];
+            if (countryCode) params.push(countryCode);
+            const rows = this.db.prepare(sql).all(...params) as any[];
+            return rows.length > 0 ? this.rowToGeonamesRow(rows[0]) : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Resolve a country name or code to its 2-letter country code.
+     * Only queries the small `countries` table (~250 rows), no geonames scan.
+     */
+    resolveCountryCode(query: string): string | null {
+        if (!this.hasCountries) return null;
+        const ql = query.toLowerCase().trim();
+        if (!ql) return null;
+
+        try {
+            const sql = ql.length === 2
+                ? `SELECT DISTINCT code FROM countries WHERE LOWER(code) = ? OR LOWER(name) = ? LIMIT 1`
+                : `SELECT DISTINCT code FROM countries
+                   WHERE LOWER(name) = ?
+                      OR (LENGTH(?) >= 4 AND (LOWER(name) LIKE ? || '%' OR ? LIKE LOWER(name) || '%'))
+                   ORDER BY (CASE WHEN LOWER(name) = ? THEN 0 ELSE 1 END)
+                   LIMIT 1`;
+            const params = ql.length === 2 ? [ql, ql] : [ql, ql, ql, ql, ql];
+            const rows = this.db.prepare(sql).all(...params) as any[];
+            return rows.length > 0 ? (rows[0] as any).code : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Look up a country's PCLI geonames entry by country code.
+     * Caches results to avoid repeated full-table scans on geonames.
+     */
+    private pclCache = new Map<string, GeonamesRow | null>();
+    lookupCountryPcl(countryCode: string): GeonamesRow | null {
+        const key = countryCode.toUpperCase();
+        if (this.pclCache.has(key)) return this.pclCache.get(key)!;
+
+        try {
+            const sql = `
+                SELECT g.geonameid, g.name AS primary_name, g.lat, g.lng,
+                    g.country_code, g.feature_class, g.feature_code, g.population,
+                    g.name AS matched_name, 'primary' AS source_type,
+                    g.admin1 AS admin1_code, NULL AS admin1_name, NULL AS admin2_name
+                FROM geonames g
+                WHERE g.country_code = ? AND g.feature_code IN ('PCLI', 'PCL')
+                ORDER BY g.population DESC
+                LIMIT 1
+            `;
+            const rows = this.db.prepare(sql).all(key) as any[];
+            const result = rows.length > 0 ? this.rowToGeonamesRow(rows[0]) : null;
+            this.pclCache.set(key, result);
+            return result;
+        } catch {
+            return null;
+        }
     }
 
     /**

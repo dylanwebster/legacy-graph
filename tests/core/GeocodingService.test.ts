@@ -224,6 +224,48 @@ async function createTestGeonamesDb(dbPath: string): Promise<void> {
     insertPlace.run(2655984, 'Belfast', 54.5973, -5.9301, 'P', 'PPL', 'GB', 'NIR', null, 274770);
     addFts('Belfast', '2655984', 'primary');
 
+    // ── Additional test data for batch geocoding confidence scoring ──
+
+    // US country (PCLI)
+    insertCountry.run('US', 'United States of America');
+    insertPlace.run(6252001, 'United States', 39.76, -98.50, 'A', 'PCLI', 'US', null, null, 331000000);
+    addFts('United States', '6252001', 'primary');
+
+    // India country (PCLI)
+    insertCountry.run('IN', 'India');
+    insertPlace.run(1269750, 'India', 22.00, 79.00, 'A', 'PCLI', 'IN', null, null, 1380000000);
+    addFts('India', '1269750', 'primary');
+
+    // Indianapolis (to test India vs Indianapolis ranking)
+    insertAdmin1.run('US', 'IN', 'Indiana', 4921868);
+    insertPlace.run(4259418, 'Indianapolis', 39.7684, -86.1581, 'P', 'PPL', 'US', 'IN', null, 887642);
+    addFts('Indianapolis', '4259418', 'primary');
+
+    // Virginia (for VA state abbreviation test)
+    insertAdmin1.run('US', 'VA', 'Virginia', 6254928);
+    insertPlace.run(6254928, 'Virginia', 37.43, -78.66, 'A', 'ADM1', 'US', 'VA', null, 0);
+    addFts('Virginia', '6254928', 'primary');
+
+    // Missouri (for MO state abbreviation test)
+    insertAdmin1.run('US', 'MO', 'Missouri', 4398678);
+    insertPlace.run(4398678, 'Missouri', 38.57, -92.60, 'A', 'ADM1', 'US', 'MO', null, 0);
+    addFts('Missouri', '4398678', 'primary');
+
+    // Merced city (PPL) — to test PPL vs ADM2 preference
+    insertAdmin2.run('US', 'CA', '047', 'Merced County', 5373965);
+    insertPlace.run(5373327, 'Merced', 37.3022, -120.4830, 'P', 'PPL', 'US', 'CA', '047', 83893);
+    addFts('Merced', '5373327', 'primary');
+    // Merced County (ADM2) — higher population
+    insertPlace.run(5373965, 'Merced County', 37.19, -120.72, 'A', 'ADM2', 'US', 'CA', '047', 277680);
+    addFts('Merced County', '5373965', 'primary');
+
+    // Pine Grove (in Amador County, CA) — to test qualifier matching
+    insertAdmin2.run('US', 'CA', '005', 'Amador County', 5322745);
+    insertPlace.run(5384802, 'Pine Grove', 38.4163, -120.6582, 'P', 'PPL', 'US', 'CA', '005', 585);
+    addFts('Pine Grove', '5384802', 'primary');
+    insertPlace.run(5322745, 'Amador County', 38.45, -120.65, 'A', 'ADM2', 'US', 'CA', '005', 40474);
+    addFts('Amador County', '5322745', 'primary');
+
     db.close();
 }
 
@@ -552,7 +594,7 @@ describe('GeocodingService', () => {
 
     // ── searchWithMetadata ────────────────────────────────────────────
 
-    it('searchWithMetadata: direct match returns high confidence', async () => {
+    it('searchWithMetadata: direct match with qualifiers is high confidence', async () => {
         const svc = new GeocodingService(dataDir, { dbPath });
         const result = await svc.searchWithMetadata('Fresno, California, USA');
 
@@ -563,7 +605,7 @@ describe('GeocodingService', () => {
         expect(result.resultCount).toBe(1);
     });
 
-    it('searchWithMetadata: dropped prefix returns medium confidence with site name parts', async () => {
+    it('searchWithMetadata: dropped prefix returns medium confidence', async () => {
         const svc = new GeocodingService(dataDir, { dbPath });
         const result = await svc.searchWithMetadata('Mountain, Grizzly Flats, El Dorado, California, USA');
 
@@ -599,28 +641,6 @@ describe('GeocodingService', () => {
 
         expect(result.place).toBeNull();
         expect(result.confidence).toBe('none');
-        expect(result.droppedParts).toEqual([]);
-    });
-
-    it('searchWithMetadata: multiple results with large top population is still high', async () => {
-        const svc = new GeocodingService(dataDir, { dbPath });
-        // "Paris" matches Paris France (pop 2.1M) and Paris TX — top result pop >= 100K
-        const result = await svc.searchWithMetadata('Paris');
-
-        expect(result.place).not.toBeNull();
-        expect(result.confidence).toBe('high');
-        expect(result.resultCount).toBe(2);
-    });
-
-    it('searchWithMetadata: multiple results with small top population is medium', async () => {
-        const svc = new GeocodingService(dataDir, { dbPath });
-        // "El Dorado" matches El Dorado AR (pop 18K) and El Dorado County CA
-        // top population < 100K and resultCount > 1 → medium
-        const result = await svc.searchWithMetadata('El Dorado');
-
-        expect(result.place).not.toBeNull();
-        expect(result.confidence).toBe('medium');
-        expect(result.resultCount).toBeGreaterThan(1);
     });
 
     it('searchWithMetadata: missing DB returns none confidence', async () => {
@@ -637,17 +657,146 @@ describe('GeocodingService', () => {
 
         expect(result.place).not.toBeNull();
         expect(result.place!.name).toBe('Fresno');
-        // Empty leading part is filtered, so firstFoundAt=0 effectively
         expect(result.droppedParts).toEqual([]);
     });
 
-    it('searchWithMetadata: large city direct match is high confidence', async () => {
+    it('searchWithMetadata: large city without qualifiers is high', async () => {
         const svc = new GeocodingService(dataDir, { dbPath });
         const result = await svc.searchWithMetadata('London');
 
         expect(result.place).not.toBeNull();
         expect(result.place!.name).toBe('London');
-        // London has pop >= 100K, even with 2 results it should be high
         expect(result.confidence).toBe('high');
+    });
+
+    // ── PPL vs ADM preference ──
+
+    it('searchWithMetadata: prefers city over county when names overlap', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('Merced, California, USA');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('Merced');
+        expect(result.place!.admin2Name).toBe('Merced County');
+        expect(result.confidence).toBe('high');
+    });
+
+    it('searchWithMetadata: city without qualifiers is medium when pop < 500K', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('Merced');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('Merced');
+        expect(result.confidence).toBe('medium');
+    });
+
+    // ── State abbreviation handling ──
+
+    it('searchWithMetadata: "VA" resolves to Virginia with low confidence', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('VA');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('Virginia');
+        expect(result.confidence).toBe('low');
+    });
+
+    it('searchWithMetadata: "VA, USA" resolves to Virginia with medium confidence', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('VA, USA');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('Virginia');
+        expect(result.confidence).toBe('medium');
+    });
+
+    it('searchWithMetadata: ",, MO" resolves to Missouri with low confidence', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata(',, MO');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('Missouri');
+        expect(result.confidence).toBe('low');
+    });
+
+    // ── Country name handling ──
+
+    it('searchWithMetadata: "India" resolves to India country, not Indianapolis', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('India');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('India');
+        expect(result.confidence).toBe('medium');
+    });
+
+    it('searchWithMetadata: "United States" has no redundant country code', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('United States');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('United States');
+        expect(result.place!.countryCode).toBeUndefined();
+        expect(result.confidence).toBe('high');
+    });
+
+    // ── Short/ambiguous input ──
+
+    it('searchWithMetadata: very short input without qualifiers is low confidence', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('Del');
+
+        if (result.place) {
+            expect(result.confidence).toBe('low');
+        } else {
+            expect(result.confidence).toBe('none');
+        }
+    });
+
+    // ── Qualifier mismatch detection ──
+
+    it('searchWithMetadata: qualifier mismatch lowers confidence', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('Fresno, Merced, California');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('Fresno');
+        expect(result.confidence).toBe('medium');
+    });
+
+    // ── Bidirectional qualifier matching ──
+
+    it('searchWithMetadata: "United States of America" qualifier matches', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('Pine Grove, Amador County, California, United States of America');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('Pine Grove');
+        expect(result.confidence).toBe('high');
+    });
+
+    it('searchWithMetadata: "Pine Grove, California, USA" is high confidence', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('Pine Grove, California, USA');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('Pine Grove');
+        expect(result.confidence).toBe('high');
+    });
+
+    it('searchWithMetadata: large city with multiple results is still high', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('Paris');
+
+        expect(result.place).not.toBeNull();
+        expect(result.confidence).toBe('high');
+    });
+
+    it('searchWithMetadata: small ambiguous city without qualifiers is low', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('El Dorado');
+
+        expect(result.place).not.toBeNull();
+        expect(result.confidence).toBe('low');
     });
 });

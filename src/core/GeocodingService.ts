@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import type { Place } from '../schemas/PlaceSchema';
-import { GeonamesDb } from './GeonamesDb';
+import { GeonamesDb, type GeonamesRow } from './GeonamesDb';
 
 export interface BatchSearchResult {
     place: Place | null;
@@ -131,6 +131,7 @@ export class GeocodingService {
     /**
      * Search for a place and return metadata for batch geocoding: confidence
      * scoring, which parts were dropped (for site_name extraction), and result count.
+     * Tuned for fully-specified place strings (GEDCOM locations), not type-ahead.
      * Does NOT use or write to the cache.
      */
     public async searchWithMetadata(query: string): Promise<BatchSearchResult> {
@@ -140,31 +141,80 @@ export class GeocodingService {
         const parts = query.split(',').map(p => p.trim()).filter(Boolean);
         if (parts.length === 0) return noMatch;
 
-        // Mirror search() logic but track firstFoundAt and collect all results for counting
+        const firstPart = parts[0];
+        const qualifiers = parts.slice(1);
+
+        // ── Special case: country name lookup ──
+        // Check if the full input or first part matches a country name
+        if (parts.length <= 2) {
+            const lookupStr = parts.length === 1 ? firstPart : parts.join(', ');
+            const countryCode = this.geonamesDb.resolveCountryCode(lookupStr);
+            if (countryCode) {
+                const countryRow = this.geonamesDb.lookupCountryPcl(countryCode);
+                if (countryRow) {
+                    const place = this.searchRowToPlace(countryRow);
+                    const confidence = firstPart.length <= 5 && !qualifiers.length ? 'medium' as const : 'high' as const;
+                    return { place, confidence, droppedParts: [], resultCount: 1 };
+                }
+            }
+        }
+
+        // ── Special case: state/admin1 abbreviation (2-3 char first part) ──
+        if (firstPart.length <= 3 && firstPart.length >= 2 && /^[a-zA-Z]+$/.test(firstPart)) {
+            // Resolve country from qualifiers if present (countries table only, fast)
+            let countryCode: string | undefined;
+            if (qualifiers.length > 0) {
+                const lastQual = qualifiers[qualifiers.length - 1];
+                countryCode = this.geonamesDb.resolveCountryCode(lastQual)
+                    ?? (lastQual.length === 2 ? lastQual.toUpperCase() : undefined);
+            }
+
+            // US-first: try US, then specified country, then any
+            const admin1Row =
+                this.geonamesDb.lookupAdmin1ByCode(firstPart, countryCode || 'US') ||
+                (countryCode && countryCode !== 'US'
+                    ? this.geonamesDb.lookupAdmin1ByCode(firstPart, countryCode)
+                    : null) ||
+                (!countryCode
+                    ? this.geonamesDb.lookupAdmin1ByCode(firstPart)
+                    : null);
+
+            if (admin1Row) {
+                const place = this.searchRowToPlace(admin1Row);
+                const confidence = qualifiers.length > 0 ? 'medium' as const : 'low' as const;
+                return { place, confidence, droppedParts: [], resultCount: 1 };
+            }
+        }
+
+        // ── Standard multi-part search (mirrors search() but with metadata) ──
         let firstFoundAt = -1;
-        let bestRows: ReturnType<typeof this.geonamesDb.searchByName> = [];
+        let bestRows: GeonamesRow[] = [];
+        let qualifiersDropped = 0;
         const limit = 5;
 
         for (let i = 0; i < parts.length; i++) {
             if (firstFoundAt >= 0 && i > firstFoundAt + 1) break;
 
             const placeName = parts[i];
-            const qualifiers = parts.slice(i + 1);
+            const partQualifiers = parts.slice(i + 1);
 
-            let rows: ReturnType<typeof this.geonamesDb.searchByName> = [];
+            let rows: GeonamesRow[] = [];
 
-            if (qualifiers.length === 0 && i === 0) {
+            if (partQualifiers.length === 0 && i === 0) {
                 rows = this.geonamesDb.searchByName(placeName, limit);
-            } else if (qualifiers.length === 0) {
+            } else if (partQualifiers.length === 0) {
                 continue;
             } else if (i > 0 && placeName.length <= 3) {
                 continue;
             } else {
-                const maxDrop = Math.min(1, qualifiers.length - 1);
+                const maxDrop = Math.min(1, partQualifiers.length - 1);
                 for (let q = 0; q <= maxDrop; q++) {
-                    const subset = qualifiers.slice(q);
+                    const subset = partQualifiers.slice(q);
                     rows = this.geonamesDb.searchFiltered(placeName, subset, limit);
-                    if (rows.length > 0) break;
+                    if (rows.length > 0) {
+                        if (firstFoundAt < 0) qualifiersDropped = q;
+                        break;
+                    }
                 }
             }
 
@@ -176,15 +226,45 @@ export class GeocodingService {
 
         if (bestRows.length === 0) return noMatch;
 
+        // ── Post-process: prefer PPL over ADM when names overlap ──
+        // When the top result is an ADM (county) and there's a PPL (city) with the same
+        // base name, prefer the city. Also filter out the ADM duplicate to avoid inflating resultCount.
+        const searchTerm = parts[firstFoundAt].toLowerCase();
+        if (bestRows[0].featureClass === 'A') {
+            const pplMatch = bestRows.find(r =>
+                r.featureClass === 'P' &&
+                r.primaryName.toLowerCase() === searchTerm
+            );
+            if (pplMatch) {
+                // Remove the ADM that the PPL replaces (same base name, just with "County" etc.)
+                bestRows = [pplMatch, ...bestRows.filter(r =>
+                    r !== pplMatch && !(r.featureClass === 'A' && r.primaryName.toLowerCase().startsWith(searchTerm))
+                )];
+            }
+        }
+
+        // ── Post-process: prefer PCLI (country) over PPL for exact name matches ──
+        if (bestRows[0].featureCode !== 'PCLI') {
+            const countryMatch = bestRows.find(r =>
+                r.featureCode === 'PCLI' &&
+                r.primaryName.toLowerCase() === searchTerm
+            );
+            if (countryMatch) {
+                bestRows = [countryMatch, ...bestRows.filter(r => r !== countryMatch)];
+            }
+        }
+
         const topRow = bestRows[0];
         const place = this.searchRowToPlace(topRow);
         const droppedParts = firstFoundAt > 0 ? parts.slice(0, firstFoundAt) : [];
 
-        // Deduplicate to get true unique result count
         const deduped = this.deduplicatePlaces(bestRows.map(r => this.searchRowToPlace(r)), limit);
         const resultCount = deduped.length;
 
-        const confidence = this.scoreConfidence(firstFoundAt, resultCount, place, topRow.population);
+        const confidence = this.scoreConfidence(
+            firstFoundAt, resultCount, place, topRow.population,
+            parts, qualifiersDropped,
+        );
 
         return { place, confidence, droppedParts, resultCount };
     }
@@ -194,19 +274,40 @@ export class GeocodingService {
         resultCount: number,
         place: Place,
         population: number,
+        parts: string[],
+        qualifiersDropped: number,
     ): 'high' | 'medium' | 'low' | 'none' {
         const hasCoords = place.lat != null && place.lng != null;
+        if (!hasCoords) return 'low';
 
-        if (firstFoundAt === 0 && hasCoords && (resultCount === 1 || population >= 100000)) {
-            return 'high';
-        }
-        if (firstFoundAt === 1 || (firstFoundAt === 0 && resultCount > 1)) {
-            return 'medium';
-        }
-        if (firstFoundAt >= 2 || !hasCoords) {
+        const hasQualifiers = parts.length > 1;
+        const firstPartLength = parts[0]?.length ?? 0;
+
+        // Very short inputs without qualifiers are always low confidence
+        if (firstPartLength <= 3 && !hasQualifiers) {
             return 'low';
         }
-        return 'medium';
+
+        // Qualifier mismatch (some qualifiers were dropped to find a match)
+        if (qualifiersDropped > 0) {
+            return 'medium';
+        }
+
+        // Parts were dropped from the front (site name extraction)
+        if (firstFoundAt >= 2) return 'low';
+        if (firstFoundAt === 1) return 'medium';
+
+        // Direct match (firstFoundAt === 0)
+        if (hasQualifiers) {
+            // With qualifiers: high if unambiguous or large city
+            if (resultCount === 1 || population >= 100000) return 'high';
+            return 'medium';
+        }
+
+        // No qualifiers: confidence depends on population (larger = more likely correct)
+        if (population >= 500000) return 'high';
+        if (population >= 50000) return 'medium';
+        return 'low';
     }
 
     /**
@@ -286,15 +387,15 @@ export class GeocodingService {
         place.lat = row.lat;
         place.lng = row.lng;
 
-        if (row.countryCode) {
-            place.countryCode = row.countryCode;
-        }
-
-        // Suppress admin fields that would redundantly echo the place itself
-        // (e.g. ADM1 "Piemonte" has admin1Name "Piemonte", ADM2 "Provincia di Lucca"
-        // has admin2Name "Provincia di Lucca")
+        // Suppress fields that would redundantly echo the place itself
         const isAdm1 = row.featureCode?.startsWith('ADM1');
         const isAdm2 = row.featureCode?.startsWith('ADM2');
+        const isCountry = row.featureCode?.startsWith('PCL');
+
+        // Suppress countryCode for country-level results ("United States, US" → "United States")
+        if (row.countryCode && !isCountry) {
+            place.countryCode = row.countryCode;
+        }
 
         if (row.admin1Name && !isAdm1) {
             place.admin1Name = row.admin1Name;

@@ -42,7 +42,7 @@ export async function geocodingRoutes(server: FastifyInstance) {
     const { graphEngine, txManager, geocodingService } = (server as AppInstance).appServices;
 
     // POST /api/geocoding/batch — scan all people for unresolved locations and geocode them
-    server.post('/api/geocoding/batch', async (_request, reply) => {
+    server.post('/api/geocoding/batch', async (_request, _reply) => {
         const graph = graphEngine.getGraph();
 
         // Collect all unresolved locations with their occurrences
