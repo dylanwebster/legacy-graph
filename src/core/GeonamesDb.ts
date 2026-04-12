@@ -364,13 +364,15 @@ export class GeonamesDb {
         try {
             const sql = ql.length === 2
                 ? `SELECT DISTINCT code FROM countries WHERE LOWER(code) = ? OR LOWER(name) = ? LIMIT 1`
-                : `SELECT DISTINCT code FROM countries
+                : `SELECT code FROM countries
                    WHERE LOWER(name) = ?
                       OR (LENGTH(?) >= 4 AND LOWER(name) LIKE ? || '%')
                       OR (LENGTH(?) >= 4 AND LENGTH(name) >= 4 AND ? LIKE LOWER(name) || '%')
-                   ORDER BY (CASE WHEN LOWER(name) = ? THEN 0 ELSE 1 END)
+                   ORDER BY
+                      (CASE WHEN LOWER(name) = ? THEN 0 ELSE 1 END),
+                      ABS(LENGTH(name) - LENGTH(?))
                    LIMIT 1`;
-            const params = ql.length === 2 ? [ql, ql] : [ql, ql, ql, ql, ql];
+            const params = ql.length === 2 ? [ql, ql] : [ql, ql, ql, ql, ql, ql, ql];
             const rows = this.db.prepare(sql).all(...params) as any[];
             return rows.length > 0 ? (rows[0] as any).code : null;
         } catch {
