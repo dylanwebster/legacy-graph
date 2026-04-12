@@ -205,6 +205,64 @@ export async function uploadGalleryAssets(files: File[]): Promise<UploadGalleryA
     return response.json();
 }
 
+// ── Batch Geocoding ───────────────────────────────────────────────────────
+
+export interface BatchGeocodeOccurrence {
+    personId: string;
+    personName: string;
+    eventId: string;
+    eventType: string;
+}
+
+export interface BatchGeocodeResult {
+    locationString: string;
+    occurrences: BatchGeocodeOccurrence[];
+    match: {
+        place: Place;
+        confidence: 'high' | 'medium' | 'low';
+        siteName: string | null;
+    } | null;
+}
+
+export interface BatchGeocodeResponse {
+    results: BatchGeocodeResult[];
+    stats: {
+        total: number;
+        high: number;
+        medium: number;
+        low: number;
+        unmatched: number;
+        alreadyResolved: number;
+    };
+}
+
+export interface BatchGeocodeUpdate {
+    locationString: string;
+    place: Place;
+    siteName: string | null;
+}
+
+export interface BatchApplyResponse {
+    updated: number;
+    eventsUpdated: number;
+}
+
+export async function batchGeocode(): Promise<BatchGeocodeResponse> {
+    return apiFetch<BatchGeocodeResponse>('/geocoding/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+    });
+}
+
+export async function applyBatchGeocode(updates: BatchGeocodeUpdate[]): Promise<BatchApplyResponse> {
+    return apiFetch<BatchApplyResponse>('/geocoding/batch/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+    });
+}
+
 export async function linkAssetToPerson(
     personId: string,
     filename: string

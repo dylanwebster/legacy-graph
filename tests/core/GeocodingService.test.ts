@@ -214,6 +214,16 @@ async function createTestGeonamesDb(dbPath: string): Promise<void> {
     insertPlace.run(8974018, 'Acquaviva', 43.93, 10.33, 'P', 'PPL', 'IT', '16', 'LU', 23);
     addFts('Acquaviva', '8974018', 'primary');
 
+    // Chicopee, MA (for church name extraction tests)
+    insertAdmin1.run('US', 'MA', 'Massachusetts', 6254926);
+    insertPlace.run(4932879, 'Chicopee', 42.1487, -72.6079, 'P', 'PPL', 'US', 'MA', null, 55298);
+    addFts('Chicopee', '4932879', 'primary');
+
+    // Belfast (for street address extraction tests)
+    insertAdmin1.run('GB', 'NIR', 'Northern Ireland', 2641364);
+    insertPlace.run(2655984, 'Belfast', 54.5973, -5.9301, 'P', 'PPL', 'GB', 'NIR', null, 274770);
+    addFts('Belfast', '2655984', 'primary');
+
     db.close();
 }
 
@@ -538,5 +548,106 @@ describe('GeocodingService', () => {
         expect(result).not.toBeNull();
         expect(result!.resolvedAt).toBeDefined();
         expect(new Date(result!.resolvedAt!).toISOString()).toBe(result!.resolvedAt);
+    });
+
+    // ── searchWithMetadata ────────────────────────────────────────────
+
+    it('searchWithMetadata: direct match returns high confidence', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('Fresno, California, USA');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('Fresno');
+        expect(result.confidence).toBe('high');
+        expect(result.droppedParts).toEqual([]);
+        expect(result.resultCount).toBe(1);
+    });
+
+    it('searchWithMetadata: dropped prefix returns medium confidence with site name parts', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('Mountain, Grizzly Flats, El Dorado, California, USA');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('Grizzly Flats');
+        expect(result.confidence).toBe('medium');
+        expect(result.droppedParts).toEqual(['Mountain']);
+    });
+
+    it('searchWithMetadata: church name extracted as dropped part', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('Nativity Of The Blessed Virgin Mary Church, Chicopee, MA, USA');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('Chicopee');
+        expect(result.confidence).toBe('medium');
+        expect(result.droppedParts).toEqual(['Nativity Of The Blessed Virgin Mary Church']);
+    });
+
+    it('searchWithMetadata: street address extracted as dropped part', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('14 BROWNS ROW, Belfast, Northern Ireland');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('Belfast');
+        expect(result.confidence).toBe('medium');
+        expect(result.droppedParts).toEqual(['14 BROWNS ROW']);
+    });
+
+    it('searchWithMetadata: no match returns none confidence', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('Zxqvbjk, Nowhere');
+
+        expect(result.place).toBeNull();
+        expect(result.confidence).toBe('none');
+        expect(result.droppedParts).toEqual([]);
+    });
+
+    it('searchWithMetadata: multiple results with large top population is still high', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        // "Paris" matches Paris France (pop 2.1M) and Paris TX — top result pop >= 100K
+        const result = await svc.searchWithMetadata('Paris');
+
+        expect(result.place).not.toBeNull();
+        expect(result.confidence).toBe('high');
+        expect(result.resultCount).toBe(2);
+    });
+
+    it('searchWithMetadata: multiple results with small top population is medium', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        // "El Dorado" matches El Dorado AR (pop 18K) and El Dorado County CA
+        // top population < 100K and resultCount > 1 → medium
+        const result = await svc.searchWithMetadata('El Dorado');
+
+        expect(result.place).not.toBeNull();
+        expect(result.confidence).toBe('medium');
+        expect(result.resultCount).toBeGreaterThan(1);
+    });
+
+    it('searchWithMetadata: missing DB returns none confidence', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath: '/nonexistent/geonames.db' });
+        const result = await svc.searchWithMetadata('London');
+
+        expect(result.place).toBeNull();
+        expect(result.confidence).toBe('none');
+    });
+
+    it('searchWithMetadata: leading comma filters empty part', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata(', Fresno, California');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('Fresno');
+        // Empty leading part is filtered, so firstFoundAt=0 effectively
+        expect(result.droppedParts).toEqual([]);
+    });
+
+    it('searchWithMetadata: large city direct match is high confidence', async () => {
+        const svc = new GeocodingService(dataDir, { dbPath });
+        const result = await svc.searchWithMetadata('London');
+
+        expect(result.place).not.toBeNull();
+        expect(result.place!.name).toBe('London');
+        // London has pop >= 100K, even with 2 results it should be high
+        expect(result.confidence).toBe('high');
     });
 });

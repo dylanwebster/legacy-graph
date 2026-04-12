@@ -1,5 +1,6 @@
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
-import { useSystemStatus } from '@/api/hooks';
+import { useSystemStatus, useBatchGeocode, useApplyBatchGeocode } from '@/api/hooks';
+import type { BatchGeocodeResult, BatchGeocodeUpdate } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -12,13 +13,16 @@ import {
     DialogHeader,
     DialogTitle,
     DialogDescription,
+    DialogFooter,
 } from '@/components/ui/dialog';
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
     RefreshCw, Camera, Loader2, Server, Database, Clock, Activity,
     Sun, Moon, Palette, Upload, Download, AlertTriangle, CheckCircle2,
+    MapPin, Search, ArrowRight, MapPinned,
 } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
+import { toast } from 'sonner';
 
 export const Route = createLazyFileRoute('/settings')({
     component: SettingsPage,
@@ -311,6 +315,9 @@ function SettingsPage() {
                     </Button>
                 </div>
 
+                {/* Geocode Locations */}
+                <GeocodeLocationsSection />
+
                 {/* Export GEDCOM */}
                 <div className="space-y-3 border-t border-border/50 pt-4">
                     <div>
@@ -368,6 +375,281 @@ function SettingsPage() {
                 </DialogContent>
             </Dialog>
         </div>
+    );
+}
+
+type ConfidenceFilter = 'all' | 'high' | 'medium' | 'low' | 'unmatched';
+
+function GeocodeLocationsSection() {
+    const batchGeocode = useBatchGeocode();
+    const applyBatch = useApplyBatchGeocode();
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [filter, setFilter] = useState<ConfidenceFilter>('all');
+    const [searchQuery, setSearchQuery] = useState('');
+
+    const results = useMemo(() => batchGeocode.data?.results ?? [], [batchGeocode.data]);
+    const stats = batchGeocode.data?.stats;
+
+    const handleScan = useCallback(async () => {
+        const data = await batchGeocode.mutateAsync(undefined);
+        // Pre-check high and medium confidence matches
+        const preChecked = new Set<string>();
+        for (const r of data.results) {
+            if (r.match && (r.match.confidence === 'high' || r.match.confidence === 'medium')) {
+                preChecked.add(r.locationString);
+            }
+        }
+        setSelected(preChecked);
+        setFilter('all');
+        setSearchQuery('');
+        setDialogOpen(true);
+    }, [batchGeocode]);
+
+    const filteredResults = useMemo(() => {
+        return results.filter(r => {
+            // Filter by confidence
+            if (filter === 'high' && r.match?.confidence !== 'high') return false;
+            if (filter === 'medium' && r.match?.confidence !== 'medium') return false;
+            if (filter === 'low' && r.match?.confidence !== 'low') return false;
+            if (filter === 'unmatched' && r.match !== null) return false;
+            // Filter by search query
+            if (searchQuery) {
+                const q = searchQuery.toLowerCase();
+                if (!r.locationString.toLowerCase().includes(q) &&
+                    !(r.match?.place.name ?? '').toLowerCase().includes(q)) {
+                    return false;
+                }
+            }
+            return true;
+        });
+    }, [results, filter, searchQuery]);
+
+    const selectedCount = selected.size;
+
+    const handleToggle = useCallback((locStr: string) => {
+        setSelected(prev => {
+            const next = new Set(prev);
+            if (next.has(locStr)) next.delete(locStr);
+            else next.add(locStr);
+            return next;
+        });
+    }, []);
+
+    const handleApply = useCallback(async () => {
+        const updates: BatchGeocodeUpdate[] = [];
+        for (const r of results) {
+            if (selected.has(r.locationString) && r.match) {
+                updates.push({
+                    locationString: r.locationString,
+                    place: r.match.place,
+                    siteName: r.match.siteName,
+                });
+            }
+        }
+        if (updates.length === 0) return;
+
+        try {
+            const result = await applyBatch.mutateAsync(updates);
+            toast.success(`Geocoded ${result.eventsUpdated} events across ${result.updated} people`);
+            setDialogOpen(false);
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'Failed to apply geocoding');
+        }
+    }, [results, selected, applyBatch]);
+
+    const totalEvents = useMemo(() => {
+        let count = 0;
+        for (const r of results) {
+            if (selected.has(r.locationString)) {
+                count += r.occurrences.length;
+            }
+        }
+        return count;
+    }, [results, selected]);
+
+    return (
+        <>
+            <div className="space-y-3 border-t border-border/50 pt-4">
+                <div>
+                    <h3 className="text-sm font-semibold">Geocode Locations</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                        Resolve imported location strings to geographic places with coordinates.
+                    </p>
+                </div>
+                <Button
+                    variant="outline"
+                    disabled={batchGeocode.isPending}
+                    onClick={handleScan}
+                >
+                    {batchGeocode.isPending ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Scanning...</>
+                    ) : (
+                        <><MapPin className="h-4 w-4 mr-2" /> Scan Locations</>
+                    )}
+                </Button>
+            </div>
+
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <MapPinned className="h-5 w-5" /> Batch Geocoding Results
+                        </DialogTitle>
+                        {stats && (
+                            <DialogDescription>
+                                {stats.total} unresolved locations found
+                                {stats.alreadyResolved > 0 && ` (${stats.alreadyResolved} already resolved)`}
+                            </DialogDescription>
+                        )}
+                    </DialogHeader>
+
+                    {stats && (
+                        <div className="flex flex-wrap gap-2">
+                            <StatBadge label="High" count={stats.high} color="emerald" active={filter === 'high'} onClick={() => setFilter(f => f === 'high' ? 'all' : 'high')} />
+                            <StatBadge label="Medium" count={stats.medium} color="amber" active={filter === 'medium'} onClick={() => setFilter(f => f === 'medium' ? 'all' : 'medium')} />
+                            <StatBadge label="Low" count={stats.low} color="orange" active={filter === 'low'} onClick={() => setFilter(f => f === 'low' ? 'all' : 'low')} />
+                            <StatBadge label="No match" count={stats.unmatched} color="red" active={filter === 'unmatched'} onClick={() => setFilter(f => f === 'unmatched' ? 'all' : 'unmatched')} />
+                            {filter !== 'all' && (
+                                <button className="text-xs text-muted-foreground hover:text-foreground ml-1" onClick={() => setFilter('all')}>
+                                    Show all
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="Filter locations..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="pl-8 h-9"
+                        />
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto min-h-0 space-y-1 -mx-6 px-6">
+                        {filteredResults.length === 0 && (
+                            <p className="text-sm text-muted-foreground text-center py-8">
+                                {results.length === 0 ? 'No unresolved locations found.' : 'No results match the current filter.'}
+                            </p>
+                        )}
+                        {filteredResults.map((r) => (
+                            <GeocodeResultRow
+                                key={r.locationString}
+                                result={r}
+                                checked={selected.has(r.locationString)}
+                                onToggle={() => handleToggle(r.locationString)}
+                            />
+                        ))}
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+                        <Button
+                            disabled={selectedCount === 0 || applyBatch.isPending}
+                            onClick={handleApply}
+                        >
+                            {applyBatch.isPending ? (
+                                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Applying...</>
+                            ) : (
+                                <>Apply {selectedCount} Selected ({totalEvents} events)</>
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
+    );
+}
+
+const CONFIDENCE_COLORS = {
+    high: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
+    medium: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
+    low: 'bg-orange-500/10 text-orange-600 border-orange-500/20',
+} as const;
+
+function GeocodeResultRow({ result, checked, onToggle }: {
+    result: BatchGeocodeResult;
+    checked: boolean;
+    onToggle: () => void;
+}) {
+    const { match } = result;
+    const eventCount = result.occurrences.length;
+
+    return (
+        <label className="flex items-start gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 cursor-pointer transition-colors">
+            {match ? (
+                <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={onToggle}
+                    className="mt-1 shrink-0 h-4 w-4 rounded border-border accent-primary"
+                />
+            ) : (
+                <div className="mt-1 shrink-0 h-4 w-4" />
+            )}
+
+            <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium truncate" title={result.locationString}>
+                        {result.locationString}
+                    </span>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                        {eventCount} {eventCount === 1 ? 'event' : 'events'}
+                    </Badge>
+                </div>
+
+                {match ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                        <ArrowRight className="h-3 w-3 shrink-0" />
+                        <span className="font-medium text-foreground">
+                            {[match.place.name, match.place.admin2Name, match.place.admin1Name, match.place.countryCode].filter(Boolean).join(', ')}
+                        </span>
+                        {match.place.lat != null && match.place.lng != null && (
+                            <span className="text-muted-foreground">
+                                ({match.place.lat.toFixed(2)}, {match.place.lng.toFixed(2)})
+                            </span>
+                        )}
+                        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 border ${CONFIDENCE_COLORS[match.confidence]}`}>
+                            {match.confidence}
+                        </Badge>
+                        {match.siteName && (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                site: {match.siteName}
+                            </Badge>
+                        )}
+                    </div>
+                ) : (
+                    <div className="text-xs text-muted-foreground">
+                        No match found
+                    </div>
+                )}
+            </div>
+        </label>
+    );
+}
+
+function StatBadge({ label, count, color, active, onClick }: {
+    label: string;
+    count: number;
+    color: 'emerald' | 'amber' | 'orange' | 'red';
+    active: boolean;
+    onClick: () => void;
+}) {
+    const colorClasses = {
+        emerald: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30',
+        amber: 'bg-amber-500/10 text-amber-600 border-amber-500/30',
+        orange: 'bg-orange-500/10 text-orange-600 border-orange-500/30',
+        red: 'bg-red-500/10 text-red-600 border-red-500/30',
+    };
+    return (
+        <button
+            onClick={onClick}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${colorClasses[color]} ${active ? 'ring-2 ring-offset-1 ring-offset-background ring-current' : ''}`}
+        >
+            {label} <span className="font-bold">{count}</span>
+        </button>
     );
 }
 

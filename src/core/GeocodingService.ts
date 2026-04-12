@@ -4,6 +4,13 @@ import * as os from 'os';
 import type { Place } from '../schemas/PlaceSchema';
 import { GeonamesDb } from './GeonamesDb';
 
+export interface BatchSearchResult {
+    place: Place | null;
+    confidence: 'high' | 'medium' | 'low' | 'none';
+    droppedParts: string[];   // Parts before firstFoundAt (candidate site_name)
+    resultCount: number;
+}
+
 export class GeocodingService {
     private readonly cacheFile: string;
     private readonly geonamesDb: GeonamesDb | null;
@@ -119,6 +126,87 @@ export class GeocodingService {
         }
 
         return this.deduplicatePlaces(collected, limit);
+    }
+
+    /**
+     * Search for a place and return metadata for batch geocoding: confidence
+     * scoring, which parts were dropped (for site_name extraction), and result count.
+     * Does NOT use or write to the cache.
+     */
+    public async searchWithMetadata(query: string): Promise<BatchSearchResult> {
+        const noMatch: BatchSearchResult = { place: null, confidence: 'none', droppedParts: [], resultCount: 0 };
+        if (!this.geonamesDb) return noMatch;
+
+        const parts = query.split(',').map(p => p.trim()).filter(Boolean);
+        if (parts.length === 0) return noMatch;
+
+        // Mirror search() logic but track firstFoundAt and collect all results for counting
+        let firstFoundAt = -1;
+        let bestRows: ReturnType<typeof this.geonamesDb.searchByName> = [];
+        const limit = 5;
+
+        for (let i = 0; i < parts.length; i++) {
+            if (firstFoundAt >= 0 && i > firstFoundAt + 1) break;
+
+            const placeName = parts[i];
+            const qualifiers = parts.slice(i + 1);
+
+            let rows: ReturnType<typeof this.geonamesDb.searchByName> = [];
+
+            if (qualifiers.length === 0 && i === 0) {
+                rows = this.geonamesDb.searchByName(placeName, limit);
+            } else if (qualifiers.length === 0) {
+                continue;
+            } else if (i > 0 && placeName.length <= 3) {
+                continue;
+            } else {
+                const maxDrop = Math.min(1, qualifiers.length - 1);
+                for (let q = 0; q <= maxDrop; q++) {
+                    const subset = qualifiers.slice(q);
+                    rows = this.geonamesDb.searchFiltered(placeName, subset, limit);
+                    if (rows.length > 0) break;
+                }
+            }
+
+            if (rows.length > 0 && firstFoundAt < 0) {
+                firstFoundAt = i;
+                bestRows = rows;
+            }
+        }
+
+        if (bestRows.length === 0) return noMatch;
+
+        const topRow = bestRows[0];
+        const place = this.searchRowToPlace(topRow);
+        const droppedParts = firstFoundAt > 0 ? parts.slice(0, firstFoundAt) : [];
+
+        // Deduplicate to get true unique result count
+        const deduped = this.deduplicatePlaces(bestRows.map(r => this.searchRowToPlace(r)), limit);
+        const resultCount = deduped.length;
+
+        const confidence = this.scoreConfidence(firstFoundAt, resultCount, place, topRow.population);
+
+        return { place, confidence, droppedParts, resultCount };
+    }
+
+    private scoreConfidence(
+        firstFoundAt: number,
+        resultCount: number,
+        place: Place,
+        population: number,
+    ): 'high' | 'medium' | 'low' | 'none' {
+        const hasCoords = place.lat != null && place.lng != null;
+
+        if (firstFoundAt === 0 && hasCoords && (resultCount === 1 || population >= 100000)) {
+            return 'high';
+        }
+        if (firstFoundAt === 1 || (firstFoundAt === 0 && resultCount > 1)) {
+            return 'medium';
+        }
+        if (firstFoundAt >= 2 || !hasCoords) {
+            return 'low';
+        }
+        return 'medium';
     }
 
     /**
