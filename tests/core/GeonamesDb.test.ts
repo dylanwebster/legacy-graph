@@ -81,6 +81,7 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     insertCountry.run('SK', 'Slovakia');
     insertCountry.run('DE', 'Germany');
     insertCountry.run('IT', 'Italy');
+    insertCountry.run('IN', 'India');
 
 
     // Insert test places
@@ -244,6 +245,20 @@ function createTestDb(): { db: GeonamesDb; raw: DatabaseSync } {
     // Acquaviva — tiny village in Camaiore commune, Provincia di Lucca
     insertPlace.run(8974018, 'Acquaviva', 43.93, 10.33, 'P', 'PPL', 'IT', '16', 'LU', 23);
     addFts('Acquaviva', '8974018', 'primary');
+
+    // ─── India + Mumbai/Bombay (alternate name prefix variant test) ───
+    insertAdmin1.run('IN', '16', 'State of Mahārāshtra', 1264418);
+    insertPlace.run(1264418, 'State of Mahārāshtra', 19.25, 73.25, 'A', 'ADM1', 'IN', '16', null, 0);
+
+    insertPlace.run(1275339, 'Mumbai', 19.0760, 72.8777, 'P', 'PPLC', 'IN', '16', null, 12691836);
+    addFts('Mumbai', '1275339', 'primary');
+    addFts('Bombaya', '1275339', 'alternate');
+    addFts('Bombay', '1275339', 'alternate');
+
+    // India — country-level place
+    insertPlace.run(1269750, 'Republic of India', 22.00, 79.00, 'A', 'PCLI', 'IN', null, null, 1352617328);
+    addFts('Republic of India', '1269750', 'primary');
+    addFts('India', '1269750', 'alternate');
 
     return { db: GeonamesDb.fromConnection(raw), raw };
 }
@@ -529,6 +544,20 @@ describe('GeonamesDb', () => {
                 `reverseGeocode should not return ${code} place at ${lat},${lng}`
             ).toBe(true);
         }
+    });
+
+    it('prefers exact alternate name over longer prefix variant ("Bombay" not "Bombaya")', () => {
+        const results = db.searchByName('Bombay', 5);
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].matchedName).toBe('Bombay');
+        expect(results[0].primaryName).toBe('Mumbai');
+    });
+
+    it('prefers exact alternate name with qualifiers ("Bombay, India")', () => {
+        const results = db.searchFiltered('Bombay', ['India'], 5);
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results[0].matchedName).toBe('Bombay');
+        expect(results[0].primaryName).toBe('Mumbai');
     });
 
     it('forward search still finds defunct places (PPLH, PPLQ, PPLW)', () => {

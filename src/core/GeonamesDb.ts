@@ -171,17 +171,7 @@ export class GeonamesDb {
         try {
             // Fetch extra rows to account for duplicates from alternate names
             const rows = this.searchStmt.all(ftsQuery, query, query, query, limit * 4) as any[];
-            // Deduplicate by geonameid, keeping the first (best-ranked) row
-            const seen = new Set<number>();
-            const deduped: GeonamesRow[] = [];
-            for (const row of rows) {
-                const id = row.geonameid;
-                if (seen.has(id)) continue;
-                seen.add(id);
-                deduped.push(this.rowToGeonamesRow(row));
-                if (deduped.length >= limit) break;
-            }
-            return deduped;
+            return this.deduplicateRows(rows, query, limit);
         } catch {
             return [];
         }
@@ -267,16 +257,7 @@ export class GeonamesDb {
 
         try {
             const rows = this.db.prepare(sql).all(...params) as any[];
-            const seen = new Set<number>();
-            const deduped: GeonamesRow[] = [];
-            for (const row of rows) {
-                const id = row.geonameid;
-                if (seen.has(id)) continue;
-                seen.add(id);
-                deduped.push(this.rowToGeonamesRow(row));
-                if (deduped.length >= limit) break;
-            }
-            return deduped;
+            return this.deduplicateRows(rows, query, limit);
         } catch {
             return [];
         }
@@ -422,6 +403,35 @@ export class GeonamesDb {
         // Anchored phrase prefix: ^ requires match at start of name,
         // so "Mountain"* matches "Mountain View" but not "Marble Mountain"
         return `^ "${escaped}"*`;
+    }
+
+    /**
+     * Deduplicate rows by geonameid, keeping the best-ranked row per place.
+     * When a later row for the same geonameid has a matchedName that exactly
+     * equals the query, it replaces the earlier row — so "Bombay" is returned
+     * instead of "Bombaya" when the user searched for "Bombay".
+     */
+    private deduplicateRows(rows: any[], query: string, limit: number): GeonamesRow[] {
+        const queryLower = query.toLowerCase();
+        const seen = new Map<number, number>(); // geonameid → index in deduped
+        const deduped: GeonamesRow[] = [];
+        for (const row of rows) {
+            const id = row.geonameid;
+            const existingIdx = seen.get(id);
+            if (existingIdx !== undefined) {
+                // Replace if this row's matched name exactly equals the query
+                // and the existing one doesn't
+                if ((row.matched_name as string).toLowerCase() === queryLower &&
+                    deduped[existingIdx].matchedName.toLowerCase() !== queryLower) {
+                    deduped[existingIdx] = this.rowToGeonamesRow(row);
+                }
+                continue;
+            }
+            seen.set(id, deduped.length);
+            deduped.push(this.rowToGeonamesRow(row));
+            if (deduped.length >= limit) break;
+        }
+        return deduped;
     }
 
     private rowToGeonamesRow(row: any): GeonamesRow {
