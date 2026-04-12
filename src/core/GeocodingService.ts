@@ -155,7 +155,7 @@ export class GeocodingService {
                 const countryRow = this.geonamesDb.lookupCountryPcl(countryCode);
                 if (countryRow) {
                     const place = this.searchRowToPlace(countryRow);
-                    const confidence = firstPart.length <= 5 && !qualifiers.length ? 'medium' as const : 'high' as const;
+                    const confidence = 'high' as const;
                     return { place, confidence, droppedParts: [], resultCount: 1 };
                 }
             }

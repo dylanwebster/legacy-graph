@@ -727,7 +727,7 @@ describe('GeocodingService', () => {
 
         expect(result.place).not.toBeNull();
         expect(result.place!.name).toBe('India');
-        expect(result.confidence).toBe('medium');
+        expect(result.confidence).toBe('high');
     });
 
     it('searchWithMetadata: "United States" has no redundant country code', async () => {
