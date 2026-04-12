@@ -186,6 +186,31 @@ export class GeocodingService {
             }
         }
 
+        // ── Special case: single-part input that matches a state/admin1 name ──
+        // For batch geocoding, "Virginia" or "California" as a standalone input
+        // should resolve to the state, not a city of the same name in another state.
+        if (parts.length === 1 && firstPart.length >= 4) {
+            const rows = this.geonamesDb.searchByName(firstPart, 5);
+            const adm1Match = rows.find(r =>
+                r.featureCode.startsWith('ADM1') &&
+                r.primaryName.toLowerCase() === firstPart.toLowerCase()
+            );
+            if (adm1Match) {
+                const place = this.searchRowToPlace(adm1Match);
+                const confidence = adm1Match.population >= 500000 ? 'high' as const : 'medium' as const;
+                return { place, confidence, droppedParts: [], resultCount: 1 };
+            }
+            // Also check for country names via FTS (e.g., "England" as an ADM1 in GB)
+            const countryOrRegion = rows.find(r =>
+                (r.featureCode.startsWith('PCL') || r.featureCode.startsWith('ADM1')) &&
+                r.matchedName.toLowerCase() === firstPart.toLowerCase()
+            );
+            if (countryOrRegion) {
+                const place = this.searchRowToPlace(countryOrRegion);
+                return { place, confidence: 'medium', droppedParts: [], resultCount: 1 };
+            }
+        }
+
         // ── Standard multi-part search (mirrors search() but with metadata) ──
         let firstFoundAt = -1;
         let bestRows: GeonamesRow[] = [];

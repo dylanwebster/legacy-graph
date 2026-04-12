@@ -210,23 +210,27 @@ export class GeonamesDb {
                 '? LIKE LOWER(g.country_code) || \'%\'',
                 'LOWER(g.admin1) = ?',
                 // Admin1: prefix matching in both directions so "United States of America"
-                // matches "United States" and "Calif" matches "California"
+                // matches "United States" and "Calif" matches "California".
+                // Reverse direction requires min length 4 on the name to avoid short aliases.
                 'LOWER(a.name) LIKE ? || \'%\'',
-                '? LIKE LOWER(a.name) || \'%\'',
+                '(LENGTH(a.name) >= 4 AND ? LIKE LOWER(a.name) || \'%\')',
                 // Match qualifier against alternate names for the admin1 region
-                // (e.g. "Tuscany" → "Toscana" via English alternate name)
-                'EXISTS (SELECT 1 FROM alternate_names an1 WHERE an1.geonameid = a.geonameid AND (LOWER(an1.name) LIKE ? || \'%\' OR ? LIKE LOWER(an1.name) || \'%\'))',
+                // (e.g. "Tuscany" → "Toscana" via English alternate name).
+                // Require qualifier length >= 4 for prefix matching to avoid "CA" matching "Carolina del Sur"
+                'EXISTS (SELECT 1 FROM alternate_names an1 WHERE an1.geonameid = a.geonameid AND (LOWER(an1.name) = ? OR (LENGTH(?) >= 4 AND (LOWER(an1.name) LIKE ? || \'%\' OR (LENGTH(an1.name) >= 4 AND ? LIKE LOWER(an1.name) || \'%\')))))',
                 // Admin2 name (substring match for "Provincia di..." patterns)
                 'LOWER(a2.name) LIKE \'%\' || ? || \'%\'',
                 // Match qualifier against alternate names for the admin2 region
                 'EXISTS (SELECT 1 FROM alternate_names an2 WHERE an2.geonameid = a2.geonameid AND LOWER(an2.name) LIKE \'%\' || ? || \'%\')',
             ];
-            const condParams = [ql, ql, ql, ql, ql, ql, ql, ql, ql];
+            const condParams = [ql, ql, ql, ql, ql, ql, ql, ql, ql, ql, ql];
 
-            // Match qualifier against country names in the countries table (bidirectional)
+            // Match qualifier against country names in the countries table (bidirectional).
+            // Reverse direction requires min length 4 on the country name to avoid short
+            // aliases like "SA", "SAD" matching unrelated queries.
             if (this.hasCountries) {
                 conditions.push(
-                    'EXISTS (SELECT 1 FROM countries c WHERE c.code = g.country_code AND (LOWER(c.name) LIKE ? || \'%\' OR ? LIKE LOWER(c.name) || \'%\'))'
+                    'EXISTS (SELECT 1 FROM countries c WHERE c.code = g.country_code AND (LOWER(c.name) LIKE ? || \'%\' OR (LENGTH(c.name) >= 4 AND ? LIKE LOWER(c.name) || \'%\')))'
                 );
                 condParams.push(ql, ql);
             }
@@ -362,7 +366,8 @@ export class GeonamesDb {
                 ? `SELECT DISTINCT code FROM countries WHERE LOWER(code) = ? OR LOWER(name) = ? LIMIT 1`
                 : `SELECT DISTINCT code FROM countries
                    WHERE LOWER(name) = ?
-                      OR (LENGTH(?) >= 4 AND (LOWER(name) LIKE ? || '%' OR ? LIKE LOWER(name) || '%'))
+                      OR (LENGTH(?) >= 4 AND LOWER(name) LIKE ? || '%')
+                      OR (LENGTH(?) >= 4 AND LENGTH(name) >= 4 AND ? LIKE LOWER(name) || '%')
                    ORDER BY (CASE WHEN LOWER(name) = ? THEN 0 ELSE 1 END)
                    LIMIT 1`;
             const params = ql.length === 2 ? [ql, ql] : [ql, ql, ql, ql, ql];
