@@ -755,13 +755,14 @@ describe('GeocodingService', () => {
 
     // ── Qualifier mismatch detection ──
 
-    it('searchWithMetadata: qualifier mismatch lowers confidence', async () => {
+    it('searchWithMetadata: qualifier mismatch lowers confidence to low', async () => {
         const svc = new GeocodingService(dataDir, { dbPath });
+        // Fresno is not in Merced County — admin hierarchy mismatch → low
         const result = await svc.searchWithMetadata('Fresno, Merced, California');
 
         expect(result.place).not.toBeNull();
         expect(result.place!.name).toBe('Fresno');
-        expect(result.confidence).toBe('medium');
+        expect(result.confidence).toBe('low');
     });
 
     // ── Bidirectional qualifier matching ──

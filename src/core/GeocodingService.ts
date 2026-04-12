@@ -138,7 +138,9 @@ export class GeocodingService {
         const noMatch: BatchSearchResult = { place: null, confidence: 'none', droppedParts: [], resultCount: 0 };
         if (!this.geonamesDb) return noMatch;
 
-        const parts = query.split(',').map(p => p.trim()).filter(Boolean);
+        // Normalize common genealogy abbreviations before parsing
+        const normalized = query.replace(/\bCo\./gi, 'County');
+        const parts = normalized.split(',').map(p => p.trim()).filter(Boolean);
         if (parts.length === 0) return noMatch;
 
         const firstPart = parts[0];
@@ -251,17 +253,39 @@ export class GeocodingService {
 
         if (bestRows.length === 0) return noMatch;
 
-        // ── Post-process: prefer PPL over ADM when names overlap ──
-        // When the top result is an ADM (county) and there's a PPL (city) with the same
-        // base name, prefer the city. Also filter out the ADM duplicate to avoid inflating resultCount.
+        // ── Post-process: prefer exact name matches over prefix matches ──
+        // For batch geocoding, "Amador" should match "Amador" exactly, not "Amadora" via prefix.
+        // IMPORTANT: only search within the already-filtered results to preserve qualifier filtering.
         const searchTerm = parts[firstFoundAt].toLowerCase();
-        if (bestRows[0].featureClass === 'A') {
+        const topIsExact = bestRows[0].primaryName.toLowerCase() === searchTerm ||
+            bestRows[0].matchedName.toLowerCase() === searchTerm;
+        if (!topIsExact) {
+            // Search within the already-filtered results first
+            let exactMatch = bestRows.find(r =>
+                r.primaryName.toLowerCase() === searchTerm ||
+                r.matchedName.toLowerCase() === searchTerm
+            );
+            // For single-part inputs (no qualifiers to preserve), broaden the search
+            if (!exactMatch && parts.length === 1) {
+                const broader = this.geonamesDb.searchByName(searchTerm, 20);
+                exactMatch = broader.find(r =>
+                    r.primaryName.toLowerCase() === searchTerm
+                );
+            }
+            if (exactMatch) {
+                bestRows = [exactMatch, ...bestRows.filter(r => r.geonameid !== exactMatch!.geonameid)];
+            }
+        }
+
+        // ── Post-process: prefer PPL over ADM2 (county) when names overlap ──
+        // Only for ADM2 (counties), NOT ADM1 (states) — "California" the state should
+        // not be demoted in favor of "California" the town in Maryland.
+        if (bestRows[0].featureCode.startsWith('ADM2')) {
             const pplMatch = bestRows.find(r =>
                 r.featureClass === 'P' &&
                 r.primaryName.toLowerCase() === searchTerm
             );
             if (pplMatch) {
-                // Remove the ADM that the PPL replaces (same base name, just with "County" etc.)
                 bestRows = [pplMatch, ...bestRows.filter(r =>
                     r !== pplMatch && !(r.featureClass === 'A' && r.primaryName.toLowerCase().startsWith(searchTerm))
                 )];
@@ -281,14 +305,49 @@ export class GeocodingService {
 
         const topRow = bestRows[0];
         const place = this.searchRowToPlace(topRow);
+        // For batch geocoding, use the canonical primary name if the matched name
+        // is just a prefix variant (e.g., "Bombaya" matched for "Bombay" but primary is "Mumbai")
+        if (place.name !== topRow.primaryName &&
+            place.name.toLowerCase() !== searchTerm) {
+            place.name = topRow.primaryName;
+            // Set historicalName if the search term differs from the primary name
+            if (topRow.primaryName.toLowerCase() !== searchTerm) {
+                place.historicalName = parts[firstFoundAt];
+            }
+        }
         const droppedParts = firstFoundAt > 0 ? parts.slice(0, firstFoundAt) : [];
 
         const deduped = this.deduplicatePlaces(bestRows.map(r => this.searchRowToPlace(r)), limit);
         const resultCount = deduped.length;
 
+        // ── Post-process: detect admin hierarchy mismatch ──
+        // Check if the result's admin fields actually match the provided qualifiers.
+        // If the first qualifier after the matched part looks like a county/region but
+        // the result is in a different county, flag as mismatch (lowers confidence to low).
+        // Check if the result's admin hierarchy matches the ORIGINAL first qualifier
+        // (before any qualifier dropping). This detects cases like "Mountain, El Dorado, CA"
+        // where "Mountain View" was found by dropping "El Dorado" — the result isn't in
+        // El Dorado, so confidence should be low rather than just medium.
+        let adminMismatch = false;
+        if (firstFoundAt >= 0) {
+            // Use the original qualifiers (parts after the matched term), not the
+            // subset that was actually used after dropping.
+            const originalQualifiers = parts.slice(firstFoundAt + 1);
+            if (originalQualifiers.length > 0) {
+                const firstQual = originalQualifiers[0].toLowerCase();
+                const admin2 = (topRow.admin2Name ?? '').toLowerCase();
+                const admin1 = (topRow.admin1Name ?? '').toLowerCase();
+                if (firstQual.length >= 3 &&
+                    !admin2.includes(firstQual) && !admin1.includes(firstQual) &&
+                    !firstQual.includes(admin2) && !firstQual.includes(admin1)) {
+                    adminMismatch = true;
+                }
+            }
+        }
+
         const confidence = this.scoreConfidence(
             firstFoundAt, resultCount, place, topRow.population,
-            parts, qualifiersDropped,
+            parts, qualifiersDropped, adminMismatch,
         );
 
         return { place, confidence, droppedParts, resultCount };
@@ -301,6 +360,7 @@ export class GeocodingService {
         population: number,
         parts: string[],
         qualifiersDropped: number,
+        adminMismatch = false,
     ): 'high' | 'medium' | 'low' | 'none' {
         const hasCoords = place.lat != null && place.lng != null;
         if (!hasCoords) return 'low';
@@ -310,6 +370,11 @@ export class GeocodingService {
 
         // Very short inputs without qualifiers are always low confidence
         if (firstPartLength <= 3 && !hasQualifiers) {
+            return 'low';
+        }
+
+        // Admin hierarchy mismatch — result is in a different region than qualifiers specify
+        if (adminMismatch) {
             return 'low';
         }
 
@@ -324,7 +389,8 @@ export class GeocodingService {
 
         // Direct match (firstFoundAt === 0)
         if (hasQualifiers) {
-            // With qualifiers: high if unambiguous or large city
+            // With qualifiers and no mismatch: high if specific qualifiers narrow it down
+            if (parts.length >= 3) return 'high'; // Multi-qualifier = well-specified
             if (resultCount === 1 || population >= 100000) return 'high';
             return 'medium';
         }
