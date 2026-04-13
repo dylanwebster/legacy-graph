@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { BatchGeocodeResult, BatchGeocodeStats, BatchGeocodeUpdate } from '@/api/client';
+import type { Place } from '@/api/people';
 import {
     startBatchGeocode,
     saveBatchGeocodeSelections,
@@ -8,6 +9,12 @@ import {
 } from '@/api/client';
 
 export type ConfidenceFilter = 'all' | 'high' | 'medium' | 'low' | 'unmatched';
+export type SortBy = 'alpha' | 'confidence' | 'events';
+
+interface PlaceOverride {
+    place: Place;
+    siteName: string | null;
+}
 
 interface GeocodeState {
     status: 'idle' | 'scanning' | 'completed' | 'error';
@@ -17,14 +24,21 @@ interface GeocodeState {
     checked: Set<string>;
     filter: ConfidenceFilter;
     searchQuery: string;
+    sortBy: SortBy;
+    overrides: Map<string, PlaceOverride>;
     dialogOpen: boolean;
     error: string | null;
 
     startScan: () => Promise<void>;
     loadPersistedResults: () => Promise<void>;
     toggleSelection: (locationString: string) => void;
+    selectAll: (locationStrings: string[]) => void;
+    deselectAll: (locationStrings: string[]) => void;
     setFilter: (filter: ConfidenceFilter) => void;
     setSearchQuery: (q: string) => void;
+    setSortBy: (sortBy: SortBy) => void;
+    setOverride: (locationString: string, place: Place, siteName: string | null) => void;
+    clearOverride: (locationString: string) => void;
     setDialogOpen: (open: boolean) => void;
     applySelected: () => Promise<{ updated: number; eventsUpdated: number }>;
     clearResults: () => Promise<void>;
@@ -36,10 +50,16 @@ let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 function debounceSaveSelections(state: GeocodeState) {
     if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
     saveDebounceTimer = setTimeout(() => {
+        const overridesObj: Record<string, PlaceOverride> = {};
+        for (const [k, v] of state.overrides) {
+            overridesObj[k] = v;
+        }
         saveBatchGeocodeSelections({
             checked: Array.from(state.checked),
             filter: state.filter,
             searchQuery: state.searchQuery,
+            sortBy: state.sortBy,
+            overrides: overridesObj,
         }).catch(() => { /* best-effort */ });
     }, 500);
 }
@@ -93,6 +113,14 @@ function pollForResults(set: (partial: Partial<GeocodeState> | ((state: GeocodeS
                     }
                 }
 
+                // Hydrate overrides
+                const overrides = new Map<string, PlaceOverride>();
+                if (persisted.selections?.overrides) {
+                    for (const [k, v] of Object.entries(persisted.selections.overrides)) {
+                        overrides.set(k, v as PlaceOverride);
+                    }
+                }
+
                 set({
                     status: 'completed',
                     progress: null,
@@ -101,6 +129,8 @@ function pollForResults(set: (partial: Partial<GeocodeState> | ((state: GeocodeS
                     checked,
                     filter: (persisted.selections?.filter as ConfidenceFilter) || 'all',
                     searchQuery: persisted.selections?.searchQuery || '',
+                    sortBy: (persisted.selections?.sortBy as SortBy) || 'alpha',
+                    overrides,
                     error: null,
                 });
                 pollTimer = null;
@@ -127,6 +157,8 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
     checked: new Set<string>(),
     filter: 'all',
     searchQuery: '',
+    sortBy: 'alpha',
+    overrides: new Map<string, PlaceOverride>(),
     dialogOpen: false,
     error: null,
 
@@ -159,6 +191,15 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
                 pollForResults(set);
             } else if (response.ok) {
                 const persisted = await response.json();
+
+                // Hydrate overrides
+                const overrides = new Map<string, PlaceOverride>();
+                if (persisted.selections?.overrides) {
+                    for (const [k, v] of Object.entries(persisted.selections.overrides)) {
+                        overrides.set(k, v as PlaceOverride);
+                    }
+                }
+
                 set({
                     status: 'completed',
                     results: persisted.results,
@@ -166,12 +207,14 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
                     checked: new Set(persisted.selections.checked),
                     filter: (persisted.selections.filter as ConfidenceFilter) || 'all',
                     searchQuery: persisted.selections.searchQuery || '',
+                    sortBy: (persisted.selections?.sortBy as SortBy) || 'alpha',
+                    overrides,
                     progress: null,
                     error: null,
                 });
             } else {
                 // 404 or other — no results on server, reset to idle
-                set({ status: 'idle', results: [], stats: null, checked: new Set(), progress: null, error: null });
+                set({ status: 'idle', results: [], stats: null, checked: new Set(), overrides: new Map(), progress: null, error: null });
             }
         } catch {
             // No results, stay idle
@@ -188,6 +231,24 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
         debounceSaveSelections(get());
     },
 
+    selectAll: (locationStrings: string[]) => {
+        set((state) => {
+            const next = new Set(state.checked);
+            for (const ls of locationStrings) next.add(ls);
+            return { checked: next };
+        });
+        debounceSaveSelections(get());
+    },
+
+    deselectAll: (locationStrings: string[]) => {
+        set((state) => {
+            const next = new Set(state.checked);
+            for (const ls of locationStrings) next.delete(ls);
+            return { checked: next };
+        });
+        debounceSaveSelections(get());
+    },
+
     setFilter: (filter: ConfidenceFilter) => {
         set({ filter });
         debounceSaveSelections(get());
@@ -198,15 +259,46 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
         debounceSaveSelections(get());
     },
 
+    setSortBy: (sortBy: SortBy) => {
+        set({ sortBy });
+        debounceSaveSelections(get());
+    },
+
+    setOverride: (locationString: string, place: Place, siteName: string | null) => {
+        set((state) => {
+            const next = new Map(state.overrides);
+            next.set(locationString, { place, siteName });
+            return { overrides: next };
+        });
+        debounceSaveSelections(get());
+    },
+
+    clearOverride: (locationString: string) => {
+        set((state) => {
+            const next = new Map(state.overrides);
+            next.delete(locationString);
+            return { overrides: next };
+        });
+        debounceSaveSelections(get());
+    },
+
     setDialogOpen: (open: boolean) => {
         set({ dialogOpen: open });
     },
 
     applySelected: async () => {
-        const { results, checked } = get();
+        const { results, checked, overrides } = get();
         const updates: BatchGeocodeUpdate[] = [];
         for (const r of results) {
-            if (checked.has(r.locationString) && r.match) {
+            if (!checked.has(r.locationString)) continue;
+            const override = overrides.get(r.locationString);
+            if (override) {
+                updates.push({
+                    locationString: r.locationString,
+                    place: override.place,
+                    siteName: override.siteName,
+                });
+            } else if (r.match) {
                 updates.push({
                     locationString: r.locationString,
                     place: r.match.place,
@@ -225,6 +317,8 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
             checked: new Set(),
             filter: 'all',
             searchQuery: '',
+            sortBy: 'alpha',
+            overrides: new Map(),
             dialogOpen: false,
             progress: null,
         });
@@ -240,6 +334,8 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
             checked: new Set(),
             filter: 'all',
             searchQuery: '',
+            sortBy: 'alpha',
+            overrides: new Map(),
             progress: null,
             error: null,
         });
@@ -255,6 +351,8 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
             checked: new Set(),
             filter: 'all',
             searchQuery: '',
+            sortBy: 'alpha',
+            overrides: new Map(),
             dialogOpen: false,
             error: null,
         });

@@ -253,6 +253,8 @@ export interface PersistedBatchGeocodeState {
         checked: string[];
         filter: string;
         searchQuery: string;
+        sortBy?: string;
+        overrides?: Record<string, { place: Place; siteName: string | null }>;
     };
 }
 
@@ -276,6 +278,8 @@ export async function saveBatchGeocodeSelections(selections: {
     checked: string[];
     filter: string;
     searchQuery: string;
+    sortBy?: string;
+    overrides?: Record<string, { place: Place; siteName: string | null }>;
 }): Promise<void> {
     await apiFetch('/geocoding/batch/selections', {
         method: 'PUT',

@@ -1,8 +1,10 @@
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import { useSystemStatus } from '@/api/hooks';
 import type { BatchGeocodeResult } from '@/api/client';
-import { useGeocodeStore } from '@/store/geocodeStore';
+import type { Place } from '@/api/people';
+import { useGeocodeStore, type SortBy } from '@/store/geocodeStore';
 import { useQueryClient } from '@tanstack/react-query';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -17,11 +19,15 @@ import {
     DialogDescription,
     DialogFooter,
 } from '@/components/ui/dialog';
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
+import { PlaceSearchCombobox } from '@/components/PlaceSearchCombobox';
+import { formatPlaceDisplay, formatCoordinates } from '@/lib/placeUtils';
+import { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react';
 import {
     RefreshCw, Camera, Loader2, Server, Database, Clock, Activity,
     Sun, Moon, Palette, Upload, Download, AlertTriangle, CheckCircle2,
-    MapPin, Search, ArrowRight, MapPinned,
+    MapPin, Search, ArrowRight, MapPinned, Pencil, RotateCcw, Landmark,
+    ArrowUpDown,
 } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
 import { toast } from 'sonner';
@@ -382,10 +388,37 @@ function SettingsPage() {
 
 type ConfidenceFilter = 'all' | 'high' | 'medium' | 'low' | 'unmatched';
 
+const CONFIDENCE_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
+
+function sortResults(results: BatchGeocodeResult[], sortBy: SortBy): BatchGeocodeResult[] {
+    const sorted = [...results];
+    switch (sortBy) {
+        case 'alpha':
+            sorted.sort((a, b) => a.locationString.localeCompare(b.locationString));
+            break;
+        case 'confidence':
+            sorted.sort((a, b) => (CONFIDENCE_RANK[b.match?.confidence ?? ''] ?? 0) - (CONFIDENCE_RANK[a.match?.confidence ?? ''] ?? 0));
+            break;
+        case 'events':
+            sorted.sort((a, b) => b.occurrences.length - a.occurrences.length);
+            break;
+    }
+    return sorted;
+}
+
+function escapeCsvField(value: string): string {
+    if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+        return `"${value.replace(/"/g, '""')}"`;
+    }
+    return value;
+}
+
 function GeocodeLocationsSection() {
     const store = useGeocodeStore();
     const queryClient = useQueryClient();
     const [isApplying, setIsApplying] = useState(false);
+    const [inputQuery, setInputQuery] = useState(store.searchQuery);
+    const parentRef = useRef<HTMLDivElement>(null);
 
     // Load persisted results on mount
     useEffect(() => {
@@ -393,22 +426,37 @@ function GeocodeLocationsSection() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Sync local input when store searchQuery changes externally (e.g. on load)
+    useEffect(() => {
+        setInputQuery(store.searchQuery);
+    }, [store.searchQuery]);
+
+    // Debounce search input → store
+    useEffect(() => {
+        const t = setTimeout(() => store.setSearchQuery(inputQuery), 200);
+        return () => clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [inputQuery]);
+
     const filteredResults = useMemo(() => {
-        return store.results.filter(r => {
+        const filtered = store.results.filter(r => {
             if (store.filter === 'high' && r.match?.confidence !== 'high') return false;
             if (store.filter === 'medium' && r.match?.confidence !== 'medium') return false;
             if (store.filter === 'low' && r.match?.confidence !== 'low') return false;
             if (store.filter === 'unmatched' && r.match !== null) return false;
             if (store.searchQuery) {
                 const q = store.searchQuery.toLowerCase();
+                const override = store.overrides.get(r.locationString);
                 if (!r.locationString.toLowerCase().includes(q) &&
-                    !(r.match?.place.name ?? '').toLowerCase().includes(q)) {
+                    !(r.match?.place.name ?? '').toLowerCase().includes(q) &&
+                    !(override?.place.name ?? '').toLowerCase().includes(q)) {
                     return false;
                 }
             }
             return true;
         });
-    }, [store.results, store.filter, store.searchQuery]);
+        return sortResults(filtered, store.sortBy);
+    }, [store.results, store.filter, store.searchQuery, store.sortBy, store.overrides]);
 
     const selectedCount = store.checked.size;
 
@@ -421,6 +469,24 @@ function GeocodeLocationsSection() {
         }
         return count;
     }, [store.results, store.checked]);
+
+    // Select-all: only rows that have a match or override
+    const visibleMatchable = useMemo(() =>
+        filteredResults.filter(r => r.match || store.overrides.has(r.locationString)).map(r => r.locationString),
+        [filteredResults, store.overrides],
+    );
+    const visibleCheckedCount = useMemo(() =>
+        visibleMatchable.filter(ls => store.checked.has(ls)).length,
+        [visibleMatchable, store.checked],
+    );
+    const allVisibleChecked = visibleMatchable.length > 0 && visibleCheckedCount === visibleMatchable.length;
+
+    const rowVirtualizer = useVirtualizer({
+        count: filteredResults.length,
+        getScrollElement: () => parentRef.current,
+        estimateSize: () => 80,
+        overscan: 15,
+    });
 
     const handleScan = useCallback(async () => {
         await store.startScan();
@@ -451,6 +517,58 @@ function GeocodeLocationsSection() {
     const handleFilterToggle = useCallback((f: ConfidenceFilter) => {
         store.setFilter(store.filter === f ? 'all' : f);
     }, [store]);
+
+    const handleToggle = useCallback((locationString: string) => {
+        store.toggleSelection(locationString);
+    }, [store]);
+
+    const handleSetOverride = useCallback((locationString: string, place: Place) => {
+        store.setOverride(locationString, place, null);
+        // Auto-check the row when user manually assigns a place
+        if (!store.checked.has(locationString)) {
+            store.toggleSelection(locationString);
+        }
+    }, [store]);
+
+    const handleClearOverride = useCallback((locationString: string) => {
+        store.clearOverride(locationString);
+    }, [store]);
+
+    const handleSelectAll = useCallback(() => {
+        if (allVisibleChecked) {
+            store.deselectAll(visibleMatchable);
+        } else {
+            store.selectAll(visibleMatchable);
+        }
+    }, [store, allVisibleChecked, visibleMatchable]);
+
+    const handleExportCsv = useCallback(() => {
+        const header = ['Location', 'Matched Place', 'Confidence', 'Site Name', 'Latitude', 'Longitude', 'Events', 'Selected'];
+        const rows = filteredResults.map(r => {
+            const override = store.overrides.get(r.locationString);
+            const effectivePlace = override?.place ?? r.match?.place;
+            const effectiveSiteName = override ? override.siteName : r.match?.siteName;
+            const confidence = override ? 'edited' : (r.match?.confidence ?? 'none');
+            return [
+                escapeCsvField(r.locationString),
+                escapeCsvField(effectivePlace ? formatPlaceDisplay(effectivePlace) : ''),
+                confidence,
+                escapeCsvField(effectiveSiteName ?? ''),
+                effectivePlace?.lat?.toFixed(4) ?? '',
+                effectivePlace?.lng?.toFixed(4) ?? '',
+                String(r.occurrences.length),
+                store.checked.has(r.locationString) ? 'yes' : 'no',
+            ].join(',');
+        });
+        const csv = [header.join(','), ...rows].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `geocode-results-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }, [filteredResults, store.overrides, store.checked]);
 
     return (
         <>
@@ -513,7 +631,8 @@ function GeocodeLocationsSection() {
                         {store.status === 'completed' && store.stats && (
                             <DialogDescription>
                                 {store.stats.total} unresolved locations found
-                                {store.stats.alreadyResolved > 0 && ` (${store.stats.alreadyResolved} already resolved)`}
+                                {store.stats.alreadyResolved > 0 && ` (${store.stats.alreadyResolved} already resolved)`}.
+                                {' '}Each row shows the original location string and its best match. Select rows to apply.
                             </DialogDescription>
                         )}
                     </DialogHeader>
@@ -552,33 +671,96 @@ function GeocodeLocationsSection() {
                                 )}
                             </div>
 
-                            <div className="relative">
-                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                                <Input
-                                    placeholder="Filter locations..."
-                                    value={store.searchQuery}
-                                    onChange={(e) => store.setSearchQuery(e.target.value)}
-                                    className="pl-8 h-9"
-                                />
+                            <div className="flex items-center gap-2">
+                                <div className="relative flex-1">
+                                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        placeholder="Search locations or matched places..."
+                                        value={inputQuery}
+                                        onChange={(e) => setInputQuery(e.target.value)}
+                                        className="pl-8 h-9"
+                                    />
+                                </div>
                             </div>
 
-                            <div className="flex-1 overflow-y-auto min-h-0 space-y-1 -mx-6 px-6">
-                                {filteredResults.length === 0 && (
+                            {/* Sort + select-all bar */}
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <div className="flex items-center gap-1">
+                                    <ArrowUpDown className="h-3 w-3" />
+                                    <span className="mr-1">Sort:</span>
+                                    {(['alpha', 'confidence', 'events'] as const).map(s => (
+                                        <button
+                                            key={s}
+                                            onClick={() => store.setSortBy(s)}
+                                            className={`px-2 py-0.5 rounded-md transition-colors ${store.sortBy === s ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted'}`}
+                                        >
+                                            {s === 'alpha' ? 'A\u2013Z' : s === 'confidence' ? 'Confidence' : 'Events'}
+                                        </button>
+                                    ))}
+                                </div>
+                                {visibleMatchable.length > 0 && (
+                                    <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                                        <input
+                                            type="checkbox"
+                                            checked={allVisibleChecked}
+                                            ref={el => { if (el) el.indeterminate = visibleCheckedCount > 0 && !allVisibleChecked; }}
+                                            onChange={handleSelectAll}
+                                            className="h-3.5 w-3.5 rounded border-border accent-primary"
+                                        />
+                                        <span>
+                                            {visibleCheckedCount === 0
+                                                ? `Select all ${visibleMatchable.length}`
+                                                : allVisibleChecked
+                                                    ? `All ${visibleMatchable.length} selected`
+                                                    : `${visibleCheckedCount} of ${visibleMatchable.length} selected`
+                                            }
+                                        </span>
+                                    </label>
+                                )}
+                            </div>
+
+                            <div ref={parentRef} className="flex-1 overflow-y-auto min-h-0 -mx-6 px-6">
+                                {filteredResults.length === 0 ? (
                                     <p className="text-sm text-muted-foreground text-center py-8">
                                         {store.results.length === 0 ? 'No unresolved locations found.' : 'No results match the current filter.'}
                                     </p>
+                                ) : (
+                                    <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
+                                        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                                            const r = filteredResults[virtualRow.index];
+                                            return (
+                                                <div
+                                                    key={r.locationString}
+                                                    data-index={virtualRow.index}
+                                                    ref={rowVirtualizer.measureElement}
+                                                    style={{
+                                                        position: 'absolute',
+                                                        top: 0,
+                                                        left: 0,
+                                                        width: '100%',
+                                                        transform: `translateY(${virtualRow.start}px)`,
+                                                    }}
+                                                >
+                                                    <GeocodeResultRow
+                                                        result={r}
+                                                        checked={store.checked.has(r.locationString)}
+                                                        override={store.overrides.get(r.locationString) ?? null}
+                                                        onToggle={handleToggle}
+                                                        onSetOverride={handleSetOverride}
+                                                        onClearOverride={handleClearOverride}
+                                                    />
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 )}
-                                {filteredResults.map((r) => (
-                                    <GeocodeResultRow
-                                        key={r.locationString}
-                                        result={r}
-                                        checked={store.checked.has(r.locationString)}
-                                        onToggle={() => store.toggleSelection(r.locationString)}
-                                    />
-                                ))}
                             </div>
 
-                            <DialogFooter>
+                            <DialogFooter className="gap-2 sm:gap-0">
+                                <Button variant="outline" size="sm" onClick={handleExportCsv}>
+                                    <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
+                                </Button>
+                                <div className="flex-1" />
                                 <Button variant="outline" onClick={() => store.setDialogOpen(false)}>Cancel</Button>
                                 <Button
                                     disabled={selectedCount === 0 || isApplying}
@@ -605,66 +787,156 @@ const CONFIDENCE_COLORS = {
     low: 'bg-orange-500/10 text-orange-600 border-orange-500/20',
 } as const;
 
-function GeocodeResultRow({ result, checked, onToggle }: {
+interface GeocodeResultRowProps {
     result: BatchGeocodeResult;
     checked: boolean;
-    onToggle: () => void;
-}) {
+    override: { place: Place; siteName: string | null } | null;
+    onToggle: (locationString: string) => void;
+    onSetOverride: (locationString: string, place: Place) => void;
+    onClearOverride: (locationString: string) => void;
+}
+
+const GeocodeResultRow = memo(function GeocodeResultRow({
+    result, checked, override, onToggle, onSetOverride, onClearOverride,
+}: GeocodeResultRowProps) {
     const { match } = result;
     const eventCount = result.occurrences.length;
+    const [editing, setEditing] = useState(false);
+    const [editQuery, setEditQuery] = useState('');
+
+    const effectivePlace = override?.place ?? match?.place;
+    const effectiveSiteName = override ? override.siteName : match?.siteName;
+    const hasCheckbox = !!(match || override);
+
+    const handleEdit = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setEditQuery(effectivePlace ? formatPlaceDisplay(effectivePlace) : result.locationString);
+        setEditing(true);
+    };
+
+    const handlePlaceSelect = (place: Place) => {
+        onSetOverride(result.locationString, place);
+        setEditing(false);
+    };
+
+    const handleReset = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClearOverride(result.locationString);
+        setEditing(false);
+    };
 
     return (
-        <label className="flex items-start gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 cursor-pointer transition-colors">
-            {match ? (
-                <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={onToggle}
-                    className="mt-1 shrink-0 h-4 w-4 rounded border-border accent-primary"
-                />
-            ) : (
-                <div className="mt-1 shrink-0 h-4 w-4" />
-            )}
-
-            <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-medium truncate" title={result.locationString}>
-                        {result.locationString}
-                    </span>
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
-                        {eventCount} {eventCount === 1 ? 'event' : 'events'}
-                    </Badge>
-                </div>
-
-                {match ? (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                        <ArrowRight className="h-3 w-3 shrink-0" />
-                        <span className="font-medium text-foreground">
-                            {[match.place.name, match.place.admin2Name, match.place.admin1Name, match.place.countryCode].filter(Boolean).join(', ')}
-                        </span>
-                        {match.place.lat != null && match.place.lng != null && (
-                            <span className="text-muted-foreground">
-                                ({match.place.lat.toFixed(2)}, {match.place.lng.toFixed(2)})
-                            </span>
-                        )}
-                        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 border ${CONFIDENCE_COLORS[match.confidence]}`}>
-                            {match.confidence}
-                        </Badge>
-                        {match.siteName && (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                                site: {match.siteName}
-                            </Badge>
-                        )}
-                    </div>
+        <div className="py-1">
+            <label className={`flex items-start gap-3 p-3 rounded-lg border hover:bg-muted/30 cursor-pointer transition-colors ${override ? 'border-primary/30 bg-primary/5' : 'border-border'}`}>
+                {hasCheckbox ? (
+                    <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => onToggle(result.locationString)}
+                        className="mt-1 shrink-0 h-4 w-4 rounded border-border accent-primary"
+                    />
                 ) : (
-                    <div className="text-xs text-muted-foreground">
-                        No match found
-                    </div>
+                    <div className="mt-1 shrink-0 h-4 w-4" />
                 )}
-            </div>
-        </label>
+
+                <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Original</span>
+                        <span className="text-sm font-medium truncate" title={result.locationString}>
+                            {result.locationString}
+                        </span>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                            {eventCount} {eventCount === 1 ? 'event' : 'events'}
+                        </Badge>
+                    </div>
+
+                    {effectivePlace ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                            <ArrowRight className="h-3 w-3 shrink-0 text-primary/60" />
+                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Matched to</span>
+                            <span className="font-medium text-foreground">
+                                {formatPlaceDisplay(effectivePlace)}
+                            </span>
+                            {effectivePlace.lat != null && effectivePlace.lng != null && (
+                                <span className="text-muted-foreground">
+                                    ({formatCoordinates(effectivePlace)})
+                                </span>
+                            )}
+                            {!override && match && (
+                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 border ${CONFIDENCE_COLORS[match.confidence]}`}>
+                                    {match.confidence}
+                                </Badge>
+                            )}
+                            {override && (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border border-primary/30 bg-primary/10 text-primary">
+                                    edited
+                                </Badge>
+                            )}
+                            {effectiveSiteName && (
+                                <TooltipProvider delayDuration={300}>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 gap-1">
+                                                <Landmark className="h-2.5 w-2.5" />
+                                                {effectiveSiteName}
+                                            </Badge>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" className="max-w-xs text-xs">
+                                            Specific location extracted from the original string (e.g. a cemetery, church, or hospital). Will be saved as the event&apos;s site name.
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            )}
+                            <button
+                                onClick={handleEdit}
+                                className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+                                title="Edit matched place"
+                            >
+                                <Pencil className="h-3 w-3" />
+                            </button>
+                            {override && (
+                                <button
+                                    onClick={handleReset}
+                                    className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+                                    title="Reset to original match"
+                                >
+                                    <RotateCcw className="h-3 w-3" />
+                                </button>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>No match found</span>
+                            <button
+                                onClick={handleEdit}
+                                className="inline-flex items-center gap-1 text-primary hover:text-primary/80 transition-colors font-medium"
+                            >
+                                <Pencil className="h-3 w-3" /> Assign manually
+                            </button>
+                        </div>
+                    )}
+
+                    {editing && (
+                        <div className="pt-1" onClick={(e) => e.preventDefault()}>
+                            <PlaceSearchCombobox
+                                value={editQuery}
+                                onChange={setEditQuery}
+                                onSelect={handlePlaceSelect}
+                                initialPlace={effectivePlace}
+                                size="sm"
+                                autoFocus
+                                placeholder="Search for a place..."
+                                inputClassName="h-7 text-xs"
+                            />
+                        </div>
+                    )}
+                </div>
+            </label>
+        </div>
     );
-}
+});
 
 function StatBadge({ label, count, color, active, onClick }: {
     label: string;
