@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import type { BatchGeocodeResult, BatchGeocodeStats, BatchGeocodeUpdate } from '@/api/client';
 import {
     startBatchGeocode,
-    getBatchGeocodeResults,
     saveBatchGeocodeSelections,
     clearBatchGeocodeResults,
     applyBatchGeocode,

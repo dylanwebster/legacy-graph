@@ -38,8 +38,8 @@ async function setupGit() {
 }
 
 const PEOPLE_DIR = path.join(TEST_DATA_DIR, 'people');
-// Fixture people that must survive cleanup
-const FIXTURE_PEOPLE = new Set(['N_test-import-2000-fixture.yaml']);
+// Track person IDs created by this test file so cleanup only removes our own files
+const createdPersonIds = new Set<string>();
 
 function cleanupTestAssets() {
     if (fs.existsSync(ASSETS_DIR)) {
@@ -52,14 +52,11 @@ function cleanupTestAssets() {
     if (fs.existsSync(metaAssetsYaml)) {
         try { fs.unlinkSync(metaAssetsYaml); } catch { /* ignore */ }
     }
-    // Clean up person YAML files created by tests (prevents cross-test contamination)
-    if (fs.existsSync(PEOPLE_DIR)) {
-        for (const file of fs.readdirSync(PEOPLE_DIR)) {
-            if (!FIXTURE_PEOPLE.has(file)) {
-                try { fs.unlinkSync(path.join(PEOPLE_DIR, file)); } catch { /* ignore */ }
-            }
-        }
+    // Only clean up person YAML files created by this test file (safe for parallel runs)
+    for (const id of createdPersonIds) {
+        try { fs.unlinkSync(path.join(PEOPLE_DIR, `${id}.yaml`)); } catch { /* ignore */ }
     }
+    createdPersonIds.clear();
 }
 
 function writeTestAsset(filename = TEST_ASSET) {
@@ -155,6 +152,7 @@ describe('Assets API', () => {
         });
         expect(createRes.status).toBe(201);
         const personId = createRes.body.id;
+        createdPersonIds.add(personId);
 
         writeTestAsset();
 
@@ -165,9 +163,6 @@ describe('Assets API', () => {
         expect(item).toBeDefined();
         expect(item.isOrphan).toBe(false);
         expect(item.referencedBy.people).toContain(personId);
-
-        // Cleanup
-        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
 
     it('GET /api/assets?type=image returns only image files', async () => {
@@ -248,14 +243,12 @@ describe('Assets API', () => {
         });
         expect(createRes.status).toBe(201);
         const personId = createRes.body.id;
+        createdPersonIds.add(personId);
 
         const res = await request.get('/api/assets?q=SearchableFirstName');
         expect(res.status).toBe(200);
         const item = res.body.assets.find((a: any) => a.filename === TEST_ASSET);
         expect(item).toBeDefined();
-
-        // Cleanup
-        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
 
     it('GET /api/assets?q= filters by multi-word person name with middle initial', async () => {
@@ -269,6 +262,7 @@ describe('Assets API', () => {
             });
             expect(createRes.status).toBe(201);
             personId = createRes.body.id;
+            createdPersonIds.add(personId);
 
             // Searching first+last skipping middle initial should match
             const res = await request.get('/api/assets?q=AssetsSearch+PersonSearch');
@@ -375,15 +369,13 @@ describe('Assets API', () => {
         });
         expect(createRes.status).toBe(201);
         const personId = createRes.body.id;
+        createdPersonIds.add(personId);
 
         const res = await request.delete(`/api/assets/${TEST_ASSET}`);
         expect(res.status).toBe(409);
         expect(res.body.code).toBe('ASSET_REFERENCED');
         expect(res.body.referencedBy.people).toContain(personId);
         expect(fs.existsSync(TEST_ASSET_PATH)).toBe(true);
-
-        // Cleanup
-        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
 
     it('DELETE /api/assets/:filename returns 404 for missing file', async () => {
@@ -402,6 +394,7 @@ describe('Assets API', () => {
         });
         expect(createRes.status).toBe(201);
         const personId = createRes.body.id;
+        createdPersonIds.add(personId);
 
         const res = await request.delete(`/api/assets/${TEST_ASSET}?force=true`);
         expect(res.status).toBe(204);
@@ -411,9 +404,6 @@ describe('Assets API', () => {
         const personRes = await request.get(`/api/people/${personId}`);
         expect(personRes.status).toBe(200);
         expect(personRes.body.assets).not.toContain(TEST_ASSET);
-
-        // Cleanup
-        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
 
     it('DELETE /api/assets/:filename?force=true still returns 404 for missing file', async () => {
@@ -433,6 +423,7 @@ describe('Assets API', () => {
         });
         expect(createRes.status).toBe(201);
         const personId = createRes.body.id;
+        createdPersonIds.add(personId);
 
         const res = await request
             .post(`/api/people/${personId}/assets/link`)
@@ -440,9 +431,6 @@ describe('Assets API', () => {
 
         expect(res.status).toBe(200);
         expect(res.body.assets).toContain(TEST_ASSET);
-
-        // Cleanup
-        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
 
     it('POST /api/people/:id/assets/link is idempotent', async () => {
@@ -455,6 +443,7 @@ describe('Assets API', () => {
         });
         expect(createRes.status).toBe(201);
         const personId = createRes.body.id;
+        createdPersonIds.add(personId);
 
         const res = await request
             .post(`/api/people/${personId}/assets/link`)
@@ -463,9 +452,6 @@ describe('Assets API', () => {
         expect(res.status).toBe(200);
         const occurrences = (res.body.assets as string[]).filter(a => a === TEST_ASSET).length;
         expect(occurrences).toBe(1);
-
-        // Cleanup
-        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
 
     it('POST /api/people/:id/assets/link returns 404 for missing person', async () => {
@@ -484,15 +470,13 @@ describe('Assets API', () => {
         });
         expect(createRes.status).toBe(201);
         const personId = createRes.body.id;
+        createdPersonIds.add(personId);
 
         const res = await request
             .post(`/api/people/${personId}/assets/link`)
             .send({ filename: 'does-not-exist.png' });
 
         expect(res.status).toBe(400);
-
-        // Cleanup
-        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
 
     // ── DELETE /api/people/:id/media/:filename (unlink-only) ─────────────────
@@ -507,6 +491,7 @@ describe('Assets API', () => {
         });
         expect(createRes.status).toBe(201);
         const personId = createRes.body.id;
+        createdPersonIds.add(personId);
 
         const res = await request.delete(`/api/people/${personId}/media/${TEST_ASSET}`);
         expect(res.status).toBe(204);
@@ -518,9 +503,6 @@ describe('Assets API', () => {
         const personRes = await request.get(`/api/people/${personId}`);
         expect(personRes.status).toBe(200);
         expect(personRes.body.assets).not.toContain(TEST_ASSET);
-
-        // Cleanup
-        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
 
     // ── GET /api/assets?personIds= ───────────────────────────────────────────
@@ -537,6 +519,7 @@ describe('Assets API', () => {
             });
             expect(personARes.status).toBe(201);
             const personAId = personARes.body.id;
+            createdPersonIds.add(personAId);
 
             const personBRes = await request.post('/api/people').send({
                 names: [{ first: 'PersonB', last: 'Filter' }],
@@ -545,6 +528,7 @@ describe('Assets API', () => {
             });
             expect(personBRes.status).toBe(201);
             const personBId = personBRes.body.id;
+            createdPersonIds.add(personBId);
 
             const res = await request.get(`/api/assets?personIds=${personAId}`);
             expect(res.status).toBe(200);
@@ -552,12 +536,6 @@ describe('Assets API', () => {
             const filenames = res.body.assets.map((a: any) => a.filename);
             expect(filenames).toContain('test-asset-person-a.png');
             expect(filenames).not.toContain('test-asset-person-b.png');
-
-            // Cleanup
-            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personAId}.yaml`));
-            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personBId}.yaml`));
-            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-person-a.png')); } catch { /* ignore */ }
-            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-person-b.png')); } catch { /* ignore */ }
         });
 
         it('returns only assets tagged with ALL specified people (AND filter)', async () => {
@@ -571,6 +549,7 @@ describe('Assets API', () => {
             });
             expect(firstRes.status).toBe(201);
             const firstId = firstRes.body.id;
+            createdPersonIds.add(firstId);
 
             const secondRes = await request.post('/api/people').send({
                 names: [{ first: 'AndSecond', last: 'Filter' }],
@@ -579,6 +558,7 @@ describe('Assets API', () => {
             });
             expect(secondRes.status).toBe(201);
             const secondId = secondRes.body.id;
+            createdPersonIds.add(secondId);
 
             const res = await request.get(`/api/assets?personIds=${firstId},${secondId}`);
             expect(res.status).toBe(200);
@@ -586,12 +566,6 @@ describe('Assets API', () => {
             const filenames = res.body.assets.map((a: any) => a.filename);
             expect(filenames).toContain('test-asset-shared.png');
             expect(filenames).not.toContain('test-asset-only-first.png');
-
-            // Cleanup
-            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${firstId}.yaml`));
-            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${secondId}.yaml`));
-            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-shared.png')); } catch { /* ignore */ }
-            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-only-first.png')); } catch { /* ignore */ }
         });
 
         it('personIds filter combines with text search q', async () => {
@@ -605,6 +579,7 @@ describe('Assets API', () => {
             });
             expect(personRes.status).toBe(201);
             const personId = personRes.body.id;
+            createdPersonIds.add(personId);
 
             // q=alpha only matches the alpha file (beta does not contain alpha as substring)
             const res = await request.get(`/api/assets?personIds=${personId}&q=alpha`);
@@ -613,11 +588,6 @@ describe('Assets API', () => {
             const filenames = res.body.assets.map((a: any) => a.filename);
             expect(filenames).toContain('test-asset-combo-alpha.png');
             expect(filenames).not.toContain('test-asset-combo-beta.png');
-
-            // Cleanup
-            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
-            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-combo-alpha.png')); } catch { /* ignore */ }
-            try { fs.unlinkSync(path.join(ASSETS_DIR, 'test-asset-combo-beta.png')); } catch { /* ignore */ }
         });
     });
 
@@ -633,6 +603,7 @@ describe('Assets API', () => {
         });
         expect(createRes.status).toBe(201);
         const personId = createRes.body.id;
+        createdPersonIds.add(personId);
 
         const res = await request.delete(`/api/people/${personId}/assets/link/${TEST_ASSET}`);
         expect(res.status).toBe(204);
@@ -643,9 +614,6 @@ describe('Assets API', () => {
         // Person should no longer reference it
         const personRes = await request.get(`/api/people/${personId}`);
         expect(personRes.body.assets).not.toContain(TEST_ASSET);
-
-        // Cleanup
-        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
 
     it('DELETE /api/people/:id/assets/link/:filename returns 404 for missing person', async () => {
@@ -661,13 +629,11 @@ describe('Assets API', () => {
         });
         expect(createRes.status).toBe(201);
         const personId = createRes.body.id;
+        createdPersonIds.add(personId);
 
         const res = await request.delete(`/api/people/${personId}/assets/link/nonexistent.png`);
         expect(res.status).toBe(404);
         expect(res.body.code).toBe('ASSET_NOT_FOUND');
-
-        // Cleanup
-        fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
     });
 
     // ── Timestamps ──────────────────────────────────────────────────────────
@@ -896,6 +862,7 @@ describe('Assets API', () => {
             });
             expect(createRes.status).toBe(201);
             const personId = createRes.body.id;
+            createdPersonIds.add(personId);
 
             const uploadRes = await request
                 .put(`/api/people/${personId}/events/${TEST_EVENT_ID}/media`)
@@ -914,10 +881,6 @@ describe('Assets API', () => {
             const event = (personRes.body.events as any[]).find((e: any) => e.id === TEST_EVENT_ID);
             expect(event).toBeDefined();
             expect(event.assets).toContain(filename);
-
-            // Cleanup
-            try { fs.unlinkSync(path.join(ASSETS_DIR, filename)); } catch { /* ignore */ }
-            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
         });
 
         it('does not duplicate person.assets[] on second upload to same event', async () => {
@@ -928,6 +891,7 @@ describe('Assets API', () => {
             });
             expect(createRes.status).toBe(201);
             const personId = createRes.body.id;
+            createdPersonIds.add(personId);
 
             const up1 = await request
                 .put(`/api/people/${personId}/events/${TEST_EVENT_ID}/media`)
@@ -946,11 +910,6 @@ describe('Assets API', () => {
             const count2 = assets.filter(a => a === up2.body.filename).length;
             expect(count1).toBe(1);
             expect(count2).toBe(1);
-
-            // Cleanup
-            try { fs.unlinkSync(path.join(ASSETS_DIR, up1.body.filename)); } catch { /* ignore */ }
-            try { fs.unlinkSync(path.join(ASSETS_DIR, up2.body.filename)); } catch { /* ignore */ }
-            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
         });
     });
 
@@ -967,6 +926,7 @@ describe('Assets API', () => {
             });
             expect(createRes.status).toBe(201);
             const personId = createRes.body.id;
+            createdPersonIds.add(personId);
 
             // Verify the event has the asset
             const before = await request.get(`/api/people/${personId}`);
@@ -983,9 +943,6 @@ describe('Assets API', () => {
             expect(after.status).toBe(200);
             const eventAfter = (after.body.events as any[]).find((e: any) => e.id === 'test-event-force-del');
             expect(eventAfter?.assets).not.toContain(TEST_ASSET);
-
-            // Cleanup
-            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
         });
 
         it('returns 409 (not 200) when asset is only in event.assets[] and force is false', async () => {
@@ -998,14 +955,12 @@ describe('Assets API', () => {
             });
             expect(createRes.status).toBe(201);
             const personId = createRes.body.id;
+            createdPersonIds.add(personId);
 
             const delRes = await request.delete(`/api/assets/${TEST_ASSET}`);
             expect(delRes.status).toBe(409);
             expect(delRes.body.code).toBe('ASSET_REFERENCED');
             expect(fs.existsSync(TEST_ASSET_PATH)).toBe(true);
-
-            // Cleanup
-            fs.unlinkSync(path.join(TEST_DATA_DIR, 'people', `${personId}.yaml`));
         });
     });
 });
