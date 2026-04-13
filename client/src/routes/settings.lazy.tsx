@@ -470,7 +470,9 @@ function GeocodeLocationsSection() {
                     {store.status === 'scanning' && (
                         <Button variant="outline" onClick={() => store.setDialogOpen(true)}>
                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Scanning... {store.progress ? `${store.progress.percent}%` : ''}
+                            Scanning...{store.progress && store.progress.total > 0 && store.progress.percent < 100
+                                ? ` ${store.progress.percent}%`
+                                : ''}
                         </Button>
                     )}
                     {store.status === 'completed' && (
@@ -501,9 +503,11 @@ function GeocodeLocationsSection() {
                         <DialogTitle className="flex items-center gap-2">
                             <MapPinned className="h-5 w-5" /> Batch Geocoding Results
                         </DialogTitle>
-                        {store.status === 'scanning' && store.progress && (
+                        {store.status === 'scanning' && (
                             <DialogDescription>
-                                Scanning... {store.progress.processed} / {store.progress.total} locations ({store.progress.percent}%)
+                                {store.progress && store.progress.total > 0
+                                    ? `Scanning... ${store.progress.processed} / ${store.progress.total} locations (${store.progress.percent}%)`
+                                    : 'Scanning locations...'}
                             </DialogDescription>
                         )}
                         {store.status === 'completed' && store.stats && (
@@ -514,16 +518,22 @@ function GeocodeLocationsSection() {
                         )}
                     </DialogHeader>
 
-                    {store.status === 'scanning' && store.progress && (
+                    {store.status === 'scanning' && (
                         <div className="w-full">
                             <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
-                                <div
-                                    className="h-full bg-primary transition-all duration-300 ease-out"
-                                    style={{ width: `${store.progress.percent}%` }}
-                                />
+                                {store.progress && store.progress.total > 0 ? (
+                                    <div
+                                        className="h-full bg-primary transition-all duration-300 ease-out"
+                                        style={{ width: `${store.progress.percent}%` }}
+                                    />
+                                ) : (
+                                    <div className="h-full w-1/3 bg-primary rounded-full animate-[indeterminate_1.5s_ease-in-out_infinite]" />
+                                )}
                             </div>
                             <p className="text-xs text-muted-foreground mt-1.5 text-center">
-                                Processing location {store.progress.processed} of {store.progress.total}
+                                {store.progress && store.progress.total > 0
+                                    ? `Processing location ${store.progress.processed} of ${store.progress.total}`
+                                    : 'Scanning for unresolved locations...'}
                             </p>
                         </div>
                     )}

@@ -44,72 +44,79 @@ function debounceSaveSelections(state: GeocodeState) {
     }, 500);
 }
 
-let activeEventSource: EventSource | null = null;
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-function connectToStream(set: (partial: Partial<GeocodeState> | ((state: GeocodeState) => Partial<GeocodeState>)) => void) {
-    // Clean up any existing connection
-    if (activeEventSource) {
-        activeEventSource.close();
-        activeEventSource = null;
+function stopPolling() {
+    if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
     }
+}
 
-    const evtSource = new EventSource('/api/geocoding/batch/stream');
-    activeEventSource = evtSource;
+function pollForResults(set: (partial: Partial<GeocodeState> | ((state: GeocodeState) => Partial<GeocodeState>)) => void) {
+    stopPolling();
 
-    evtSource.addEventListener('progress', (e) => {
+    const poll = async () => {
         try {
-            const data = JSON.parse(e.data);
-            set({
-                status: 'scanning',
-                progress: { processed: data.processed, total: data.total, percent: data.percent },
-            });
-        } catch { /* ignore */ }
-    });
-
-    evtSource.addEventListener('complete', (e) => {
-        try {
-            const data = JSON.parse(e.data);
-            const results: BatchGeocodeResult[] = data.results ?? [];
-            const stats: BatchGeocodeStats = data.stats ?? null;
-
-            // Auto-select high and medium confidence
-            const checked = new Set<string>();
-            for (const r of results) {
-                if (r.match && (r.match.confidence === 'high' || r.match.confidence === 'medium')) {
-                    checked.add(r.locationString);
+            const response = await fetch('/api/geocoding/batch/results');
+            if (response.status === 202) {
+                // Job still running — update progress
+                const data = await response.json();
+                if (data.progress) {
+                    set({
+                        status: 'scanning',
+                        progress: {
+                            processed: data.progress.processed,
+                            total: data.progress.total,
+                            percent: data.progress.percent,
+                        },
+                    });
                 }
+                // Continue polling
+                pollTimer = setTimeout(poll, 500);
+            } else if (response.ok) {
+                // Job completed — load results
+                const persisted = await response.json();
+                const results: BatchGeocodeResult[] = persisted.results ?? [];
+                const stats: BatchGeocodeStats = persisted.stats ?? null;
+
+                // Use persisted selections if available, otherwise auto-select high/medium
+                let checked: Set<string>;
+                if (persisted.selections?.checked) {
+                    checked = new Set(persisted.selections.checked);
+                } else {
+                    checked = new Set<string>();
+                    for (const r of results) {
+                        if (r.match && (r.match.confidence === 'high' || r.match.confidence === 'medium')) {
+                            checked.add(r.locationString);
+                        }
+                    }
+                }
+
+                set({
+                    status: 'completed',
+                    progress: null,
+                    results,
+                    stats,
+                    checked,
+                    filter: (persisted.selections?.filter as ConfidenceFilter) || 'all',
+                    searchQuery: persisted.selections?.searchQuery || '',
+                    error: null,
+                });
+                pollTimer = null;
+            } else {
+                // 404 or other error — job disappeared
+                set({ status: 'error', error: 'Scan failed unexpectedly', progress: null });
+                pollTimer = null;
             }
-
-            set({
-                status: 'completed',
-                progress: null,
-                results,
-                stats,
-                checked,
-                filter: 'all',
-                searchQuery: '',
-                error: null,
-            });
-        } catch { /* ignore */ }
-        evtSource.close();
-        activeEventSource = null;
-    });
-
-    evtSource.addEventListener('error', (e) => {
-        const msgEvent = e as MessageEvent;
-        try {
-            if (msgEvent.data) {
-                const data = JSON.parse(msgEvent.data);
-                set({ status: 'error', error: data.message, progress: null });
-                evtSource.close();
-                activeEventSource = null;
-            }
-        } catch { /* ignore */ }
-    });
-
-    evtSource.onerror = () => {
-        // Connection error — may auto-reconnect
+        } catch {
+            // Network error — retry
+            pollTimer = setTimeout(poll, 2000);
+        }
     };
+
+    // Start first poll after a short delay to let the job begin
+    pollTimer = setTimeout(poll, 500);
 }
 
 export const useGeocodeStore = create<GeocodeState>((set, get) => ({
@@ -132,8 +139,8 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
                 await get().loadPersistedResults();
                 return;
             }
-            // Connect to SSE stream for progress
-            connectToStream(set);
+            // Poll for progress
+            pollForResults(set);
         } catch (err) {
             set({ status: 'error', error: err instanceof Error ? err.message : 'Failed to start scan', progress: null });
         }
@@ -143,9 +150,13 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
         try {
             const response = await fetch('/api/geocoding/batch/results');
             if (response.status === 202) {
-                // Job is currently running — reconnect to the stream
-                set({ status: 'scanning', progress: { processed: 0, total: 0, percent: 0 } });
-                connectToStream(set);
+                // Job is currently running — start polling
+                const data = await response.json();
+                set({
+                    status: 'scanning',
+                    progress: data.progress ?? { processed: 0, total: 0, percent: 0 },
+                });
+                pollForResults(set);
             } else if (response.ok) {
                 const persisted = await response.json();
                 set({
@@ -235,10 +246,7 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
     },
 
     reset: () => {
-        if (activeEventSource) {
-            activeEventSource.close();
-            activeEventSource = null;
-        }
+        stopPolling();
         set({
             status: 'idle',
             progress: null,
