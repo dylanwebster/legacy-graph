@@ -121,19 +121,7 @@ function PersonDetail() {
     const [showCropDialog, setShowCropDialog] = useState(false);
     const [avatarCrop, setAvatarCrop] = useState<CropArea | null>(null);
 
-    // Timeline virtualizer
-    const timelineParentRef = useRef<HTMLDivElement>(null);
-    // Force VirtualizedTimeline to remount once after person data first loads so the
-    // virtualizer re-measures the scroll container with its fully-resolved flex height.
-    // Using [] fires too early (during the loading skeleton) when there is no cached data,
-    // so the 0→1 key transition is exhausted before VirtualizedTimeline ever mounts.
-    const [timelineKey, setTimelineKey] = useState(0);
-    const timelineVirtualizerInited = useRef(false);
-    useEffect(() => {
-        if (!person || timelineVirtualizerInited.current) return;
-        timelineVirtualizerInited.current = true;
-        setTimelineKey(1);
-    }, [person]);
+    // Timeline virtualizer — VirtualizedTimeline owns its own scroll container ref
 
     // Reset all editing state when navigating to a different person
     useEffect(() => {
@@ -149,9 +137,6 @@ function PersonDetail() {
         setLightboxAsset(null);
         setShowCropDialog(false);
         setAvatarCrop(loadAvatarCrop(id));
-        // Reset virtualizer so it remounts and re-measures for the new person
-        timelineVirtualizerInited.current = false;
-        setTimelineKey(0);
     }, [id]);
 
 
@@ -662,14 +647,11 @@ function PersonDetail() {
                                 </button>
                             </div>
                         </div>
-                        <div ref={timelineParentRef} className="flex-1 overflow-y-auto">
-                            <VirtualizedTimeline
-                                key={timelineKey}
-                                timeline={timeline as Array<Record<string, unknown>>}
-                                parentRef={timelineParentRef}
-                                onEditEvent={openEditEvent}
-                            />
-                        </div>
+                        <VirtualizedTimeline
+                            key={id}
+                            timeline={timeline as Array<Record<string, unknown>>}
+                            onEditEvent={openEditEvent}
+                        />
                     </div>
                 </ResizablePanel>
 
@@ -974,29 +956,29 @@ function PersonDetail() {
 // Virtualized timeline using @tanstack/react-virtual
 function VirtualizedTimeline({
     timeline,
-    parentRef,
     onEditEvent,
 }: {
     timeline: Array<Record<string, unknown>>;
-    parentRef: React.RefObject<HTMLDivElement | null>;
     onEditEvent: (event: Record<string, unknown>) => void;
 }) {
+    const scrollRef = useRef<HTMLDivElement>(null);
     const rowVirtualizer = useVirtualizer({
         count: timeline.length,
-        getScrollElement: () => parentRef.current,
+        getScrollElement: () => scrollRef.current,
         estimateSize: () => 80,
         overscan: 5,
     });
 
     if (timeline.length === 0) {
         return (
-            <div className="p-8 text-center text-muted-foreground text-sm">
+            <div className="flex-1 overflow-y-auto p-8 text-center text-muted-foreground text-sm">
                 No events recorded yet.
             </div>
         );
     }
 
     return (
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div
             style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}
             className="px-4 py-3"
@@ -1099,6 +1081,7 @@ function VirtualizedTimeline({
                     </div>
                 );
             })}
+        </div>
         </div>
     );
 }
