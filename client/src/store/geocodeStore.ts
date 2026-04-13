@@ -158,8 +158,10 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
                     progress: null,
                     error: null,
                 });
+            } else {
+                // 404 or other — no results on server, reset to idle
+                set({ status: 'idle', results: [], stats: null, checked: new Set(), progress: null, error: null });
             }
-            // 404 = no results and no running job — stay idle
         } catch {
             // No results, stay idle
         }

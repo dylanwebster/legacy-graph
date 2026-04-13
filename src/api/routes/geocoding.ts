@@ -410,10 +410,6 @@ export async function geocodingRoutes(server: FastifyInstance) {
                 }
             }
 
-            if (updatedPeople > 0) {
-                await txManager.flush();
-            }
-
             return { updated: updatedPeople, eventsUpdated };
         });
 
