@@ -344,74 +344,83 @@ export async function geocodingRoutes(server: FastifyInstance) {
         let updatedPeople = 0;
         let eventsUpdated = 0;
 
-        for (const [personId, locationStrings] of affectedPeople) {
-            if (!graph.hasNode(personId)) continue;
+        // Suspend the file watcher during batch writes. The graph is updated
+        // in-memory below, so watcher events for these writes are redundant.
+        // Without suspension, the burst of file writes trips the circuit breaker
+        // (FSEvents delivers hundreds of events), which sets hydrationState to
+        // 'loading' and causes subsequent requests to 503.
+        const result = await graphEngine.withSuspendedWatcher(async () => {
+            for (const [personId, locationStrings] of affectedPeople) {
+                if (!graph.hasNode(personId)) continue;
 
-            const oldSlim = graph.getNodeAttributes(personId).data as SlimPerson;
-            const heavyFields = await graphEngine.loadHeavyFields(personId);
-            if (!heavyFields) continue;
+                const oldSlim = graph.getNodeAttributes(personId).data as SlimPerson;
+                const heavyFields = await graphEngine.loadHeavyFields(personId);
+                if (!heavyFields) continue;
 
-            const currentPerson = {
-                ...oldSlim,
-                scrapbook_md: heavyFields.scrapbook_md ?? '',
-                _gedcom: heavyFields._gedcom ?? {},
-            };
+                const currentPerson = {
+                    ...oldSlim,
+                    scrapbook_md: heavyFields.scrapbook_md ?? '',
+                    _gedcom: heavyFields._gedcom ?? {},
+                };
 
-            const gedcom = currentPerson._gedcom as Record<string, any>;
-            if (!gedcom.original_locations) {
-                gedcom.original_locations = {};
-            }
-
-            let personModified = false;
-
-            for (const event of currentPerson.events) {
-                if (!event.location) continue;
-                if (event.location.resolvedAt) continue;
-
-                const locStr = event.location.name;
-                if (!locationStrings.has(locStr)) continue;
-
-                const update = updateMap.get(locStr)!;
-
-                (gedcom.original_locations as Record<string, string>)[event.id] = locStr;
-
-                event.location = update.place;
-
-                if (update.siteName && !event.site_name) {
-                    event.site_name = update.siteName;
+                const gedcom = currentPerson._gedcom as Record<string, any>;
+                if (!gedcom.original_locations) {
+                    gedcom.original_locations = {};
                 }
 
-                personModified = true;
-                eventsUpdated++;
+                let personModified = false;
+
+                for (const event of currentPerson.events) {
+                    if (!event.location) continue;
+                    if (event.location.resolvedAt) continue;
+
+                    const locStr = event.location.name;
+                    if (!locationStrings.has(locStr)) continue;
+
+                    const update = updateMap.get(locStr)!;
+
+                    (gedcom.original_locations as Record<string, string>)[event.id] = locStr;
+
+                    event.location = update.place;
+
+                    if (update.siteName && !event.site_name) {
+                        event.site_name = update.siteName;
+                    }
+
+                    personModified = true;
+                    eventsUpdated++;
+                }
+
+                if (personModified) {
+                    currentPerson.last_modified = new Date().toISOString();
+                    PersonSchema.parse(currentPerson);
+
+                    const relativePath = path.join('people', `${personId}.yaml`);
+                    const primaryName = currentPerson.names?.[0];
+                    const label = primaryName
+                        ? `${primaryName.first} ${primaryName.last}`
+                        : personId;
+                    await txManager.writeFile(relativePath, yaml.dump(currentPerson), label);
+
+                    const newSlim = toSlimPerson(currentPerson);
+                    graph.setNodeAttribute(personId, 'data', newSlim);
+                    graphEngine.applyWriteSideEffects(personId, oldSlim, newSlim, currentPerson.scrapbook_md || '');
+
+                    updatedPeople++;
+                }
             }
 
-            if (personModified) {
-                currentPerson.last_modified = new Date().toISOString();
-                PersonSchema.parse(currentPerson);
-
-                const relativePath = path.join('people', `${personId}.yaml`);
-                const primaryName = currentPerson.names?.[0];
-                const label = primaryName
-                    ? `${primaryName.first} ${primaryName.last}`
-                    : personId;
-                await txManager.writeFile(relativePath, yaml.dump(currentPerson), label);
-
-                const newSlim = toSlimPerson(currentPerson);
-                graph.setNodeAttribute(personId, 'data', newSlim);
-                graphEngine.applyWriteSideEffects(personId, oldSlim, newSlim, currentPerson.scrapbook_md || '');
-
-                updatedPeople++;
+            if (updatedPeople > 0) {
+                await txManager.flush();
             }
-        }
 
-        if (updatedPeople > 0) {
-            await txManager.flush();
-        }
+            return { updated: updatedPeople, eventsUpdated };
+        });
 
         // Clear persisted results after successful apply
         await clearPersistedResults(dataDir);
         jobManager.clear(JOB_TYPE);
 
-        return { updated: updatedPeople, eventsUpdated };
+        return result;
     });
 }

@@ -122,6 +122,55 @@ assets: []`;
         await engine.stopWatcher();
     });
 
+    it('should NOT trigger circuit breaker when watcher is suspended via withSuspendedWatcher', async () => {
+        await engine.startWatcher();
+
+        // Write 60 files inside withSuspendedWatcher (mimics batch geocode apply)
+        await engine.withSuspendedWatcher(async () => {
+            for (let i = 0; i < 60; i++) {
+                const filePath = path.join(TEST_DIR, 'people', `suspended_${i}.yaml`);
+                const yamlContent = `version: "5.0"
+id: "N_SUSP_${i}"
+created: "2023-01-01T00:00:00Z"
+last_modified: "2023-01-01T00:00:00Z"
+names:
+  - first: "Suspended"
+    last: "Write${i}"
+sex: "M"
+relationships:
+  parents: []
+events: []
+assets: []`;
+                fs.writeFileSync(filePath, yamlContent);
+            }
+        });
+
+        // Wait for any queued watcher events to fire
+        await new Promise(r => setTimeout(r, 600));
+
+        // Circuit breaker should NOT have triggered — watcher was suspended
+        expect(engine.hydrationState).toBe('ready');
+    });
+
+    it('should exclude self-writes from circuit breaker event count (unit)', () => {
+        // Directly test that hasSelfWrite filters correctly in the counting logic
+        const testPath = path.join(TEST_DIR, 'people', 'test.yaml');
+
+        // Before registering, hasSelfWrite should return false
+        expect(engine.hasSelfWrite(testPath)).toBe(false);
+
+        // After registering, hasSelfWrite should return true
+        engine.registerSelfWrite(testPath);
+        expect(engine.hasSelfWrite(testPath)).toBe(true);
+
+        // hasSelfWrite should NOT consume the entry (consumeSelfWrite does)
+        expect(engine.hasSelfWrite(testPath)).toBe(true);
+
+        // consumeSelfWrite should consume it
+        expect(engine.consumeSelfWrite(testPath)).toBe(true);
+        expect(engine.hasSelfWrite(testPath)).toBe(false);
+    });
+
     it('should trigger circuit breaker on massive burst of events', async () => {
         await engine.startWatcher();
 

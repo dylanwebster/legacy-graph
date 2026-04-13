@@ -262,7 +262,7 @@ describe('Assets API', () => {
             });
             expect(createRes.status).toBe(201);
             personId = createRes.body.id;
-            createdPersonIds.add(personId);
+            createdPersonIds.add(personId!);
 
             // Searching first+last skipping middle initial should match
             const res = await request.get('/api/assets?q=AssetsSearch+PersonSearch');

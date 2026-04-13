@@ -94,8 +94,9 @@ describe('Write-Event Deduplication (Phase 3.7.3)', () => {
             // Graph should still have OLD data (hot-patch was skipped)
             expect(engine.getGraph().getNodeAttributes('N_A').data.names[0].first).toBe('Alice');
 
-            // Self-write entry should be consumed
-            expect(engine.hasSelfWrite(filePath)).toBe(false);
+            // Self-write entry should still be present (non-consuming check,
+            // so duplicate watcher events from FSEvents are also filtered)
+            expect(engine.hasSelfWrite(filePath)).toBe(true);
 
             consoleSpy.mockRestore();
         });
