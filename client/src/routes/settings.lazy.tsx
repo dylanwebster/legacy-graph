@@ -27,7 +27,7 @@ import {
     RefreshCw, Camera, Loader2, Server, Database, Clock, Activity,
     Sun, Moon, Palette, Upload, Download, AlertTriangle, CheckCircle2,
     MapPin, Search, ArrowRight, MapPinned, Pencil, RotateCcw, Landmark,
-    ArrowUpDown,
+    ArrowUpDown, X,
 } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
 import { toast } from 'sonner';
@@ -418,6 +418,7 @@ function GeocodeLocationsSection() {
     const queryClient = useQueryClient();
     const [isApplying, setIsApplying] = useState(false);
     const [inputQuery, setInputQuery] = useState(store.searchQuery);
+    const [editingRow, setEditingRow] = useState<string | null>(null);
     // Use state-based ref so virtualizer re-renders when dialog mounts/unmounts the scroll container
     const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
 
@@ -535,6 +536,14 @@ function GeocodeLocationsSection() {
         store.clearOverride(locationString);
     }, [store]);
 
+    const handleEditStart = useCallback((locationString: string) => {
+        setEditingRow(locationString);
+    }, []);
+
+    const handleEditEnd = useCallback(() => {
+        setEditingRow(null);
+    }, []);
+
     const handleSelectAll = useCallback(() => {
         if (allVisibleChecked) {
             store.deselectAll(visibleMatchable);
@@ -617,7 +626,10 @@ function GeocodeLocationsSection() {
             </div>
 
             <Dialog open={store.dialogOpen} onOpenChange={store.setDialogOpen}>
-                <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col">
+                <DialogContent
+                    className="sm:max-w-3xl max-h-[85vh] flex flex-col"
+                    onEscapeKeyDown={(e) => { if (editingRow) e.preventDefault(); }}
+                >
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <MapPinned className="h-5 w-5" /> Batch Geocoding Results
@@ -740,6 +752,7 @@ function GeocodeLocationsSection() {
                                                         left: 0,
                                                         width: '100%',
                                                         transform: `translateY(${virtualRow.start}px)`,
+                                                        zIndex: editingRow === r.locationString ? 10 : undefined,
                                                     }}
                                                 >
                                                     <GeocodeResultRow
@@ -749,6 +762,8 @@ function GeocodeLocationsSection() {
                                                         onToggle={handleToggle}
                                                         onSetOverride={handleSetOverride}
                                                         onClearOverride={handleClearOverride}
+                                                        onEditStart={handleEditStart}
+                                                        onEditEnd={handleEditEnd}
                                                     />
                                                 </div>
                                             );
@@ -795,10 +810,12 @@ interface GeocodeResultRowProps {
     onToggle: (locationString: string) => void;
     onSetOverride: (locationString: string, place: Place) => void;
     onClearOverride: (locationString: string) => void;
+    onEditStart: (locationString: string) => void;
+    onEditEnd: () => void;
 }
 
 const GeocodeResultRow = memo(function GeocodeResultRow({
-    result, checked, override, onToggle, onSetOverride, onClearOverride,
+    result, checked, override, onToggle, onSetOverride, onClearOverride, onEditStart, onEditEnd,
 }: GeocodeResultRowProps) {
     const { match } = result;
     const eventCount = result.occurrences.length;
@@ -812,13 +829,25 @@ const GeocodeResultRow = memo(function GeocodeResultRow({
     const handleEdit = (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        setEditQuery(effectivePlace ? formatPlaceDisplay(effectivePlace) : result.locationString);
-        setEditing(true);
+        if (editing) {
+            setEditing(false);
+            onEditEnd();
+        } else {
+            setEditQuery(effectivePlace ? formatPlaceDisplay(effectivePlace) : result.locationString);
+            setEditing(true);
+            onEditStart(result.locationString);
+        }
     };
+
+    const handleCloseEdit = useCallback(() => {
+        setEditing(false);
+        onEditEnd();
+    }, [onEditEnd]);
 
     const handlePlaceSelect = (place: Place) => {
         onSetOverride(result.locationString, place);
         setEditing(false);
+        onEditEnd();
     };
 
     const handleReset = (e: React.MouseEvent) => {
@@ -826,6 +855,7 @@ const GeocodeResultRow = memo(function GeocodeResultRow({
         e.stopPropagation();
         onClearOverride(result.locationString);
         setEditing(false);
+        onEditEnd();
     };
 
     return (
@@ -893,9 +923,9 @@ const GeocodeResultRow = memo(function GeocodeResultRow({
                             <button
                                 onClick={handleEdit}
                                 className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
-                                title="Edit matched place"
+                                title={editing ? 'Close editor' : 'Edit matched place'}
                             >
-                                <Pencil className="h-3 w-3" />
+                                {editing ? <X className="h-3 w-3" /> : <Pencil className="h-3 w-3" />}
                             </button>
                             {override && (
                                 <button
@@ -914,7 +944,7 @@ const GeocodeResultRow = memo(function GeocodeResultRow({
                                 onClick={handleEdit}
                                 className="inline-flex items-center gap-1 text-primary hover:text-primary/80 transition-colors font-medium"
                             >
-                                <Pencil className="h-3 w-3" /> Assign manually
+                                {editing ? <><X className="h-3 w-3" /> Close</> : <><Pencil className="h-3 w-3" /> Assign manually</>}
                             </button>
                         </div>
                     )}
@@ -925,6 +955,7 @@ const GeocodeResultRow = memo(function GeocodeResultRow({
                                 value={editQuery}
                                 onChange={setEditQuery}
                                 onSelect={handlePlaceSelect}
+                                onDismiss={handleCloseEdit}
                                 initialPlace={effectivePlace}
                                 size="sm"
                                 autoFocus
