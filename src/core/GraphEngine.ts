@@ -71,6 +71,7 @@ export class GraphEngine extends EventEmitter {
     private watcherEventCount = 0;
     private watcherWindowStart = 0;
     private watcherSuspended = false;
+    private watcherSuspendedUntil = 0; // grace period after suspension ends
 
     /**
      * Register a file path as written by the application itself.
@@ -513,7 +514,7 @@ export class GraphEngine extends EventEmitter {
                     return;
                 }
 
-                if (this.watcherSuspended) return;
+                if (this.watcherSuspended || Date.now() < this.watcherSuspendedUntil) return;
 
                 const now = Date.now();
                 if (now - this.watcherWindowStart > 500) {
@@ -560,7 +561,7 @@ export class GraphEngine extends EventEmitter {
                         return;
                     }
 
-                    if (this.watcherSuspended) return;
+                    if (this.watcherSuspended || Date.now() < this.watcherSuspendedUntil) return;
 
                     const now = Date.now();
                     if (now - this.watcherWindowStart > 500) {
@@ -631,6 +632,10 @@ export class GraphEngine extends EventEmitter {
             return await fn();
         } finally {
             if (!wasSuspended) {
+                // FSEvents delivers callbacks asynchronously — events generated during
+                // suspension may arrive after we set watcherSuspended back to false.
+                // Set a 2-second grace period so those late-arriving events are still ignored.
+                this.watcherSuspendedUntil = Date.now() + 2000;
                 this.watcherSuspended = false;
                 this.watcherEventCount = 0;
             }

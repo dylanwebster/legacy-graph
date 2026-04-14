@@ -188,16 +188,44 @@ test.describe('CUJ 6: Batch Geocoding — Scan, Review, Edit, Apply', () => {
             // Clear any prior results and scan fresh
             await page.request.delete('http://localhost:3000/api/geocoding/batch/results');
 
+            // Kick off the scan via API to avoid any stale frontend state
+            const startRes = await page.request.post('http://localhost:3000/api/geocoding/batch/start', {
+                data: {},
+            });
+            expect(startRes.ok()).toBeTruthy();
+            const startBody = await startRes.json();
+            expect(startBody.status).toBe('running');
+
+            // Poll until scan completes
+            let scanResults: any = null;
+            for (let i = 0; i < 60; i++) {
+                const r = await page.request.get('http://localhost:3000/api/geocoding/batch/results');
+                if (r.status() === 200) {
+                    scanResults = await r.json();
+                    break;
+                }
+                await page.waitForTimeout(100);
+            }
+            expect(scanResults).not.toBeNull();
+            expect(scanResults.stats.total).toBeGreaterThan(0);
+
             await page.goto('/settings');
             await page.waitForURL(/\/settings/, { timeout: 10_000 });
 
-            // Start scan
-            await page.getByRole('button', { name: 'Scan Locations' }).click();
+            // Open the review dialog
+            const reviewButton = page.getByRole('button', { name: /Review Results/ });
+            await expect(reviewButton).toBeVisible({ timeout: 10_000 });
+            await reviewButton.click();
             const dialog = page.getByRole('dialog');
             await expect(dialog).toBeVisible({ timeout: 5_000 });
 
             // Wait for scan to complete
             await expect(dialog.getByRole('button', { name: /High/ })).toBeVisible({ timeout: 30_000 });
+
+            // Search to narrow the virtualized list to just Springfield
+            const searchInput = dialog.getByPlaceholder('Search locations or matched places...');
+            await searchInput.fill('Springfield');
+            await page.waitForTimeout(300);
 
             // Find the Springfield row and click edit
             const springfieldText = dialog.getByText('Springfield, Illinois, USA');
@@ -229,12 +257,13 @@ test.describe('CUJ 6: Batch Geocoding — Scan, Review, Edit, Apply', () => {
             await dialog.getByRole('button', { name: 'Cancel' }).click();
             await expect(dialog).not.toBeVisible();
 
-            // Reopen
+            // Reopen — search query ("Springfield") is persisted so the filter is still active
             await page.getByRole('button', { name: /Review Results/ }).click();
             await expect(dialog).toBeVisible({ timeout: 5_000 });
             await expect(dialog.getByRole('button', { name: /High/ })).toBeVisible({ timeout: 10_000 });
 
             // The override should persist — "edited" badge should still be there
+            await expect(dialog.getByText('Springfield, Illinois, USA')).toBeVisible({ timeout: 5_000 });
             const springfieldRowAfter = dialog.locator('label').filter({ hasText: 'Springfield, Illinois, USA' });
             await expect(springfieldRowAfter.getByText('edited')).toBeVisible({ timeout: 5_000 });
         } finally {

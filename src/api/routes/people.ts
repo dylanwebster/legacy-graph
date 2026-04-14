@@ -168,7 +168,7 @@ export async function peopleRoutes(server: FastifyInstance) {
                 });
             }
 
-            const newPerson: Person = {
+            const newPerson: Person = PersonSchema.parse({
                 version: '5.0',
                 id: generatePersonId({ names: body.names, events: body.events }),
                 created: new Date().toISOString(),
@@ -180,10 +180,8 @@ export async function peopleRoutes(server: FastifyInstance) {
                 events: body.events || [],
                 assets: body.assets || [],
                 scrapbook_md: body.scrapbook_md || '',
-                _gedcom: body._gedcom
-            };
-
-            PersonSchema.parse(newPerson);
+                _gedcom: body._gedcom,
+            });
 
             const relativePath = path.join('people', `${newPerson.id}.yaml`);
             const primaryName = newPerson.names[0];
