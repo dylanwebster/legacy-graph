@@ -63,11 +63,12 @@ test.describe('CUJ 4: Asset Management — Upload, View, Reject', () => {
         personId = (await res.json()).id;
     });
 
-    // Clean up uploaded assets so they don't accumulate across test runs
+    // Clean up uploaded assets and the test person
     test.afterAll(async ({ request }) => {
         for (const filename of uploadedAssets) {
             await request.delete(`http://localhost:3000/api/people/${personId}/media/${filename}`);
         }
+        if (personId) await request.delete(`http://localhost:3000/api/people/${personId}`);
     });
 
     test('uploads an image, preserves the original filename, and shows it in the gallery', async ({ page }) => {

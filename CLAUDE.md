@@ -44,6 +44,7 @@ lsof -ti :3000 | xargs kill
 3. **Track progress** — update `PROGRESS.md` after completing or starting work.
 4. **Use playwright-cli skill** for e2e test development.
 5. **Pre-PR checks** — all must pass with zero errors: `npm test`, `npm run test:e2e`, `npm run lint`, `cd client && npm run lint`.
+6. **No flakey tests** - if you find that a test is flakey, even if it is unrelated to current changes, do not tolerate this. Find the root cause of all flakey tests.
 
 ---
 

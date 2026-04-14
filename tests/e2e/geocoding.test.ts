@@ -50,6 +50,7 @@ test.describe('CUJ 5: Geocoding — Place Search & Reverse Geocoding', () => {
         for (const filename of uploadedAssets) {
             await request.delete(`http://localhost:3000/api/people/${personId}/media/${filename}`);
         }
+        if (personId) await request.delete(`http://localhost:3000/api/people/${personId}`);
     });
 
     test('place search in event editor shows results, selects a place, and persists location', async ({ page }) => {

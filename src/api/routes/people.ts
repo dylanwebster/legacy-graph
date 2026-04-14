@@ -268,6 +268,56 @@ export async function peopleRoutes(server: FastifyInstance) {
         }
     });
 
+    // DELETE /api/people/:id — remove a person and their assets
+    server.delete<{
+        Params: { id: string }
+    }>('/api/people/:id', async (request, reply) => {
+        const { id } = request.params;
+        const graph = graphEngine.getGraph();
+
+        if (!graph.hasNode(id)) {
+            return reply.status(404).send({
+                error: 'Person not found',
+                code: 'PERSON_NOT_FOUND',
+            });
+        }
+
+        // Remove the YAML file
+        const relativePath = path.join('people', `${id}.yaml`);
+        const fullPath = path.join(dataDir, relativePath);
+        try {
+            await fs.unlink(fullPath);
+        } catch {
+            // File may already be gone
+        }
+
+        // Remove person's assets directory if it exists
+        const personAssetsDir = path.join(dataDir, 'assets', id);
+        try {
+            await fs.rm(personAssetsDir, { recursive: true, force: true });
+        } catch {
+            // May not exist
+        }
+
+        // Remove from graph (drops edges + search index)
+        if (graph.hasNode(id)) {
+            // Invalidate computed relationships for connected nodes before removal
+            const neighbors = graph.neighbors(id);
+            graph.dropNode(id);
+            graphEngine.searchService.removePerson(id);
+            for (const neighbor of neighbors) {
+                if (graph.hasNode(neighbor)) {
+                    invalidateComputed(graph, neighbor);
+                }
+            }
+        }
+
+        // Stage the deletion in git
+        await txManager.removeFile(relativePath, id);
+
+        return { ok: true };
+    });
+
     server.put<{
         Params: { id: string }
     }>('/api/people/:id/media', async (request, reply) => {
