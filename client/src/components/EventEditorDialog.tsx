@@ -445,7 +445,10 @@ export function EventEditorDialog({
                         <label className="text-xs font-medium">Place</label>
                         <PlaceSearchCombobox
                             value={locationQuery}
-                            onChange={setLocationQuery}
+                            onChange={(value) => {
+                                setLocationQuery(value);
+                                setLocationPlace(null);
+                            }}
                             onSelect={setLocationPlace}
                             initialPlace={locationPlace}
                         />

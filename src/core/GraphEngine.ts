@@ -680,9 +680,10 @@ export class GraphEngine extends EventEmitter {
 
     private async handleFileUpdate(filePath: string) {
         // Write-event deduplication: skip if this change was made by the application itself.
-        // Use hasSelfWrite (non-consuming) so duplicate events from FSEvents are still
-        // recognized as self-writes in subsequent watcher callbacks.
-        if (this.hasSelfWrite(filePath)) {
+        // Consume the entry so that external edits after a short grace window are not ignored.
+        // Re-register with a brief TTL (1s) to absorb duplicate FSEvents for the same write.
+        if (this.consumeSelfWrite(filePath)) {
+            this.registerSelfWrite(filePath, 1000);
             return;
         }
 
@@ -842,7 +843,8 @@ export class GraphEngine extends EventEmitter {
 
     private handleFileRemove(filePath: string) {
         // Write-event deduplication: skip if this change was made by the application itself
-        if (this.hasSelfWrite(filePath)) {
+        if (this.consumeSelfWrite(filePath)) {
+            this.registerSelfWrite(filePath, 1000);
             return;
         }
 
@@ -903,7 +905,10 @@ export class GraphEngine extends EventEmitter {
     }
 
     private async handleStoryUpdate(filePath: string): Promise<void> {
-        if (this.hasSelfWrite(filePath)) return;
+        if (this.consumeSelfWrite(filePath)) {
+            this.registerSelfWrite(filePath, 1000);
+            return;
+        }
         await this.handleStoryUpdateCore(filePath);
     }
 
@@ -968,7 +973,10 @@ export class GraphEngine extends EventEmitter {
     }
 
     private handleStoryRemove(filePath: string): void {
-        if (this.hasSelfWrite(filePath)) return;
+        if (this.consumeSelfWrite(filePath)) {
+            this.registerSelfWrite(filePath, 1000);
+            return;
+        }
 
         const storyId = path.basename(filePath);
         if (this.graph.hasNode(storyId)) {

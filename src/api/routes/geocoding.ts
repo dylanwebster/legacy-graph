@@ -58,7 +58,7 @@ interface PersistedBatchGeocodeState {
 
 const JOB_TYPE = 'batch-geocode';
 
-// ── Persistence helpers ────────────────────────────��─────────────────────────
+// -- Persistence helpers ------------------------------------------------------
 
 function resultsPath(dataDir: string): string {
     return path.join(dataDir, '_meta', '.batch-geocode-results.json');
@@ -386,6 +386,9 @@ export async function geocodingRoutes(server: FastifyInstance) {
                     (gedcom.original_locations as Record<string, string>)[event.id] = locStr;
 
                     event.location = update.place;
+                    if (!event.location.resolvedAt) {
+                        event.location.resolvedAt = new Date().toISOString();
+                    }
 
                     if (update.siteName && !event.site_name) {
                         event.site_name = update.siteName;
