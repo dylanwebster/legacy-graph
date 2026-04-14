@@ -418,7 +418,8 @@ function GeocodeLocationsSection() {
     const queryClient = useQueryClient();
     const [isApplying, setIsApplying] = useState(false);
     const [inputQuery, setInputQuery] = useState(store.searchQuery);
-    const parentRef = useRef<HTMLDivElement>(null);
+    // Use state-based ref so virtualizer re-renders when dialog mounts/unmounts the scroll container
+    const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
 
     // Load persisted results on mount
     useEffect(() => {
@@ -483,7 +484,7 @@ function GeocodeLocationsSection() {
 
     const rowVirtualizer = useVirtualizer({
         count: filteredResults.length,
-        getScrollElement: () => parentRef.current,
+        getScrollElement: () => scrollEl,
         estimateSize: () => 80,
         overscan: 15,
     });
@@ -719,7 +720,7 @@ function GeocodeLocationsSection() {
                                 )}
                             </div>
 
-                            <div ref={parentRef} className="flex-1 overflow-y-auto min-h-0 -mx-6 px-6">
+                            <div ref={setScrollEl} className="flex-1 overflow-y-auto min-h-0 -mx-6 px-6">
                                 {filteredResults.length === 0 ? (
                                     <p className="text-sm text-muted-foreground text-center py-8">
                                         {store.results.length === 0 ? 'No unresolved locations found.' : 'No results match the current filter.'}
