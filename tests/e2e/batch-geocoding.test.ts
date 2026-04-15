@@ -89,8 +89,7 @@ test.describe('CUJ 6: Batch Geocoding — Scan, Review, Edit, Apply', () => {
         await expect(dialog.getByRole('button', { name: /No match/ })).toBeVisible();
 
         // -- Sort controls visible --
-        await expect(dialog.getByRole('button', { name: 'A–Z' })).toBeVisible();
-        await expect(dialog.getByRole('button', { name: 'Confidence' })).toBeVisible();
+        await expect(dialog.getByRole('button', { name: 'Name' })).toBeVisible();
         await expect(dialog.getByRole('button', { name: 'Events', exact: true })).toBeVisible();
 
         // -- Search --
@@ -116,8 +115,8 @@ test.describe('CUJ 6: Batch Geocoding — Scan, Review, Edit, Apply', () => {
         await dialog.getByText('Show all').click();
         await expect(dialog.getByText('Show all')).not.toBeVisible();
 
-        // -- Sort by confidence --
-        await dialog.getByRole('button', { name: 'Confidence' }).click();
+        // -- Sort by events --
+        await dialog.getByRole('button', { name: 'Events', exact: true }).click();
 
         // -- Select all visible --
         const selectAllCheckbox = dialog.locator('label').filter({ hasText: /Select all|selected/ }).locator('input[type="checkbox"]');
