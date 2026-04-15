@@ -52,6 +52,7 @@ interface PersistedBatchGeocodeState {
         filter: string;
         searchQuery: string;
         sortBy?: string;
+        sortOrder?: string;
         overrides?: Record<string, { place: Place; siteName: string | null }>;
     };
 }
@@ -278,7 +279,7 @@ export async function geocodingRoutes(server: FastifyInstance) {
     });
 
     // PUT /api/geocoding/batch/selections — persist user's check/filter/search state
-    server.put<{ Body: { checked: string[]; filter: string; searchQuery: string; sortBy?: string; overrides?: Record<string, { place: Place; siteName: string | null }> } }>(
+    server.put<{ Body: { checked: string[]; filter: string; searchQuery: string; sortBy?: string; sortOrder?: string; overrides?: Record<string, { place: Place; siteName: string | null }> } }>(
         '/api/geocoding/batch/selections',
         async (request, reply) => {
             const persisted = await loadPersistedResults(dataDir);
@@ -286,12 +287,13 @@ export async function geocodingRoutes(server: FastifyInstance) {
                 return reply.status(404).send({ error: 'No batch geocoding results found', code: 'NOT_FOUND' });
             }
 
-            const { checked, filter, searchQuery, sortBy, overrides } = request.body ?? {};
+            const { checked, filter, searchQuery, sortBy, sortOrder, overrides } = request.body ?? {};
             persisted.selections = {
                 checked: checked ?? persisted.selections.checked,
                 filter: filter ?? persisted.selections.filter,
                 searchQuery: searchQuery ?? persisted.selections.searchQuery,
                 sortBy: sortBy ?? persisted.selections.sortBy,
+                sortOrder: sortOrder ?? persisted.selections.sortOrder,
                 overrides: overrides ?? persisted.selections.overrides,
             };
             await persistResults(dataDir, persisted);

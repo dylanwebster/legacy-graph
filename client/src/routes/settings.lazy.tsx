@@ -2,7 +2,7 @@ import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import { useSystemStatus } from '@/api/hooks';
 import type { BatchGeocodeResult } from '@/api/client';
 import type { Place } from '@/api/people';
-import { useGeocodeStore, type SortBy } from '@/store/geocodeStore';
+import { useGeocodeStore, type SortBy, type SortOrder } from '@/store/geocodeStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Button } from '@/components/ui/button';
@@ -27,7 +27,7 @@ import {
     RefreshCw, Camera, Loader2, Server, Database, Clock, Activity,
     Sun, Moon, Palette, Upload, Download, AlertTriangle, CheckCircle2,
     MapPin, Search, ArrowRight, MapPinned, Pencil, RotateCcw, Landmark,
-    ArrowUpDown, X,
+    ArrowUpDown, ChevronUp, ChevronDown, X,
 } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
 import { toast } from 'sonner';
@@ -388,19 +388,15 @@ function SettingsPage() {
 
 type ConfidenceFilter = 'all' | 'high' | 'medium' | 'low' | 'unmatched';
 
-const CONFIDENCE_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
-
-function sortResults(results: BatchGeocodeResult[], sortBy: SortBy): BatchGeocodeResult[] {
+function sortResults(results: BatchGeocodeResult[], sortBy: SortBy, sortOrder: SortOrder): BatchGeocodeResult[] {
     const sorted = [...results];
+    const dir = sortOrder === 'asc' ? 1 : -1;
     switch (sortBy) {
         case 'alpha':
-            sorted.sort((a, b) => a.locationString.localeCompare(b.locationString));
-            break;
-        case 'confidence':
-            sorted.sort((a, b) => (CONFIDENCE_RANK[b.match?.confidence ?? ''] ?? 0) - (CONFIDENCE_RANK[a.match?.confidence ?? ''] ?? 0));
+            sorted.sort((a, b) => dir * a.locationString.replace(/^[\s,._\-]+/, '').localeCompare(b.locationString.replace(/^[\s,._\-]+/, '')));
             break;
         case 'events':
-            sorted.sort((a, b) => b.occurrences.length - a.occurrences.length);
+            sorted.sort((a, b) => dir * (a.occurrences.length - b.occurrences.length));
             break;
     }
     return sorted;
@@ -457,8 +453,8 @@ function GeocodeLocationsSection() {
             }
             return true;
         });
-        return sortResults(filtered, store.sortBy);
-    }, [store.results, store.filter, store.searchQuery, store.sortBy, store.overrides]);
+        return sortResults(filtered, store.sortBy, store.sortOrder);
+    }, [store.results, store.filter, store.searchQuery, store.sortBy, store.sortOrder, store.overrides]);
 
     const selectedCount = store.checked.size;
 
@@ -699,17 +695,23 @@ function GeocodeLocationsSection() {
                             {/* Sort + select-all bar */}
                             <div className="flex items-center justify-between text-xs text-muted-foreground">
                                 <div className="flex items-center gap-1">
-                                    <ArrowUpDown className="h-3 w-3" />
                                     <span className="mr-1">Sort:</span>
-                                    {(['alpha', 'confidence', 'events'] as const).map(s => (
-                                        <button
-                                            key={s}
-                                            onClick={() => store.setSortBy(s)}
-                                            className={`px-2 py-0.5 rounded-md transition-colors ${store.sortBy === s ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted'}`}
-                                        >
-                                            {s === 'alpha' ? 'A\u2013Z' : s === 'confidence' ? 'Confidence' : 'Events'}
-                                        </button>
-                                    ))}
+                                    {(['alpha', 'events'] as const).map(s => {
+                                        const isActive = store.sortBy === s;
+                                        const SortIcon = isActive
+                                            ? (store.sortOrder === 'asc' ? ChevronUp : ChevronDown)
+                                            : ArrowUpDown;
+                                        return (
+                                            <button
+                                                key={s}
+                                                onClick={() => store.setSortBy(s)}
+                                                className={`flex items-center gap-0.5 px-2 py-0.5 rounded-md transition-colors ${isActive ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted'}`}
+                                            >
+                                                {s === 'alpha' ? 'Name' : 'Events'}
+                                                <SortIcon className={`h-3 w-3 ${isActive ? '' : 'opacity-40'}`} />
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                                 {visibleMatchable.length > 0 && (
                                     <label className="flex items-center gap-1.5 cursor-pointer select-none">

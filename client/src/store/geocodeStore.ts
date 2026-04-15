@@ -9,7 +9,8 @@ import {
 } from '@/api/client';
 
 export type ConfidenceFilter = 'all' | 'high' | 'medium' | 'low' | 'unmatched';
-export type SortBy = 'alpha' | 'confidence' | 'events';
+export type SortBy = 'alpha' | 'events';
+export type SortOrder = 'asc' | 'desc';
 
 interface PlaceOverride {
     place: Place;
@@ -25,6 +26,7 @@ interface GeocodeState {
     filter: ConfidenceFilter;
     searchQuery: string;
     sortBy: SortBy;
+    sortOrder: SortOrder;
     overrides: Map<string, PlaceOverride>;
     dialogOpen: boolean;
     error: string | null;
@@ -37,6 +39,7 @@ interface GeocodeState {
     setFilter: (filter: ConfidenceFilter) => void;
     setSearchQuery: (q: string) => void;
     setSortBy: (sortBy: SortBy) => void;
+    toggleSortOrder: () => void;
     setOverride: (locationString: string, place: Place, siteName: string | null) => void;
     clearOverride: (locationString: string) => void;
     setDialogOpen: (open: boolean) => void;
@@ -59,6 +62,7 @@ function debounceSaveSelections(state: GeocodeState) {
             filter: state.filter,
             searchQuery: state.searchQuery,
             sortBy: state.sortBy,
+            sortOrder: state.sortOrder,
             overrides: overridesObj,
         }).catch(() => { /* best-effort */ });
     }, 500);
@@ -130,6 +134,7 @@ function pollForResults(set: (partial: Partial<GeocodeState> | ((state: GeocodeS
                     filter: (persisted.selections?.filter as ConfidenceFilter) || 'all',
                     searchQuery: persisted.selections?.searchQuery || '',
                     sortBy: (persisted.selections?.sortBy as SortBy) || 'alpha',
+                    sortOrder: (persisted.selections?.sortOrder as SortOrder) || 'asc',
                     overrides,
                     error: null,
                 });
@@ -158,6 +163,7 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
     filter: 'all',
     searchQuery: '',
     sortBy: 'alpha',
+    sortOrder: 'asc',
     overrides: new Map<string, PlaceOverride>(),
     dialogOpen: false,
     error: null,
@@ -208,6 +214,7 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
                     filter: (persisted.selections.filter as ConfidenceFilter) || 'all',
                     searchQuery: persisted.selections.searchQuery || '',
                     sortBy: (persisted.selections?.sortBy as SortBy) || 'alpha',
+                    sortOrder: (persisted.selections?.sortOrder as SortOrder) || 'asc',
                     overrides,
                     progress: null,
                     error: null,
@@ -260,7 +267,18 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
     },
 
     setSortBy: (sortBy: SortBy) => {
-        set({ sortBy });
+        const current = get();
+        if (current.sortBy === sortBy) {
+            // Toggle order when clicking the same sort field
+            set({ sortOrder: current.sortOrder === 'asc' ? 'desc' : 'asc' });
+        } else {
+            set({ sortBy, sortOrder: 'asc' });
+        }
+        debounceSaveSelections(get());
+    },
+
+    toggleSortOrder: () => {
+        set((state) => ({ sortOrder: state.sortOrder === 'asc' ? 'desc' : 'asc' }));
         debounceSaveSelections(get());
     },
 
@@ -318,6 +336,7 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
             filter: 'all',
             searchQuery: '',
             sortBy: 'alpha',
+            sortOrder: 'asc',
             overrides: new Map(),
             dialogOpen: false,
             progress: null,
@@ -335,6 +354,7 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
             filter: 'all',
             searchQuery: '',
             sortBy: 'alpha',
+            sortOrder: 'asc',
             overrides: new Map(),
             progress: null,
             error: null,
@@ -352,6 +372,7 @@ export const useGeocodeStore = create<GeocodeState>((set, get) => ({
             filter: 'all',
             searchQuery: '',
             sortBy: 'alpha',
+            sortOrder: 'asc',
             overrides: new Map(),
             dialogOpen: false,
             error: null,
