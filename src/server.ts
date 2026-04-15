@@ -7,6 +7,7 @@ import * as path from 'path';
 import { GraphEngine } from './core/GraphEngine';
 import { TransactionManager } from './core/TransactionManager';
 import { GeocodingService } from './core/GeocodingService';
+import { JobManager } from './core/JobManager';
 import { loadAuthConfig, registerAuthGuard } from './api/middleware/auth';
 import { systemRoutes } from './api/routes/system';
 import { authRoutes } from './api/routes/auth';
@@ -15,6 +16,7 @@ import { peopleRoutes } from './api/routes/people';
 import { gedcomRoutes } from './api/routes/gedcom';
 import { storiesRoutes } from './api/routes/stories';
 import { assetsRoutes } from './api/routes/assets';
+import { geocodingRoutes } from './api/routes/geocoding';
 import type { AppServices } from './api/types';
 
 export interface ServerConfig {
@@ -24,6 +26,8 @@ export interface ServerConfig {
     /** If false, createServer returns immediately while hydration runs in background (503 until ready).
      *  Defaults to true for backward compatibility (server blocks until graph is hydrated). */
     awaitHydration?: boolean;
+    /** Path to GeoNames SQLite database. Falls back to GEONAMES_DB env var or ~/.legacy-graph/geonames.db */
+    geonamesDb?: string;
 }
 
 export async function createServer(config: ServerConfig): Promise<FastifyInstance> {
@@ -62,10 +66,14 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         }
     });
 
-    const geocodingService = new GeocodingService(config.dataDir);
+    const geocodingService = new GeocodingService(config.dataDir, {
+        dbPath: config.geonamesDb,
+    });
+
+    const jobManager = new JobManager();
 
     // Decorate server with services so route plugins can access them
-    const appServices: AppServices = { graphEngine, txManager, authConfig, dataDir: config.dataDir, geocodingService };
+    const appServices: AppServices = { graphEngine, txManager, authConfig, dataDir: config.dataDir, geocodingService, jobManager };
     server.decorate('appServices', appServices);
 
     // 503 Loading Gate (spec 2.3C)
@@ -98,6 +106,7 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
     await server.register(gedcomRoutes);
     await server.register(storiesRoutes);
     await server.register(assetsRoutes);
+    await server.register(geocodingRoutes);
 
     // Phase 3.9.3 Static Asset Delivery Performance
     await server.register(fastifyStatic, {

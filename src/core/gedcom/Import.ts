@@ -147,6 +147,7 @@ export class GedcomReader {
             if (fatherId && motherId) {
                 const date = marrNode ? (this.getChildValue(marrNode, 'DATE') || "") : "";
                 const place = marrNode ? (this.getChildValue(marrNode, 'PLAC') || "") : "";
+                const addr = marrNode ? (this.getChildValue(marrNode, 'ADDR') || "") : "";
                 const sortDate = parseDate(date);
 
                 // Add to Husband
@@ -154,7 +155,8 @@ export class GedcomReader {
                 if (h) {
                     h.events.push({
                         id: crypto.randomUUID(), type: 'marriage', date, sort_date: sortDate, location: placeFromString(place), assets: [],
-                        partner_id: motherId, status: 'married'
+                        partner_id: motherId, status: 'married',
+                        ...(addr ? { site_name: addr } : {})
                     });
                 }
 
@@ -163,7 +165,8 @@ export class GedcomReader {
                 if (w) {
                     w.events.push({
                         id: crypto.randomUUID(), type: 'marriage', date, sort_date: sortDate, location: placeFromString(place), assets: [],
-                        partner_id: fatherId, status: 'married'
+                        partner_id: fatherId, status: 'married',
+                        ...(addr ? { site_name: addr } : {})
                     });
                 }
             }
@@ -173,13 +176,15 @@ export class GedcomReader {
             if (divNode && fatherId && motherId) {
                 const date = this.getChildValue(divNode, 'DATE') || "";
                 const place = this.getChildValue(divNode, 'PLAC') || "";
+                const addr = this.getChildValue(divNode, 'ADDR') || "";
                 const sortDate = parseDate(date);
 
                 const h = people.find(x => x.id === fatherId);
                 if (h) {
                     h.events.push({
                         id: crypto.randomUUID(), type: 'divorce', date, sort_date: sortDate,
-                        location: placeFromString(place), assets: [], partner_id: motherId
+                        location: placeFromString(place), assets: [], partner_id: motherId,
+                        ...(addr ? { site_name: addr } : {})
                     });
                 }
 
@@ -187,7 +192,8 @@ export class GedcomReader {
                 if (w) {
                     w.events.push({
                         id: crypto.randomUUID(), type: 'divorce', date, sort_date: sortDate,
-                        location: placeFromString(place), assets: [], partner_id: fatherId
+                        location: placeFromString(place), assets: [], partner_id: fatherId,
+                        ...(addr ? { site_name: addr } : {})
                     });
                 }
             }
@@ -237,7 +243,8 @@ export class GedcomReader {
 
         // Simple event tags: GEDCOM tag -> LegacyGraph event type
         const simpleEventTags: Record<string, string> = {
-            'BIRT': 'birth', 'DEAT': 'death', 'CHR': 'baptism', 'BURI': 'burial', 'RESI': 'residence'
+            'BIRT': 'birth', 'DEAT': 'death', 'CHR': 'baptism', 'BURI': 'burial',
+            'RESI': 'residence', 'EMIG': 'emigration', 'IMMI': 'immigration', 'ADOP': 'adoption'
         };
 
         const ignoredTags = new Set(['NAME', 'SEX', 'FAMC', 'FAMS', 'SOUR', 'OBJE', 'CHAN', 'SUBM']);
@@ -246,19 +253,22 @@ export class GedcomReader {
             if (simpleEventTags[child.tag]) {
                 const date = this.getChildValue(child, 'DATE') || "";
                 const place = this.getChildValue(child, 'PLAC') || "";
+                const addr = this.getChildValue(child, 'ADDR') || "";
                 p.events.push({
                     id: crypto.randomUUID(),
                     type: simpleEventTags[child.tag] as any,
                     date: date,
                     sort_date: parseDate(date),
                     location: placeFromString(place),
-                    assets: []
+                    assets: [],
+                    ...(addr ? { site_name: addr } : {})
                 });
             } else if (child.tag === 'OCCU') {
                 // Occupation: value is the job title
                 const title = child.value || this.getChildValue(child, 'TYPE') || "Unknown";
                 const date = this.getChildValue(child, 'DATE') || "";
                 const place = this.getChildValue(child, 'PLAC') || "";
+                const addr = this.getChildValue(child, 'ADDR') || "";
                 p.events.push({
                     id: crypto.randomUUID(),
                     type: 'occupation',
@@ -266,13 +276,15 @@ export class GedcomReader {
                     date,
                     sort_date: parseDate(date),
                     location: placeFromString(place),
-                    assets: []
+                    assets: [],
+                    ...(addr ? { site_name: addr } : {})
                 });
             } else if (child.tag === 'EVEN') {
                 // Generic event: TYPE subtag gives the title
                 const title = this.getChildValue(child, 'TYPE') || child.value || "";
                 const date = this.getChildValue(child, 'DATE') || "";
                 const place = this.getChildValue(child, 'PLAC') || "";
+                const addr = this.getChildValue(child, 'ADDR') || "";
                 p.events.push({
                     id: crypto.randomUUID(),
                     type: 'generic',
@@ -280,7 +292,8 @@ export class GedcomReader {
                     date,
                     sort_date: parseDate(date),
                     location: placeFromString(place),
-                    assets: []
+                    assets: [],
+                    ...(addr ? { site_name: addr } : {})
                 });
             } else if (child.tag === 'NOTE') {
                 // Assemble NOTE text including CONT (newline) and CONC (concatenate) children

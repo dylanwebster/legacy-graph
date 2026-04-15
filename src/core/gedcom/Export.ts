@@ -8,6 +8,7 @@ export interface FamilyRecord {
     marriage?: {
         date: string;
         location: string;
+        site_name?: string;
     };
 }
 
@@ -72,7 +73,10 @@ export class GedcomExporter {
             'census': 'CENS',
             'residence': 'RESI',
             'occupation': 'OCCU',
-            'education': 'EDUC'
+            'education': 'EDUC',
+            'emigration': 'EMIG',
+            'immigration': 'IMMI',
+            'adoption': 'ADOP'
         };
         
         person.events.forEach(event => {
@@ -89,6 +93,9 @@ export class GedcomExporter {
                 }
                 if (event.location?.name) {
                     lines.push(`2 PLAC ${event.location.name}`);
+                }
+                if (event.site_name) {
+                    lines.push(`2 ADDR ${event.site_name}`);
                 }
 
                 // Death cause
@@ -115,6 +122,20 @@ export class GedcomExporter {
                         lines.push(`2 NOTE Degree: ${event.degree}`);
                     }
                 }
+            } else if (event.type === 'engagement') {
+                lines.push(`1 EVEN`);
+                lines.push(`2 TYPE Engagement`);
+                if (event.date) lines.push(`2 DATE ${event.date}`);
+                if (event.location?.name) lines.push(`2 PLAC ${event.location.name}`);
+                if (event.site_name) lines.push(`2 ADDR ${event.site_name}`);
+            } else if (event.type === 'military_service') {
+                lines.push(`1 EVEN`);
+                lines.push(`2 TYPE Military Service`);
+                if (event.date) lines.push(`2 DATE ${event.date}`);
+                if (event.location?.name) lines.push(`2 PLAC ${event.location.name}`);
+                if (event.site_name) lines.push(`2 ADDR ${event.site_name}`);
+                if ('branch' in event && event.branch) lines.push(`2 NOTE Branch: ${event.branch}`);
+                if ('rank' in event && event.rank) lines.push(`2 NOTE Rank: ${event.rank}`);
             } else if (event.type === 'generic') {
                 // Generic events as EVEN
                 lines.push(`1 EVEN`);
@@ -126,6 +147,9 @@ export class GedcomExporter {
                 }
                 if (event.location?.name) {
                     lines.push(`2 PLAC ${event.location.name}`);
+                }
+                if (event.site_name) {
+                    lines.push(`2 ADDR ${event.site_name}`);
                 }
             }
         });
@@ -208,27 +232,29 @@ export class GedcomExporter {
                     const wife = person.sex === 'F' ? person.id : partnerId;
                     
                     const familyKey = `${husband}_${wife}`;
-                    let family = familyMap.get(familyKey);
-                    
-                    if (!family) {
+                    const existing = familyMap.get(familyKey);
+
+                    if (!existing) {
                         // Create new family record
-                        family = {
+                        const family: FamilyRecord = {
                             id: `F${Math.random().toString(36).substring(2, 9)}`,
                             husband: husband,
                             wife: wife,
                             children: [],
                             marriage: {
                                 date: event.date || '',
-                                location: event.location?.name || ''
+                                location: event.location?.name || '',
+                                site_name: event.site_name || ''
                             }
                         };
                         familyMap.set(familyKey, family);
                         families.push(family);
-                    } else if (!family.marriage) {
+                    } else if (!existing.marriage) {
                         // Add marriage data to existing family
-                        family.marriage = {
+                        existing.marriage = {
                             date: event.date || '',
-                            location: event.location?.name || ''
+                            location: event.location?.name || '',
+                            site_name: event.site_name || ''
                         };
                     }
                 }
@@ -256,6 +282,9 @@ export class GedcomExporter {
             }
             if (family.marriage.location) {
                 lines.push(`2 PLAC ${family.marriage.location}`);
+            }
+            if (family.marriage.site_name) {
+                lines.push(`2 ADDR ${family.marriage.site_name}`);
             }
         }
         

@@ -10,7 +10,7 @@ import { Person, PersonSchema, SlimPerson, toSlimPerson } from '../../schemas/Pe
 import { sliceTimeline } from '../../core/TimelineSlicer';
 import { invalidateComputed } from '../../core/GraphLogic';
 import type { AppInstance } from '../types';
-import { loadAssetIndex, saveAssetIndex, upsertAssetEntry, extractExifDate, extractExifGps } from '../../core/assetMetaUtils';
+import { loadAssetIndex, saveAssetIndex, upsertAssetEntry, extractExifDate, reverseGeocodeExifGps } from '../../core/assetMetaUtils';
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif', '.svg']);
 const ALLOWED_EXTS = new Set([...IMAGE_EXTS, '.pdf', '.txt', '.md']);
@@ -168,7 +168,7 @@ export async function peopleRoutes(server: FastifyInstance) {
                 });
             }
 
-            const newPerson: Person = {
+            const newPerson: Person = PersonSchema.parse({
                 version: '5.0',
                 id: generatePersonId({ names: body.names, events: body.events }),
                 created: new Date().toISOString(),
@@ -180,10 +180,8 @@ export async function peopleRoutes(server: FastifyInstance) {
                 events: body.events || [],
                 assets: body.assets || [],
                 scrapbook_md: body.scrapbook_md || '',
-                _gedcom: body._gedcom
-            };
-
-            PersonSchema.parse(newPerson);
+                _gedcom: body._gedcom,
+            });
 
             const relativePath = path.join('people', `${newPerson.id}.yaml`);
             const primaryName = newPerson.names[0];
@@ -268,6 +266,56 @@ export async function peopleRoutes(server: FastifyInstance) {
         }
     });
 
+    // DELETE /api/people/:id — remove a person and their assets
+    server.delete<{
+        Params: { id: string }
+    }>('/api/people/:id', async (request, reply) => {
+        const { id } = request.params;
+        const graph = graphEngine.getGraph();
+
+        if (!graph.hasNode(id)) {
+            return reply.status(404).send({
+                error: 'Person not found',
+                code: 'PERSON_NOT_FOUND',
+            });
+        }
+
+        // Remove the YAML file
+        const relativePath = path.join('people', `${id}.yaml`);
+        const fullPath = path.join(dataDir, relativePath);
+        try {
+            await fs.unlink(fullPath);
+        } catch {
+            // File may already be gone
+        }
+
+        // Remove person's assets directory if it exists
+        const personAssetsDir = path.join(dataDir, 'assets', id);
+        try {
+            await fs.rm(personAssetsDir, { recursive: true, force: true });
+        } catch {
+            // May not exist
+        }
+
+        // Remove from graph (drops edges + search index)
+        if (graph.hasNode(id)) {
+            // Invalidate computed relationships for connected nodes before removal
+            const neighbors = graph.neighbors(id);
+            graph.dropNode(id);
+            graphEngine.searchService.removePerson(id);
+            for (const neighbor of neighbors) {
+                if (graph.hasNode(neighbor)) {
+                    invalidateComputed(graph, neighbor);
+                }
+            }
+        }
+
+        // Stage the deletion in git
+        await txManager.removeFile(relativePath, id);
+
+        return { ok: true };
+    });
+
     server.put<{
         Params: { id: string }
     }>('/api/people/:id/media', async (request, reply) => {
@@ -327,9 +375,10 @@ export async function peopleRoutes(server: FastifyInstance) {
 
             // Seed assets.yaml with created_at + EXIF capture date + GPS location (best-effort, never blocks upload)
             const now = new Date().toISOString();
+            const { geocodingService } = (server as AppInstance).appServices;
             const [exifDate, exifGps] = await Promise.all([
                 extractExifDate(filepath),
-                extractExifGps(filepath),
+                reverseGeocodeExifGps(filepath, geocodingService),
             ]);
             await upsertAssetEntry(dataDir, uniqueFilename, {
                 created_at: now,

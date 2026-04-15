@@ -1,40 +1,44 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as os from 'os';
 import type { Place } from '../schemas/PlaceSchema';
+import { GeonamesDb, type GeonamesRow } from './GeonamesDb';
 
-const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org/search';
-const USER_AGENT = 'LegacyGraph/1.0 (self-hosted genealogy platform)';
-const RATE_LIMIT_MS = 1000;
-
-interface NominatimResult {
-    display_name: string;
-    lat: string;
-    lon: string;
-    address?: {
-        country_code?: string;
-    };
+export interface BatchSearchResult {
+    place: Place | null;
+    confidence: 'high' | 'medium' | 'low' | 'none';
+    droppedParts: string[];   // Parts before firstFoundAt (candidate site_name)
+    resultCount: number;
 }
 
 export class GeocodingService {
     private readonly cacheFile: string;
-    private readonly fetchFn: typeof fetch;
+    private readonly geonamesDb: GeonamesDb | null;
 
     // In-memory cache: lowercase name → Place
     private cache: Map<string, Place> = new Map();
     private cacheLoadPromise: Promise<void> | null = null;
 
-    // Rate limiter: promise queue
-    private requestQueue: Promise<void> = Promise.resolve();
-    private lastRequestTime = 0;
-
-    constructor(dataDir: string, options?: { fetchFn?: typeof fetch }) {
+    constructor(dataDir: string, options?: { dbPath?: string }) {
         this.cacheFile = path.join(dataDir, '_meta', '.geocode-cache.json');
-        this.fetchFn = options?.fetchFn ?? fetch;
+
+        const dbPath = options?.dbPath
+            ?? process.env.GEONAMES_DB
+            ?? path.join(os.homedir(), '.legacy-graph', 'geonames.db');
+
+        this.geonamesDb = GeonamesDb.fromFile(dbPath);
+
+        if (!this.geonamesDb) {
+            console.warn(
+                `[GeocodingService] GeoNames database not found or incompatible at ${dbPath}. ` +
+                `Place search will return empty results. Run "npm run geonames:build" to create it.`
+            );
+        }
     }
 
     /**
-     * Resolve a place name to a Place object, using cache → disk → Nominatim.
-     * Falls back to { name } on any error.
+     * Resolve a place name to a Place object, using cache → disk → GeoNames DB.
+     * Falls back to { name } if no match found.
      */
     public async resolve(name: string): Promise<Place> {
         await this.ensureCacheLoaded();
@@ -44,8 +48,7 @@ export class GeocodingService {
             return this.cache.get(key)!;
         }
 
-        // Enqueue behind rate limiter
-        const result = await this.enqueue(() => this.fetchResolve(name));
+        const result = this.resolveFromDb(name);
         this.cache.set(key, result);
         await this.persistCache();
         return result;
@@ -54,61 +57,441 @@ export class GeocodingService {
     /**
      * Search for place candidates. Returns up to `limit` results (default 5).
      * No caching — transient, for type-ahead use.
-     * Runs through the rate limiter to respect Nominatim's 1 req/s policy.
      */
     public async search(query: string, limit = 5): Promise<Place[]> {
-        return this.enqueue(async () => {
-            try {
-                const url = `${NOMINATIM_BASE}?q=${encodeURIComponent(query)}&format=jsonv2&addressdetails=1&limit=${limit + 2}`;
-                const response = await this.fetchFn(url, {
-                    headers: { 'User-Agent': USER_AGENT },
-                });
+        if (!this.geonamesDb) return [];
 
-                if (!response.ok) return [];
+        // Parse comma-separated parts: "Mountain, Grizzly Flats, El Dorado, CA, USA"
+        // → ["Mountain", "Grizzly Flats", "El Dorado", "CA", "USA"]
+        const parts = query.split(',').map(p => p.trim()).filter(Boolean);
+        if (parts.length === 0) return [];
 
-                const items: NominatimResult[] = await response.json();
-                return items.slice(0, limit).map(item => this.itemToPlace(item, query));
-            } catch {
-                return [];
+        // Try each part as the place name, with remaining parts as qualifiers.
+        // Overly-specific genealogy strings like "Mountain, Grizzly Flats, El
+        // Dorado, CA, USA" will skip "Mountain" (no match with tight qualifiers)
+        // and find "Grizzly Flats" at i=1. Once results are found, only try one
+        // more part to avoid treating admin/country qualifiers as place names.
+        const collected: Place[] = [];
+        const seenGeonameIds = new Set<string>();
+        let firstFoundAt = -1;
+
+        for (let i = 0; i < parts.length && collected.length < limit; i++) {
+            // Stop searching after one part beyond the first successful match
+            if (firstFoundAt >= 0 && i > firstFoundAt + 1) break;
+
+            const placeName = parts[i];
+            const qualifiers = parts.slice(i + 1);
+
+            let rows: ReturnType<typeof this.geonamesDb.searchByName> = [];
+
+            if (qualifiers.length === 0 && i === 0) {
+                // Only search the last part standalone when it's the entire query
+                // (no commas). Otherwise "CA" or "FR" at the end would match
+                // unrelated places.
+                rows = this.geonamesDb.searchByName(placeName, limit);
+            } else if (qualifiers.length === 0) {
+                // Skip trailing parts with no qualifiers (e.g. "USA" in
+                // "Mountain, Grizzly Flats, El Dorado, CA, USA")
+                continue;
+            } else if (i > 0 && placeName.length <= 3) {
+                // Skip short parts (≤3 chars) as place names when they follow
+                // the first part — these are almost always admin/country codes
+                // ("MA", "CA", "USA") and cause catastrophically slow FTS prefix
+                // queries against millions of rows.
+                continue;
+            } else {
+                // Try with all qualifiers first, then drop at most one from the
+                // left. This handles a single unrecognized admin level (e.g.
+                // ADM3 communes) without discarding meaningful geographic
+                // context like locality names.
+                const maxDrop = Math.min(1, qualifiers.length - 1);
+                for (let q = 0; q <= maxDrop; q++) {
+                    const subset = qualifiers.slice(q);
+                    rows = this.geonamesDb.searchFiltered(placeName, subset, limit);
+                    if (rows.length > 0) break;
+                }
             }
-        });
+
+            if (rows.length > 0 && firstFoundAt < 0) {
+                firstFoundAt = i;
+            }
+
+            for (const row of rows) {
+                const key = String(row.geonameid);
+                if (seenGeonameIds.has(key)) continue;
+                seenGeonameIds.add(key);
+                collected.push(this.searchRowToPlace(row));
+                if (collected.length >= limit) break;
+            }
+        }
+
+        return this.deduplicatePlaces(collected, limit);
+    }
+
+    /**
+     * Search for a place and return metadata for batch geocoding: confidence
+     * scoring, which parts were dropped (for site_name extraction), and result count.
+     * Tuned for fully-specified place strings (GEDCOM locations), not type-ahead.
+     * Does NOT use or write to the cache.
+     */
+    public async searchWithMetadata(query: string): Promise<BatchSearchResult> {
+        const noMatch: BatchSearchResult = { place: null, confidence: 'none', droppedParts: [], resultCount: 0 };
+        if (!this.geonamesDb) return noMatch;
+
+        // Normalize common genealogy abbreviations before parsing
+        const normalized = query.replace(/\bCo\./gi, 'County');
+        const parts = normalized.split(',').map(p => p.trim()).filter(Boolean);
+        if (parts.length === 0) return noMatch;
+
+        const firstPart = parts[0];
+        const qualifiers = parts.slice(1);
+
+        // ── Special case: country name lookup ──
+        // Check if the full input or first part matches a country name
+        if (parts.length <= 2) {
+            const lookupStr = parts.length === 1 ? firstPart : parts.join(', ');
+            const countryCode = this.geonamesDb.resolveCountryCode(lookupStr);
+            if (countryCode) {
+                const countryRow = this.geonamesDb.lookupCountryPcl(countryCode);
+                if (countryRow) {
+                    const place = this.searchRowToPlace(countryRow);
+                    const confidence = 'high' as const;
+                    return { place, confidence, droppedParts: [], resultCount: 1 };
+                }
+            }
+        }
+
+        // ── Special case: state/admin1 abbreviation (2-3 char first part) ──
+        if (firstPart.length <= 3 && firstPart.length >= 2 && /^[a-zA-Z]+$/.test(firstPart)) {
+            // Resolve country from qualifiers if present (countries table only, fast)
+            let countryCode: string | undefined;
+            if (qualifiers.length > 0) {
+                const lastQual = qualifiers[qualifiers.length - 1];
+                countryCode = this.geonamesDb.resolveCountryCode(lastQual)
+                    ?? (lastQual.length === 2 ? lastQual.toUpperCase() : undefined);
+            }
+
+            // US-first: try US, then specified country, then any
+            const admin1Row =
+                this.geonamesDb.lookupAdmin1ByCode(firstPart, countryCode || 'US') ||
+                (countryCode && countryCode !== 'US'
+                    ? this.geonamesDb.lookupAdmin1ByCode(firstPart, countryCode)
+                    : null) ||
+                (!countryCode
+                    ? this.geonamesDb.lookupAdmin1ByCode(firstPart)
+                    : null);
+
+            if (admin1Row) {
+                const place = this.searchRowToPlace(admin1Row);
+                const confidence = qualifiers.length > 0 ? 'medium' as const : 'low' as const;
+                return { place, confidence, droppedParts: [], resultCount: 1 };
+            }
+        }
+
+        // ── Special case: single-part input that matches a state/admin1 name ──
+        // For batch geocoding, "Virginia" or "California" as a standalone input
+        // should resolve to the state, not a city of the same name in another state.
+        if (parts.length === 1 && firstPart.length >= 4) {
+            const rows = this.geonamesDb.searchByName(firstPart, 5);
+            const adm1Match = rows.find(r =>
+                r.featureCode.startsWith('ADM1') &&
+                r.primaryName.toLowerCase() === firstPart.toLowerCase()
+            );
+            if (adm1Match) {
+                const place = this.searchRowToPlace(adm1Match);
+                const confidence = adm1Match.population >= 500000 ? 'high' as const : 'medium' as const;
+                return { place, confidence, droppedParts: [], resultCount: 1 };
+            }
+            // Also check for country names via FTS (e.g., "England" as an ADM1 in GB)
+            const countryOrRegion = rows.find(r =>
+                (r.featureCode.startsWith('PCL') || r.featureCode.startsWith('ADM1')) &&
+                r.matchedName.toLowerCase() === firstPart.toLowerCase()
+            );
+            if (countryOrRegion) {
+                const place = this.searchRowToPlace(countryOrRegion);
+                return { place, confidence: 'medium', droppedParts: [], resultCount: 1 };
+            }
+        }
+
+        // ── Standard multi-part search (mirrors search() but with metadata) ──
+        let firstFoundAt = -1;
+        let bestRows: GeonamesRow[] = [];
+        let qualifiersDropped = 0;
+        const limit = 5;
+
+        for (let i = 0; i < parts.length; i++) {
+            if (firstFoundAt >= 0 && i > firstFoundAt + 1) break;
+
+            const placeName = parts[i];
+            const partQualifiers = parts.slice(i + 1);
+
+            let rows: GeonamesRow[] = [];
+
+            if (partQualifiers.length === 0 && i === 0) {
+                rows = this.geonamesDb.searchByName(placeName, limit);
+            } else if (partQualifiers.length === 0) {
+                continue;
+            } else if (i > 0 && placeName.length <= 3) {
+                continue;
+            } else {
+                const maxDrop = Math.min(1, partQualifiers.length - 1);
+                for (let q = 0; q <= maxDrop; q++) {
+                    const subset = partQualifiers.slice(q);
+                    rows = this.geonamesDb.searchFiltered(placeName, subset, limit);
+                    if (rows.length > 0) {
+                        if (firstFoundAt < 0) qualifiersDropped = q;
+                        break;
+                    }
+                }
+            }
+
+            if (rows.length > 0 && firstFoundAt < 0) {
+                firstFoundAt = i;
+                bestRows = rows;
+            }
+        }
+
+        if (bestRows.length === 0) return noMatch;
+
+        // ── Post-process: prefer exact name matches over prefix matches ──
+        // For batch geocoding, "Amador" should match "Amador" exactly, not "Amadora" via prefix.
+        // IMPORTANT: only search within the already-filtered results to preserve qualifier filtering.
+        const searchTerm = parts[firstFoundAt].toLowerCase();
+        const topIsExact = bestRows[0].primaryName.toLowerCase() === searchTerm ||
+            bestRows[0].matchedName.toLowerCase() === searchTerm;
+        if (!topIsExact) {
+            // Search within the already-filtered results first
+            let exactMatch = bestRows.find(r =>
+                r.primaryName.toLowerCase() === searchTerm ||
+                r.matchedName.toLowerCase() === searchTerm
+            );
+            // For single-part inputs (no qualifiers to preserve), broaden the search
+            if (!exactMatch && parts.length === 1) {
+                const broader = this.geonamesDb.searchByName(searchTerm, 20);
+                exactMatch = broader.find(r =>
+                    r.primaryName.toLowerCase() === searchTerm
+                );
+            }
+            if (exactMatch) {
+                bestRows = [exactMatch, ...bestRows.filter(r => r.geonameid !== exactMatch!.geonameid)];
+            }
+        }
+
+        // ── Post-process: prefer PPL over ADM2 (county) when names overlap ──
+        // Only for ADM2 (counties), NOT ADM1 (states) — "California" the state should
+        // not be demoted in favor of "California" the town in Maryland.
+        if (bestRows[0].featureCode.startsWith('ADM2')) {
+            const pplMatch = bestRows.find(r =>
+                r.featureClass === 'P' &&
+                r.primaryName.toLowerCase() === searchTerm
+            );
+            if (pplMatch) {
+                bestRows = [pplMatch, ...bestRows.filter(r =>
+                    r !== pplMatch && !(r.featureClass === 'A' && r.primaryName.toLowerCase().startsWith(searchTerm))
+                )];
+            }
+        }
+
+        // ── Post-process: prefer PCLI (country) over PPL for exact name matches ──
+        if (bestRows[0].featureCode !== 'PCLI') {
+            const countryMatch = bestRows.find(r =>
+                r.featureCode === 'PCLI' &&
+                r.primaryName.toLowerCase() === searchTerm
+            );
+            if (countryMatch) {
+                bestRows = [countryMatch, ...bestRows.filter(r => r !== countryMatch)];
+            }
+        }
+
+        const topRow = bestRows[0];
+        const place = this.searchRowToPlace(topRow);
+        // If the matched name is a prefix variant (e.g., "Bombaya" matched for search
+        // term "Bombay"), use the canonical primary name and set historicalName to what
+        // the user wrote (if different). This matches resolve()'s behavior.
+        if (place.name.toLowerCase() !== searchTerm &&
+            topRow.primaryName.toLowerCase() !== searchTerm) {
+            place.name = topRow.primaryName;
+            place.historicalName = parts[firstFoundAt];
+        }
+        const droppedParts = firstFoundAt > 0 ? parts.slice(0, firstFoundAt) : [];
+
+        const deduped = this.deduplicatePlaces(bestRows.map(r => this.searchRowToPlace(r)), limit);
+        const resultCount = deduped.length;
+
+        // ── Post-process: detect admin hierarchy mismatch ──
+        // Check if the result's admin fields actually match the provided qualifiers.
+        // If the first qualifier after the matched part looks like a county/region but
+        // the result is in a different county, flag as mismatch (lowers confidence to low).
+        // Check if the result's admin hierarchy matches the ORIGINAL first qualifier
+        // (before any qualifier dropping). This detects cases like "Mountain, El Dorado, CA"
+        // where "Mountain View" was found by dropping "El Dorado" — the result isn't in
+        // El Dorado, so confidence should be low rather than just medium.
+        let adminMismatch = false;
+        if (firstFoundAt >= 0) {
+            // Use the original qualifiers (parts after the matched term), not the
+            // subset that was actually used after dropping.
+            const originalQualifiers = parts.slice(firstFoundAt + 1);
+            if (originalQualifiers.length > 0) {
+                const firstQual = originalQualifiers[0].toLowerCase();
+                const admin2 = (topRow.admin2Name ?? '').toLowerCase();
+                const admin1 = (topRow.admin1Name ?? '').toLowerCase();
+                if (firstQual.length >= 3 &&
+                    !admin2.includes(firstQual) && !admin1.includes(firstQual) &&
+                    !firstQual.includes(admin2) && !firstQual.includes(admin1)) {
+                    adminMismatch = true;
+                }
+            }
+        }
+
+        const confidence = this.scoreConfidence(
+            firstFoundAt, resultCount, place, topRow.population,
+            parts, qualifiersDropped, adminMismatch,
+        );
+
+        return { place, confidence, droppedParts, resultCount };
+    }
+
+    private scoreConfidence(
+        firstFoundAt: number,
+        resultCount: number,
+        place: Place,
+        population: number,
+        parts: string[],
+        qualifiersDropped: number,
+        adminMismatch = false,
+    ): 'high' | 'medium' | 'low' | 'none' {
+        const hasCoords = place.lat != null && place.lng != null;
+        if (!hasCoords) return 'low';
+
+        const hasQualifiers = parts.length > 1;
+        const firstPartLength = parts[0]?.length ?? 0;
+
+        // Very short inputs without qualifiers are always low confidence
+        if (firstPartLength <= 3 && !hasQualifiers) {
+            return 'low';
+        }
+
+        // Admin hierarchy mismatch — result is in a different region than qualifiers specify
+        if (adminMismatch) {
+            return 'low';
+        }
+
+        // Qualifier mismatch (some qualifiers were dropped to find a match)
+        if (qualifiersDropped > 0) {
+            return 'medium';
+        }
+
+        // Parts were dropped from the front (site name extraction)
+        if (firstFoundAt >= 2) return 'low';
+        if (firstFoundAt === 1) return 'medium';
+
+        // Direct match (firstFoundAt === 0)
+        if (hasQualifiers) {
+            // With qualifiers and no mismatch: high if specific qualifiers narrow it down
+            if (parts.length >= 3) return 'high'; // Multi-qualifier = well-specified
+            if (resultCount === 1 || population >= 100000) return 'high';
+            return 'medium';
+        }
+
+        // No qualifiers: confidence depends on population (larger = more likely correct)
+        if (population >= 500000) return 'high';
+        if (population >= 50000) return 'medium';
+        return 'low';
+    }
+
+    /**
+     * Deduplicate places that would display identically in the dropdown
+     * (same name, admin1, admin2, country).
+     */
+    private deduplicatePlaces(places: Place[], limit: number): Place[] {
+        const seen = new Set<string>();
+        const result: Place[] = [];
+        for (const p of places) {
+            // Use the displayed admin2 for dedup (hidden when it matches the place name)
+            const displayAdmin2 = (p.admin2Name && p.admin2Name !== p.name) ? p.admin2Name : '';
+            const key = `${p.name}|${p.admin1Name ?? ''}|${displayAdmin2}|${p.countryCode ?? ''}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            result.push(p);
+            if (result.length >= limit) break;
+        }
+        return result;
+    }
+
+    /**
+     * Reverse geocode: find the nearest place to the given coordinates.
+     * Returns null if no match or no DB available. Cached by rounded coords.
+     */
+    public async reverseGeocode(lat: number, lng: number): Promise<Place | null> {
+        if (!this.geonamesDb) return null;
+
+        await this.ensureCacheLoaded();
+
+        // v3: population-weighted distance — bump version when reverse query logic changes
+        const key = `reverse:v3:${lat.toFixed(3)},${lng.toFixed(3)}`;
+        if (this.cache.has(key)) {
+            return this.cache.get(key)!;
+        }
+
+        const row = this.geonamesDb.reverseGeocode(lat, lng);
+        if (!row) return null;
+
+        const place = this.reverseRowToPlace(row);
+        this.cache.set(key, place);
+        await this.persistCache();
+        return place;
     }
 
     // ─── Private ────────────────────────────────────────────────────────────
 
-    private async fetchResolve(name: string): Promise<Place> {
-        try {
-            const url = `${NOMINATIM_BASE}?q=${encodeURIComponent(name)}&format=jsonv2&addressdetails=1&limit=1`;
-            const response = await this.fetchFn(url, {
-                headers: { 'User-Agent': USER_AGENT },
-            });
-
-            if (!response.ok) return { name };
-
-            const items: NominatimResult[] = await response.json();
-            if (!items || items.length === 0) return { name };
-
-            return this.itemToPlace(items[0], name);
-        } catch {
-            return { name };
-        }
+    private reverseRowToPlace(row: { primaryName: string; lat: number; lng: number; countryCode: string | null; admin1Name?: string | null; admin2Name?: string | null }): Place {
+        const place: Place = {
+            name: row.primaryName,
+            lat: row.lat,
+            lng: row.lng,
+        };
+        if (row.countryCode) place.countryCode = row.countryCode;
+        if (row.admin1Name) place.admin1Name = row.admin1Name;
+        if (row.admin2Name) place.admin2Name = row.admin2Name;
+        place.resolvedAt = new Date().toISOString();
+        return place;
     }
 
-    private itemToPlace(item: NominatimResult, originalInput: string): Place {
-        const place: Place = { name: item.display_name };
+    private resolveFromDb(name: string): Place {
+        if (!this.geonamesDb) return { name };
 
-        const lat = parseFloat(item.lat);
-        const lng = parseFloat(item.lon);
-        if (!isNaN(lat)) place.lat = lat;
-        if (!isNaN(lng)) place.lng = lng;
+        const row = this.geonamesDb.resolveByName(name);
+        if (!row) return { name };
 
-        if (item.address?.country_code) {
-            place.countryCode = item.address.country_code.toUpperCase();
+        return this.rowToPlace(row, name);
+    }
+
+    /**
+     * Convert a search result row to a Place, using the matched alternate name
+     * as the place name so search results reflect what the user typed.
+     */
+    private searchRowToPlace(row: { primaryName: string; lat: number; lng: number; countryCode: string | null; featureCode: string; admin1Name?: string | null; admin2Name?: string | null; matchedName: string; sourceType: string }): Place {
+        const place: Place = { name: row.matchedName };
+
+        place.lat = row.lat;
+        place.lng = row.lng;
+
+        // Suppress fields that would redundantly echo the place itself
+        const isAdm1 = row.featureCode?.startsWith('ADM1');
+        const isAdm2 = row.featureCode?.startsWith('ADM2');
+        const isCountry = row.featureCode?.startsWith('PCL');
+
+        // Suppress countryCode for country-level results ("United States, US" → "United States")
+        if (row.countryCode && !isCountry) {
+            place.countryCode = row.countryCode;
         }
 
-        // Set historicalName when the resolved name differs from input
-        if (item.display_name.toLowerCase() !== originalInput.toLowerCase()) {
-            place.historicalName = originalInput;
+        if (row.admin1Name && !isAdm1) {
+            place.admin1Name = row.admin1Name;
+        }
+
+        if (row.admin2Name && !isAdm2) {
+            place.admin2Name = row.admin2Name;
         }
 
         place.resolvedAt = new Date().toISOString();
@@ -116,24 +499,32 @@ export class GeocodingService {
         return place;
     }
 
-    /**
-     * Rate-limiter: ensures sequential requests are ≥1000ms apart.
-     */
-    private enqueue<T>(fn: () => Promise<T>): Promise<T> {
-        const result = this.requestQueue.then(async () => {
-            const now = Date.now();
-            const wait = this.lastRequestTime + RATE_LIMIT_MS - now;
-            if (wait > 0) {
-                await new Promise<void>(resolve => setTimeout(resolve, wait));
-            }
-            this.lastRequestTime = Date.now();
-            return fn();
-        });
+    private rowToPlace(row: { primaryName: string; lat: number; lng: number; countryCode: string | null; admin1Name?: string | null; admin2Name?: string | null; matchedName: string; sourceType: string }, originalInput: string): Place {
+        const place: Place = { name: row.primaryName };
 
-        // Advance the queue, swallowing errors so the queue never breaks
-        this.requestQueue = result.then(() => { }, () => { });
+        place.lat = row.lat;
+        place.lng = row.lng;
 
-        return result;
+        if (row.countryCode) {
+            place.countryCode = row.countryCode;
+        }
+
+        if (row.admin1Name) {
+            place.admin1Name = row.admin1Name;
+        }
+
+        if (row.admin2Name) {
+            place.admin2Name = row.admin2Name;
+        }
+
+        // Set historicalName when the input differs from the modern name
+        if (row.primaryName.toLowerCase() !== originalInput.toLowerCase()) {
+            place.historicalName = originalInput;
+        }
+
+        place.resolvedAt = new Date().toISOString();
+
+        return place;
     }
 
     /**

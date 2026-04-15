@@ -179,6 +179,12 @@
     pointer-events: none;
 }
 
+@keyframes indeterminate {
+    0% { transform: translateX(-100%); }
+    50% { transform: translateX(200%); }
+    100% { transform: translateX(-100%); }
+}
+
 .mention-chip {
     display: inline-flex;
     align-items: center;

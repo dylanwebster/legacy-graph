@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { uploadGalleryAssets, updateAssetMeta, linkAssetToPerson } from '@/api/client';
 import type { AssetMetadata } from '@/api/client';
 import type { Place } from '@/api/people';
-import { PlaceCombobox } from '@/components/AssetLightbox';
+import { PlaceSearchCombobox } from '@/components/PlaceSearchCombobox';
 import { PersonSearchCombobox } from '@/components/PersonSearchCombobox';
 import { PersonChip } from '@/components/PersonChip';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
@@ -256,10 +256,12 @@ export function BulkUploadDialog({ open, onOpenChange, onSuccess }: BulkUploadDi
                             {/* Location */}
                             <div>
                                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Location</p>
-                                <PlaceCombobox
+                                <PlaceSearchCombobox
                                     value={locationQuery}
                                     onChange={(q) => { setLocationQuery(q); setLocationPlace(null); }}
                                     onSelect={(p) => setLocationPlace(p)}
+                                    inputClassName="h-7 text-xs"
+                                    size="sm"
                                 />
                             </div>
 

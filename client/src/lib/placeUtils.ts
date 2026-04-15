@@ -1,21 +1,7 @@
-import { z } from 'zod';
-
-export const PlaceSchema = z.object({
-    name: z.string(),
-    historicalName: z.string().optional(),
-    lat: z.number().min(-90).max(90).optional(),
-    lng: z.number().min(-180).max(180).optional(),
-    countryCode: z.string().length(2).optional(),
-    admin1Name: z.string().optional(),
-    admin2Name: z.string().optional(),
-    resolvedAt: z.string().datetime().optional(),
-});
-
-export type Place = z.infer<typeof PlaceSchema>;
+import type { Place } from '@/api/people';
 
 /** Build a human-readable display string from Place components.
- *  Skips admin/country parts that are already substrings of `name`
- *  (handles GEDCOM full-string names like "City, County, State, Country"). */
+ *  Skips admin/country parts that are already substrings of `name`. */
 export function formatPlaceDisplay(place: Place | undefined | null): string {
     if (!place) return '';
     const parts: string[] = [place.name];

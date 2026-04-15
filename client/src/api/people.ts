@@ -6,6 +6,8 @@ export interface Place {
     lat?: number;
     lng?: number;
     countryCode?: string;
+    admin1Name?: string;
+    admin2Name?: string;
     resolvedAt?: string;
 }
 

@@ -1,26 +1,58 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useUpdatePerson, useSearch, usePlacesSearch, useUploadEventMedia, useAssets, useDeleteGalleryAsset } from '@/api/hooks';
+import { useUpdatePerson, useSearch, useUploadEventMedia, useAssets, useDeleteGalleryAsset } from '@/api/hooks';
 import type { Place } from '@/api/people';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
 import { AssetPickerDialog } from '@/components/AssetPickerDialog';
 import type { PersonChipData } from '@/components/AssetSearchBar';
 import { AssetLightbox } from '@/components/AssetLightbox';
+import { PlaceSearchCombobox } from '@/components/PlaceSearchCombobox';
 import {
     Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { FileText, Link2, Trash2, Upload, X } from 'lucide-react';
+import {
+    Sunrise, Sunset, Heart, MapPin, GraduationCap, Briefcase, Church, Ship,
+    ScrollText, Users, FileText, Calendar, Leaf, ChevronDown, Check,
+    Link2, Trash2, Upload, X,
+} from 'lucide-react';
+import {
+    Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from '@/components/ui/command';
 import { assetType } from '@/lib/assetUtils';
+import { formatPlaceDisplay } from '@/lib/placeUtils';
 import { toast } from 'sonner';
 
-const EVENT_TYPES = [
-    'birth', 'death', 'marriage', 'divorce', 'residence',
-    'census', 'occupation', 'education', 'baptism', 'burial', 'generic',
-] as const;
-type EventType = typeof EVENT_TYPES[number];
+const EVENT_META = {
+    birth:            { icon: Sunrise,       label: 'Birth' },
+    death:            { icon: Sunset,        label: 'Death' },
+    marriage:         { icon: Heart,         label: 'Marriage' },
+    divorce:          { icon: Heart,         label: 'Divorce' },
+    engagement:       { icon: Heart,         label: 'Engagement' },
+    residence:        { icon: MapPin,        label: 'Residence' },
+    census:           { icon: FileText,      label: 'Census' },
+    occupation:       { icon: Briefcase,     label: 'Occupation' },
+    education:        { icon: GraduationCap, label: 'Education' },
+    military_service: { icon: ScrollText,    label: 'Military Service' },
+    immigration:      { icon: Ship,          label: 'Immigration' },
+    emigration:       { icon: Ship,          label: 'Emigration' },
+    adoption:         { icon: Users,         label: 'Adoption' },
+    baptism:          { icon: Church,        label: 'Baptism' },
+    burial:           { icon: Leaf,          label: 'Burial' },
+    generic:          { icon: Calendar,      label: 'Other' },
+} satisfies Record<string, { icon: typeof Calendar; label: string }>;
+
+type EventType = keyof typeof EVENT_META;
+
+const EVENT_CATEGORIES: Array<{ label: string; types: EventType[] }> = [
+    { label: 'Life',                types: ['birth', 'death', 'adoption', 'baptism', 'burial'] },
+    { label: 'Family',             types: ['marriage', 'divorce', 'engagement'] },
+    { label: 'Location',           types: ['residence', 'immigration', 'emigration'] },
+    { label: 'Career & Education', types: ['occupation', 'education', 'military_service'] },
+    { label: 'Records',            types: ['census', 'generic'] },
+];
 
 interface EventEditorDialogProps {
     isOpen: boolean;
@@ -97,73 +129,65 @@ function PersonSearchCombobox({
     );
 }
 
-// Debounced place search combobox
-function PlaceSearchCombobox({
-    value,
-    onChange,
-    onSelect,
-}: {
-    value: string;
-    onChange: (query: string) => void;
-    onSelect: (place: Place) => void;
-}) {
-    const [debouncedQuery, setDebouncedQuery] = useState('');
-    const [showDropdown, setShowDropdown] = useState(false);
-    const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
 
+// ── Event Type Selector ──────────────────────────────────────────────────────
+
+function EventTypeSelector({ value, onChange }: { value: EventType; onChange: (t: EventType) => void }) {
+    const [open, setOpen] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const meta = EVENT_META[value];
+    const Icon = meta.icon;
+
+    // Close on outside click
     useEffect(() => {
-        const t = setTimeout(() => setDebouncedQuery(value), 350);
-        return () => clearTimeout(t);
-    }, [value]);
-
-    const { data: places } = usePlacesSearch(debouncedQuery);
-
-    const handleSelect = (place: Place) => {
-        onChange(place.name);
-        setSelectedPlace(place);
-        onSelect(place);
-        setShowDropdown(false);
-    };
-
-    const handleChange = (query: string) => {
-        onChange(query);
-        setSelectedPlace(null);
-        setShowDropdown(true);
-    };
-
-    const displayLat = selectedPlace?.lat != null
-        ? `${Math.abs(selectedPlace.lat).toFixed(2)}°${selectedPlace.lat >= 0 ? 'N' : 'S'}, ${Math.abs(selectedPlace.lng ?? 0).toFixed(2)}°${(selectedPlace.lng ?? 0) >= 0 ? 'E' : 'W'}`
-        : null;
+        if (!open) return;
+        const handler = (e: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [open]);
 
     return (
-        <div className="relative">
-            <Input
-                placeholder="City, Country"
-                value={value}
-                onChange={(e) => handleChange(e.target.value)}
-                onFocus={() => setShowDropdown(true)}
-                onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
-                className="h-8 text-sm"
-            />
-            {showDropdown && debouncedQuery.length >= 2 && (places ?? []).length > 0 && (
-                <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-md max-h-48 overflow-auto">
-                    {(places ?? []).map((place, i) => (
-                        <button
-                            key={i}
-                            type="button"
-                            className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 text-left"
-                            onMouseDown={() => handleSelect(place)}
-                        >
-                            <span className="truncate flex-1">{place.name}</span>
-                            {!!place.countryCode && (
-                                <span className="text-xs text-muted-foreground shrink-0">{place.countryCode}</span>
-                            )}
-                        </button>
-                    ))}
+        <div ref={containerRef} className="relative">
+            <button
+                type="button"
+                onClick={() => setOpen(!open)}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md border border-input bg-transparent text-sm hover:bg-muted/50 transition-colors"
+            >
+                <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="flex-1 text-left font-medium">{meta.label}</span>
+                <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+            </button>
+            {open && (
+                <div className="absolute z-50 w-full mt-1 rounded-md border border-border bg-popover shadow-md">
+                    <Command className="rounded-md">
+                        <CommandInput placeholder="Search event types..." className="h-8 text-sm" />
+                        <CommandList className="max-h-56">
+                            <CommandEmpty>No event type found.</CommandEmpty>
+                            {EVENT_CATEGORIES.map((cat) => (
+                                <CommandGroup key={cat.label} heading={cat.label}>
+                                    {cat.types.map((t) => {
+                                        const m = EVENT_META[t];
+                                        const ItemIcon = m.icon;
+                                        return (
+                                            <CommandItem
+                                                key={t}
+                                                value={`${m.label} ${t}`}
+                                                onSelect={() => { onChange(t); setOpen(false); }}
+                                                className="flex items-center gap-2 cursor-pointer"
+                                            >
+                                                <ItemIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                                <span className="flex-1">{m.label}</span>
+                                                {t === value && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                                            </CommandItem>
+                                        );
+                                    })}
+                                </CommandGroup>
+                            ))}
+                        </CommandList>
+                    </Command>
                 </div>
-            )}
-            {!!displayLat && (
-                <p className="text-xs text-green-600 dark:text-green-400 mt-1">{displayLat}</p>
             )}
         </div>
     );
@@ -173,11 +197,14 @@ function getRequiredFields(type: EventType): string[] {
     switch (type) {
         case 'marriage':
         case 'divorce':
+        case 'engagement':
             return ['partner_id'];
         case 'occupation':
             return ['title'];
         case 'education':
             return ['institution'];
+        case 'military_service':
+            return ['branch'];
         default:
             return [];
     }
@@ -217,7 +244,7 @@ export function EventEditorDialog({
     const [locationQuery, setLocationQuery] = useState(() => {
         const loc = existingEvent?.location;
         if (!loc) return '';
-        if (typeof loc === 'object' && loc !== null && 'name' in loc) return (loc as Place).name;
+        if (typeof loc === 'object' && loc !== null && 'name' in loc) return formatPlaceDisplay(loc as Place);
         if (typeof loc === 'string') return loc;
         return '';
     });
@@ -237,6 +264,9 @@ export function EventEditorDialog({
     const [institution, setInstitution] = useState((existingEvent?.institution as string) ?? '');
     const [degree, setDegree] = useState((existingEvent?.degree as string) ?? '');
     const [householdId, setHouseholdId] = useState((existingEvent?.household_id as string) ?? '');
+    const [branch, setBranch] = useState((existingEvent?.branch as string) ?? '');
+    const [rank, setRank] = useState((existingEvent?.rank as string) ?? '');
+    const [siteName, setSiteName] = useState((existingEvent?.site_name as string) ?? '');
 
     // Reset when dialog opens with new event data
     useEffect(() => {
@@ -245,7 +275,7 @@ export function EventEditorDialog({
             setDate((existingEvent?.date as string) ?? '');
             const loc = existingEvent?.location;
             if (loc && typeof loc === 'object' && 'name' in loc) {
-                setLocationQuery((loc as Place).name);
+                setLocationQuery(formatPlaceDisplay(loc as Place));
                 setLocationPlace(loc as Place);
             } else if (typeof loc === 'string') {
                 setLocationQuery(loc);
@@ -263,6 +293,9 @@ export function EventEditorDialog({
             setInstitution((existingEvent?.institution as string) ?? '');
             setDegree((existingEvent?.degree as string) ?? '');
             setHouseholdId((existingEvent?.household_id as string) ?? '');
+            setBranch((existingEvent?.branch as string) ?? '');
+            setRank((existingEvent?.rank as string) ?? '');
+            setSiteName((existingEvent?.site_name as string) ?? '');
             setEventAssets((existingEvent?.assets as string[]) ?? []);
         }
     }, [isOpen, existingEvent, initialEventType]);
@@ -282,6 +315,7 @@ export function EventEditorDialog({
         } else if (locationQuery.trim()) {
             base.location = { name: locationQuery.trim() };
         }
+        if (siteName.trim()) base.site_name = siteName.trim();
         if (description) base.description = description;
 
         switch (eventType) {
@@ -290,6 +324,7 @@ export function EventEditorDialog({
                 base.status = marriageStatus;
                 break;
             case 'divorce':
+            case 'engagement':
                 base.partner_id = partnerId;
                 break;
             case 'death':
@@ -306,15 +341,19 @@ export function EventEditorDialog({
             case 'census':
                 if (householdId) base.household_id = householdId;
                 break;
+            case 'military_service':
+                base.branch = branch;
+                if (rank) base.rank = rank;
+                break;
             case 'generic':
                 if (title) base.title = title;
                 break;
         }
         return base;
     }, [
-        eventType, date, locationPlace, locationQuery, description,
+        eventType, date, locationPlace, locationQuery, siteName, description,
         partnerId, marriageStatus, cause, title, organization,
-        institution, degree, householdId, eventAssets, existingEvent,
+        institution, degree, householdId, branch, rank, eventAssets, existingEvent,
     ]);
 
     const handleDeleteEvent = () => setConfirmDelete(true);
@@ -337,7 +376,7 @@ export function EventEditorDialog({
     const handleSave = () => {
         const required = getRequiredFields(eventType);
         const eventData: Record<string, string | undefined> = {
-            partner_id: partnerId, title, institution,
+            partner_id: partnerId, title, institution, branch,
         };
         for (const field of required) {
             if (!eventData[field]) {
@@ -389,28 +428,8 @@ export function EventEditorDialog({
                 </DialogHeader>
 
                 <div className="space-y-4 py-2">
-                    {/* Event type */}
-                    <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                            Event Type
-                        </label>
-                        <div className="flex flex-wrap gap-1.5">
-                            {EVENT_TYPES.map((t) => (
-                                <button
-                                    key={t}
-                                    type="button"
-                                    onClick={() => setEventType(t)}
-                                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                                        eventType === t
-                                            ? 'bg-primary text-primary-foreground'
-                                            : 'bg-muted hover:bg-muted/80 text-muted-foreground'
-                                    }`}
-                                >
-                                    {t}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+                    {/* Event type selector */}
+                    <EventTypeSelector value={eventType} onChange={setEventType} />
 
                     {/* Date */}
                     <div className="space-y-1">
@@ -423,11 +442,25 @@ export function EventEditorDialog({
                     </div>
 
                     <div className="space-y-1">
-                        <label className="text-xs font-medium">Location</label>
+                        <label className="text-xs font-medium">Place</label>
                         <PlaceSearchCombobox
                             value={locationQuery}
-                            onChange={setLocationQuery}
+                            onChange={(value) => {
+                                setLocationQuery(value);
+                                setLocationPlace(null);
+                            }}
                             onSelect={setLocationPlace}
+                            initialPlace={locationPlace}
+                        />
+                    </div>
+
+                    <div className="space-y-1">
+                        <label className="text-xs font-medium">Site Name</label>
+                        <Input
+                            placeholder="e.g. St. Mary's Church, Oak Hill Cemetery"
+                            value={siteName}
+                            onChange={(e) => setSiteName(e.target.value)}
+                            className="h-8 text-sm"
                         />
                     </div>
 
@@ -443,7 +476,7 @@ export function EventEditorDialog({
                     </div>
 
                     {/* Type-specific fields */}
-                    {(eventType === 'marriage' || eventType === 'divorce') && (
+                    {(eventType === 'marriage' || eventType === 'divorce' || eventType === 'engagement') && (
                         <div className="space-y-1">
                             <label className="text-xs font-medium">
                                 Partner <span className="text-destructive">*</span>
@@ -547,6 +580,31 @@ export function EventEditorDialog({
                                 className="h-8 text-sm"
                             />
                         </div>
+                    )}
+
+                    {eventType === 'military_service' && (
+                        <>
+                            <div className="space-y-1">
+                                <label className="text-xs font-medium">
+                                    Branch <span className="text-destructive">*</span>
+                                </label>
+                                <Input
+                                    placeholder="e.g. US Army, Royal Navy"
+                                    value={branch}
+                                    onChange={(e) => setBranch(e.target.value)}
+                                    className="h-8 text-sm"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-xs font-medium">Rank</label>
+                                <Input
+                                    placeholder="e.g. Sergeant, Captain"
+                                    value={rank}
+                                    onChange={(e) => setRank(e.target.value)}
+                                    className="h-8 text-sm"
+                                />
+                            </div>
+                        </>
                     )}
 
                     {/* Linked Assets */}

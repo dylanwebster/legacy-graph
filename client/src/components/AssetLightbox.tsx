@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useUpdateAssetMeta, useLinkAsset, useUnlinkAsset, usePlacesSearch } from '@/api/hooks';
+import { useUpdateAssetMeta, useLinkAsset, useUnlinkAsset } from '@/api/hooks';
 import type { AssetListItem } from '@/api/client';
 import type { Place } from '@/api/people';
 import { assetType } from '@/lib/assetUtils';
+import { formatPlaceDisplay, formatCoordinates } from '@/lib/placeUtils';
 import { PersonChip } from '@/components/PersonChip';
 import { PersonSearchCombobox } from '@/components/PersonSearchCombobox';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
@@ -18,70 +19,7 @@ import {
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 
-// Inline place search combobox (mirrors EventEditorDialog pattern)
-export function PlaceCombobox({
-    value,
-    onChange,
-    onSelect,
-}: {
-    value: string;
-    onChange: (q: string) => void;
-    onSelect: (p: Place) => void;
-}) {
-    const [debounced, setDebounced] = useState('');
-    const [open, setOpen] = useState(false);
-    const [resolved, setResolved] = useState<Place | null>(null);
-
-    useEffect(() => {
-        const t = setTimeout(() => setDebounced(value), 350);
-        return () => clearTimeout(t);
-    }, [value]);
-
-    const { data: places } = usePlacesSearch(debounced);
-
-    const handleSelect = (p: Place) => {
-        onChange(p.name);
-        setResolved(p);
-        onSelect(p);
-        setOpen(false);
-    };
-
-    const displayLat = resolved?.lat != null
-        ? `${Math.abs(resolved.lat).toFixed(2)}°${resolved.lat >= 0 ? 'N' : 'S'}, ${Math.abs(resolved.lng ?? 0).toFixed(2)}°${(resolved.lng ?? 0) >= 0 ? 'E' : 'W'}`
-        : null;
-
-    return (
-        <div className="relative">
-            <Input
-                placeholder="City, Country"
-                value={value}
-                onChange={(e) => { onChange(e.target.value); setResolved(null); setOpen(true); }}
-                onFocus={() => setOpen(true)}
-                onBlur={() => setTimeout(() => setOpen(false), 150)}
-                className="h-7 text-xs"
-                autoFocus
-            />
-            {open && debounced.length >= 2 && (places ?? []).length > 0 && (
-                <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-md max-h-40 overflow-auto">
-                    {(places ?? []).map((p, i) => (
-                        <button
-                            key={i}
-                            type="button"
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 text-left"
-                            onMouseDown={() => handleSelect(p)}
-                        >
-                            <span className="truncate flex-1">{p.name}</span>
-                            {!!p.countryCode && <span className="text-muted-foreground shrink-0">{p.countryCode}</span>}
-                        </button>
-                    ))}
-                </div>
-            )}
-            {!!displayLat && (
-                <p className="text-[10px] text-green-600 dark:text-green-400 mt-0.5">{displayLat}</p>
-            )}
-        </div>
-    );
-}
+import { PlaceSearchCombobox } from '@/components/PlaceSearchCombobox';
 
 export interface AssetLightboxProps {
     filename: string;
@@ -129,7 +67,7 @@ export function AssetLightbox({
     const [dateVal, setDateVal] = useState(assetData?.metadata.date ?? '');
     const [editingDate, setEditingDate] = useState(false);
     const [editingDesc, setEditingDesc] = useState(false);
-    const [locationQuery, setLocationQuery] = useState(assetData?.metadata.location?.name ?? '');
+    const [locationQuery, setLocationQuery] = useState(formatPlaceDisplay(assetData?.metadata.location) || '');
     const [locationPlace, setLocationPlace] = useState<Place | null>(assetData?.metadata.location ?? null);
     const [editingLocation, setEditingLocation] = useState(false);
     const [textContent, setTextContent] = useState<string | null>(null);
@@ -139,7 +77,7 @@ export function AssetLightbox({
         setAssetName(assetData?.metadata.name ?? '');
         setDescription(assetData?.metadata.description ?? '');
         setDateVal(assetData?.metadata.date ?? '');
-        setLocationQuery(assetData?.metadata.location?.name ?? '');
+        setLocationQuery(formatPlaceDisplay(assetData?.metadata.location) || '');
         setLocationPlace(assetData?.metadata.location ?? null);
         setEditingName(false);
         setEditingDate(false);
@@ -440,10 +378,14 @@ export function AssetLightbox({
                             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Location</p>
                             {editingLocation ? (
                                 <div className="space-y-1">
-                                    <PlaceCombobox
+                                    <PlaceSearchCombobox
                                         value={locationQuery}
                                         onChange={(q) => { setLocationQuery(q); setLocationPlace(null); }}
                                         onSelect={(p) => setLocationPlace(p)}
+                                        initialPlace={locationPlace}
+                                        inputClassName="h-7 text-xs"
+                                        size="sm"
+                                        autoFocus
                                     />
                                     <div className="flex gap-1">
                                         <Button size="sm" className="h-6 text-xs px-2" onClick={saveLocation}>Save</Button>
@@ -452,7 +394,7 @@ export function AssetLightbox({
                                             variant="outline"
                                             className="h-6 text-xs px-2"
                                             onClick={() => {
-                                                setLocationQuery(assetData?.metadata.location?.name ?? '');
+                                                setLocationQuery(formatPlaceDisplay(assetData?.metadata.location) || '');
                                                 setLocationPlace(assetData?.metadata.location ?? null);
                                                 setEditingLocation(false);
                                             }}
@@ -467,12 +409,11 @@ export function AssetLightbox({
                                     <MapPin className="h-3 w-3 text-muted-foreground mt-0.5 shrink-0 opacity-60" />
                                     <div className="flex-1 min-w-0">
                                         <span className="text-xs truncate block">
-                                            {locationQuery || <span className="text-muted-foreground italic">Add location…</span>}
+                                            {formatPlaceDisplay(locationPlace) || locationQuery || <span className="text-muted-foreground italic">Add location…</span>}
                                         </span>
-                                        {locationPlace?.lat != null && (
+                                        {!!formatCoordinates(locationPlace) && (
                                             <span className="text-[9px] text-green-600 dark:text-green-400">
-                                                {Math.abs(locationPlace.lat).toFixed(2)}°{locationPlace.lat >= 0 ? 'N' : 'S'},{' '}
-                                                {Math.abs(locationPlace.lng ?? 0).toFixed(2)}°{(locationPlace.lng ?? 0) >= 0 ? 'E' : 'W'}
+                                                {formatCoordinates(locationPlace)}
                                             </span>
                                         )}
                                     </div>

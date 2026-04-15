@@ -89,11 +89,43 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
     const [dims, setDims] = useState({ width: 800, height: 600 });
     const [scale, setScale] = useState(initialView?.scale ?? 1);
     const [pan, setPan] = useState(initialView?.pan ?? { x: 0, y: 0 });
+    const scaleRef = useRef(scale);
+    const panRef = useRef(pan);
+    const dimsRef = useRef(dims);
+    useEffect(() => { scaleRef.current = scale; panRef.current = pan; }, [scale, pan]);
+    useEffect(() => { dimsRef.current = dims; }, [dims]);
+    const transformGroupRef = useRef<SVGGElement>(null);
     const viewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const expandSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    /** Apply transform directly to the DOM — bypasses React render for smooth zoom/pan */
+    const applyTransform = useCallback(() => {
+        const g = transformGroupRef.current;
+        if (!g) return;
+        const d = dimsRef.current;
+        const p = panRef.current;
+        const s = scaleRef.current;
+        g.setAttribute('transform', `translate(${d.width / 2 + p.x}, ${d.height / 2 + p.y}) scale(${s})`);
+    }, []);
+
+    /** Flush ref values to React state (debounced) */
+    const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const scheduleSync = useCallback(() => {
+        if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = setTimeout(() => {
+            setScale(scaleRef.current);
+            setPan({ ...panRef.current });
+        }, 150);
+    }, []);
+
     useImperativeHandle(ref, () => ({
-        resetView: () => { setScale(1); setPan({ x: 0, y: 0 }); },
+        resetView: () => {
+            scaleRef.current = 1;
+            panRef.current = { x: 0, y: 0 };
+            applyTransform();
+            setScale(1);
+            setPan({ x: 0, y: 0 });
+        },
     }));
     const [isDragging, setIsDragging] = useState(false);
     const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
@@ -149,24 +181,31 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
         setPan({ x: 0, y: 0 });
     }, [rootPersonId]);
 
+    // Stable refs for callbacks — avoids re-triggering debounce effects
+    // when the parent passes new inline arrow functions on every render
+    const onViewChangeRef = useRef(onViewChange);
+    useEffect(() => { onViewChangeRef.current = onViewChange; }, [onViewChange]);
+    const onExpandChangeRef = useRef(onExpandChange);
+    useEffect(() => { onExpandChangeRef.current = onExpandChange; }, [onExpandChange]);
+
     // Debounced view state persistence
     useEffect(() => {
-        if (!onViewChange) return;
+        if (!onViewChangeRef.current) return;
         if (viewSaveTimerRef.current) clearTimeout(viewSaveTimerRef.current);
         viewSaveTimerRef.current = setTimeout(() => {
-            onViewChange({ scale, pan });
+            onViewChangeRef.current?.({ scale, pan });
         }, 300);
         return () => {
             if (viewSaveTimerRef.current) clearTimeout(viewSaveTimerRef.current);
         };
-    }, [scale, pan, onViewChange]);
+    }, [scale, pan]);
 
     // Debounced expansion state persistence
     useEffect(() => {
-        if (!onExpandChange) return;
+        if (!onExpandChangeRef.current) return;
         if (expandSaveTimerRef.current) clearTimeout(expandSaveTimerRef.current);
         expandSaveTimerRef.current = setTimeout(() => {
-            onExpandChange({
+            onExpandChangeRef.current?.({
                 up: Array.from(expandedUp),
                 down: Array.from(expandedDown),
                 siblings: Array.from(expandedSiblings),
@@ -175,7 +214,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
         return () => {
             if (expandSaveTimerRef.current) clearTimeout(expandSaveTimerRef.current);
         };
-    }, [expandedUp, expandedDown, expandedSiblings, onExpandChange]);
+    }, [expandedUp, expandedDown, expandedSiblings]);
 
     // Observe container size
     useEffect(() => {
@@ -189,34 +228,43 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
         return () => obs.disconnect();
     }, []);
 
-    // Wheel zoom
+    // Wheel zoom — mutates refs + DOM directly for smooth animation, debounces React sync
     useEffect(() => {
         const el = containerRef.current;
         if (!el) return;
         const handleWheel = (e: WheelEvent) => {
             e.preventDefault();
+            const curScale = scaleRef.current;
+            const curDims = dimsRef.current;
             const factor = e.deltaY < 0 ? 1.05 : 1 / 1.05;
-            const newScale = Math.max(0.15, Math.min(4, scale * factor));
+            const newScale = Math.max(0.15, Math.min(4, curScale * factor));
             const rect = el.getBoundingClientRect();
-            const cx = e.clientX - rect.left - dims.width / 2;
-            const cy = e.clientY - rect.top - dims.height / 2;
-            const ds = newScale - scale;
-            setPan(p => ({ x: p.x - cx * ds / scale, y: p.y - cy * ds / scale }));
-            setScale(newScale);
+            const cx = e.clientX - rect.left - curDims.width / 2;
+            const cy = e.clientY - rect.top - curDims.height / 2;
+            const ds = newScale - curScale;
+            panRef.current = {
+                x: panRef.current.x - cx * ds / curScale,
+                y: panRef.current.y - cy * ds / curScale,
+            };
+            scaleRef.current = newScale;
+            applyTransform();
+            scheduleSync();
         };
         el.addEventListener('wheel', handleWheel, { passive: false });
         return () => el.removeEventListener('wheel', handleWheel);
-    }, [scale, dims]);
+    }, [applyTransform, scheduleSync]);
 
     const DRAG_THRESHOLD = 5;
+
+    const isDraggingRef = useRef(false);
 
     const handlePointerDown = useCallback(
         (e: React.PointerEvent) => {
             if (e.button !== 0) return;
-            // Don't capture — let clicks on buttons and SVG elements work naturally
-            dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
+            isDraggingRef.current = false;
+            dragRef.current = { startX: e.clientX, startY: e.clientY, panX: panRef.current.x, panY: panRef.current.y };
         },
-        [pan],
+        [],
     );
 
     const handlePointerMove = useCallback(
@@ -224,18 +272,21 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
             if (!dragRef.current) return;
             const dx = e.clientX - dragRef.current.startX;
             const dy = e.clientY - dragRef.current.startY;
-            // Only enter drag mode after exceeding threshold
-            if (!isDragging && Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) {
-                setIsDragging(true);
-            }
-            if (isDragging || Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) {
-                setPan({ x: dragRef.current.panX + dx, y: dragRef.current.panY + dy });
+            if (Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) {
+                if (!isDraggingRef.current) {
+                    isDraggingRef.current = true;
+                    setIsDragging(true);
+                }
+                panRef.current = { x: dragRef.current.panX + dx, y: dragRef.current.panY + dy };
+                applyTransform();
+                scheduleSync();
             }
         },
-        [isDragging],
+        [applyTransform, scheduleSync],
     );
 
     const handlePointerUp = useCallback(() => {
+        isDraggingRef.current = false;
         setIsDragging(false);
         dragRef.current = null;
     }, []);
@@ -365,6 +416,9 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
         if (selectedNodeId) setSelectedNodeId(null);
     }, [selectedNodeId]);
 
+    // Keep the DOM transform in sync after React re-renders (e.g. data change, resize)
+    useEffect(() => { applyTransform(); }, [dims, applyTransform]);
+
     if (!rootPersonId) {
         return (
             <div
@@ -418,7 +472,7 @@ const PedigreePanel = forwardRef<PedigreePanelHandle, PedigreePanelProps>(functi
                         <feDropShadow dx="0" dy="1" stdDeviation="2.5" floodColor="black" floodOpacity="0.18" />
                     </filter>
                 </defs>
-                <g transform={transform}>
+                <g ref={transformGroupRef} transform={transform}>
                     {/* Connectors */}
                     {treeConnectors.map((c) => (
                         <path

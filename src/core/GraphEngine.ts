@@ -71,6 +71,7 @@ export class GraphEngine extends EventEmitter {
     private watcherEventCount = 0;
     private watcherWindowStart = 0;
     private watcherSuspended = false;
+    private watcherSuspendedUntil = 0; // grace period after suspension ends
 
     /**
      * Register a file path as written by the application itself.
@@ -513,17 +514,21 @@ export class GraphEngine extends EventEmitter {
                     return;
                 }
 
-                if (this.watcherSuspended) return;
+                if (this.watcherSuspended || Date.now() < this.watcherSuspendedUntil) return;
 
                 const now = Date.now();
                 if (now - this.watcherWindowStart > 500) {
                     this.watcherWindowStart = now;
                     this.watcherEventCount = 0;
                 }
-                this.watcherEventCount += events.length;
+
+                // Only count external events toward circuit breaker (skip self-writes
+                // from TransactionManager to avoid tripping during batch operations)
+                const externalCount = events.filter(e => !this.hasSelfWrite(e.path)).length;
+                this.watcherEventCount += externalCount;
 
                 if (this.watcherEventCount > 50) {
-                    console.warn(`[GraphEngine] Circuit breaker triggered! ${this.watcherEventCount} events in <500ms.`);
+                    console.warn(`[GraphEngine] Circuit breaker triggered! ${this.watcherEventCount} external events in <500ms.`);
                     this.triggerCircuitBreaker();
                     return;
                 }
@@ -556,17 +561,20 @@ export class GraphEngine extends EventEmitter {
                         return;
                     }
 
-                    if (this.watcherSuspended) return;
+                    if (this.watcherSuspended || Date.now() < this.watcherSuspendedUntil) return;
 
                     const now = Date.now();
                     if (now - this.watcherWindowStart > 500) {
                         this.watcherWindowStart = now;
                         this.watcherEventCount = 0;
                     }
-                    this.watcherEventCount += events.length;
+
+                    // Only count external events toward circuit breaker
+                    const externalCount = events.filter(e => !this.hasSelfWrite(e.path)).length;
+                    this.watcherEventCount += externalCount;
 
                     if (this.watcherEventCount > 50) {
-                        console.warn(`[GraphEngine] Circuit breaker triggered! ${this.watcherEventCount} events in <500ms.`);
+                        console.warn(`[GraphEngine] Circuit breaker triggered! ${this.watcherEventCount} external events in <500ms.`);
                         this.triggerCircuitBreaker();
                         return;
                     }
@@ -612,6 +620,29 @@ export class GraphEngine extends EventEmitter {
     }
 
     /**
+     * Suspend the watcher during a batch write operation.
+     * The apply handler already updates the graph in-memory, so watcher events
+     * for self-writes are redundant. Suspending avoids race conditions where
+     * FSEvents delivers callbacks before self-write registration completes.
+     */
+    public async withSuspendedWatcher<T>(fn: () => Promise<T>): Promise<T> {
+        const wasSuspended = this.watcherSuspended;
+        this.watcherSuspended = true;
+        try {
+            return await fn();
+        } finally {
+            if (!wasSuspended) {
+                // FSEvents delivers callbacks asynchronously — events generated during
+                // suspension may arrive after we set watcherSuspended back to false.
+                // Set a 2-second grace period so those late-arriving events are still ignored.
+                this.watcherSuspendedUntil = Date.now() + 2000;
+                this.watcherSuspended = false;
+                this.watcherEventCount = 0;
+            }
+        }
+    }
+
+    /**
      * Stops all file system watchers and cleans up subscriptions.
      * Safe to call multiple times (no-op if no active subscription).
      */
@@ -648,8 +679,11 @@ export class GraphEngine extends EventEmitter {
     }
 
     private async handleFileUpdate(filePath: string) {
-        // Write-event deduplication: skip if this change was made by the application itself
+        // Write-event deduplication: skip if this change was made by the application itself.
+        // Consume the entry so that external edits after a short grace window are not ignored.
+        // Re-register with a brief TTL (1s) to absorb duplicate FSEvents for the same write.
         if (this.consumeSelfWrite(filePath)) {
+            this.registerSelfWrite(filePath, 1000);
             return;
         }
 
@@ -810,6 +844,7 @@ export class GraphEngine extends EventEmitter {
     private handleFileRemove(filePath: string) {
         // Write-event deduplication: skip if this change was made by the application itself
         if (this.consumeSelfWrite(filePath)) {
+            this.registerSelfWrite(filePath, 1000);
             return;
         }
 
@@ -870,7 +905,10 @@ export class GraphEngine extends EventEmitter {
     }
 
     private async handleStoryUpdate(filePath: string): Promise<void> {
-        if (this.consumeSelfWrite(filePath)) return;
+        if (this.consumeSelfWrite(filePath)) {
+            this.registerSelfWrite(filePath, 1000);
+            return;
+        }
         await this.handleStoryUpdateCore(filePath);
     }
 
@@ -935,7 +973,10 @@ export class GraphEngine extends EventEmitter {
     }
 
     private handleStoryRemove(filePath: string): void {
-        if (this.consumeSelfWrite(filePath)) return;
+        if (this.consumeSelfWrite(filePath)) {
+            this.registerSelfWrite(filePath, 1000);
+            return;
+        }
 
         const storyId = path.basename(filePath);
         if (this.graph.hasNode(storyId)) {

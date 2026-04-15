@@ -8,6 +8,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { AssetListItem } from '@/api/client';
 import type { AssetsQueryParams } from '@/api/client';
 import { assetType } from '@/lib/assetUtils';
+import { formatPlaceDisplay } from '@/lib/placeUtils';
 import { AssetLightbox } from '@/components/AssetLightbox';
 import { AssetSearchBar } from '@/components/AssetSearchBar';
 import type { PersonChipData } from '@/components/AssetSearchBar';
@@ -125,9 +126,9 @@ function AssetCard({ asset, onOpen, onDeleteRequest }: AssetCardProps) {
                     {asset.metadata.date && (
                         <span className="text-[9px] text-muted-foreground">{asset.metadata.date}</span>
                     )}
-                    {asset.metadata.location?.name && (
-                        <span className="text-[9px] text-muted-foreground truncate" title={asset.metadata.location.name}>
-                            {asset.metadata.location.name}
+                    {!!asset.metadata.location?.name && (
+                        <span className="text-[9px] text-muted-foreground truncate" title={formatPlaceDisplay(asset.metadata.location)}>
+                            {formatPlaceDisplay(asset.metadata.location)}
                         </span>
                     )}
                 </div>

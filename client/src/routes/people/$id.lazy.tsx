@@ -6,6 +6,7 @@ import { AssetPickerDialog } from '@/components/AssetPickerDialog';
 import { CustomAvatar } from '@/components/CustomAvatar';
 import { loadAvatarCrop, saveAvatarCrop, clearAvatarCrop } from '@/lib/avatarCrop';
 import { assetType, primaryImageAsset } from '@/lib/assetUtils';
+import { formatPlaceDisplay } from '@/lib/placeUtils';
 import { PersonChip } from '@/components/PersonChip';
 import { EventEditorDialog } from '@/components/EventEditorDialog';
 import { RelationshipEditorDialog } from '@/components/RelationshipEditorDialog';
@@ -31,7 +32,7 @@ import {
 import {
     Calendar, MapPin, Heart, Sunrise, Sunset, Leaf, GraduationCap, Briefcase, Church,
     Ship, ScrollText, FileText, Plus, ChevronRight, Image, BookOpen, Code,
-    Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2, Crop, Link2,
+    Pencil, X, Check, UserPlus, Users, Star, ZoomIn, Upload, Trash2, Crop, Link2, Building2,
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -48,17 +49,26 @@ const EVENT_ICONS: Record<string, typeof Calendar> = {
     death: Sunset,
     marriage: Heart,
     divorce: Heart,
+    engagement: Heart,
     education: GraduationCap,
     occupation: Briefcase,
     residence: MapPin,
     immigration: Ship,
-    military: ScrollText,
-    religious: Church,
+    emigration: Ship,
+    military_service: ScrollText,
+    adoption: Users,
     census: FileText,
     baptism: Church,
     burial: Leaf,
     generic: Calendar,
-    custom: Calendar,
+};
+
+const EVENT_LABELS: Record<string, string> = {
+    birth: 'Birth', death: 'Death', marriage: 'Marriage', divorce: 'Divorce',
+    engagement: 'Engagement', residence: 'Residence', census: 'Census',
+    occupation: 'Occupation', education: 'Education', military_service: 'Military Service',
+    immigration: 'Immigration', emigration: 'Emigration', adoption: 'Adoption',
+    baptism: 'Baptism', burial: 'Burial', generic: 'Other',
 };
 
 const SEX_OPTIONS = ['M', 'F', 'I', 'U'] as const;
@@ -111,19 +121,7 @@ function PersonDetail() {
     const [showCropDialog, setShowCropDialog] = useState(false);
     const [avatarCrop, setAvatarCrop] = useState<CropArea | null>(null);
 
-    // Timeline virtualizer
-    const timelineParentRef = useRef<HTMLDivElement>(null);
-    // Force VirtualizedTimeline to remount once after person data first loads so the
-    // virtualizer re-measures the scroll container with its fully-resolved flex height.
-    // Using [] fires too early (during the loading skeleton) when there is no cached data,
-    // so the 0→1 key transition is exhausted before VirtualizedTimeline ever mounts.
-    const [timelineKey, setTimelineKey] = useState(0);
-    const timelineVirtualizerInited = useRef(false);
-    useEffect(() => {
-        if (!person || timelineVirtualizerInited.current) return;
-        timelineVirtualizerInited.current = true;
-        setTimelineKey(1);
-    }, [person]);
+    // Timeline virtualizer — VirtualizedTimeline owns its own scroll container ref
 
     // Reset all editing state when navigating to a different person
     useEffect(() => {
@@ -649,14 +647,11 @@ function PersonDetail() {
                                 </button>
                             </div>
                         </div>
-                        <div ref={timelineParentRef} className="flex-1 overflow-y-auto">
-                            <VirtualizedTimeline
-                                key={timelineKey}
-                                timeline={timeline as Array<Record<string, unknown>>}
-                                parentRef={timelineParentRef}
-                                onEditEvent={openEditEvent}
-                            />
-                        </div>
+                        <VirtualizedTimeline
+                            key={id}
+                            timeline={timeline as Array<Record<string, unknown>>}
+                            onEditEvent={openEditEvent}
+                        />
                     </div>
                 </ResizablePanel>
 
@@ -961,29 +956,29 @@ function PersonDetail() {
 // Virtualized timeline using @tanstack/react-virtual
 function VirtualizedTimeline({
     timeline,
-    parentRef,
     onEditEvent,
 }: {
     timeline: Array<Record<string, unknown>>;
-    parentRef: React.RefObject<HTMLDivElement | null>;
     onEditEvent: (event: Record<string, unknown>) => void;
 }) {
+    const scrollRef = useRef<HTMLDivElement>(null);
     const rowVirtualizer = useVirtualizer({
         count: timeline.length,
-        getScrollElement: () => parentRef.current,
+        getScrollElement: () => scrollRef.current,
         estimateSize: () => 80,
         overscan: 5,
     });
 
     if (timeline.length === 0) {
         return (
-            <div className="p-8 text-center text-muted-foreground text-sm">
+            <div className="flex-1 overflow-y-auto p-8 text-center text-muted-foreground text-sm">
                 No events recorded yet.
             </div>
         );
     }
 
     return (
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div
             style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}
             className="px-4 py-3"
@@ -1055,7 +1050,7 @@ function VirtualizedTimeline({
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
-                                        <span className="font-medium text-sm capitalize">{String(details.type ?? item.type ?? '')}</span>
+                                        <span className="font-medium text-sm">{EVENT_LABELS[String(details.type ?? item.type ?? '')] ?? String(details.type ?? item.type ?? '')}</span>
                                         {!!details.date && (
                                             <span className="text-xs text-muted-foreground font-mono">{String(details.date)}</span>
                                         )}
@@ -1065,9 +1060,15 @@ function VirtualizedTimeline({
                                             <MapPin className="h-3 w-3" />
                                             <span className="truncate">
                                                 {typeof details.location === 'object' && details.location !== null
-                                                    ? String((details.location as Record<string, unknown>).name ?? '')
+                                                    ? formatPlaceDisplay(details.location as import('@/api/people').Place)
                                                     : String(details.location)}
                                             </span>
+                                        </div>
+                                    )}
+                                    {!!details.site_name && (
+                                        <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                                            <Building2 className="h-3 w-3" />
+                                            <span className="truncate">{String(details.site_name)}</span>
                                         </div>
                                     )}
                                     {!!details.description && (
@@ -1080,6 +1081,7 @@ function VirtualizedTimeline({
                     </div>
                 );
             })}
+        </div>
         </div>
     );
 }

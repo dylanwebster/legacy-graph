@@ -177,26 +177,62 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
     const [scale, setScale] = useState(initialView?.scale ?? 1);
     const [pan, setPan] = useState(initialView?.pan ?? { x: 0, y: 0 });
     const scaleRef = useRef(scale);
-    useEffect(() => { scaleRef.current = scale; }, [scale]);
+    const panRef = useRef(pan);
     const dimsRef = useRef(dims);
+    // Keep refs in sync when React state changes (e.g. resetView, programmatic updates)
+    useEffect(() => { scaleRef.current = scale; panRef.current = pan; }, [scale, pan]);
     useEffect(() => { dimsRef.current = dims; }, [dims]);
+    const transformGroupRef = useRef<SVGGElement>(null);
     const viewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    /** Apply transform directly to the DOM — bypasses React render for smooth zoom/pan */
+    const applyTransform = useCallback(() => {
+        const g = transformGroupRef.current;
+        if (!g) return;
+        const d = dimsRef.current;
+        const cx = d.width / 2;
+        const cy = d.height / 2;
+        const offsetY = d.height * FAN_OFFSET_Y_FRAC;
+        const p = panRef.current;
+        const s = scaleRef.current;
+        g.setAttribute('transform', `translate(${cx + p.x}, ${cy + p.y + offsetY}) scale(${s})`);
+    }, []);
+
+    /** Flush ref values to React state + persist view (debounced) */
+    const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const scheduleSync = useCallback(() => {
+        if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = setTimeout(() => {
+            setScale(scaleRef.current);
+            setPan({ ...panRef.current });
+        }, 150);
+    }, []);
+
     useImperativeHandle(ref, () => ({
-        resetView: () => { setScale(1); setPan({ x: 0, y: 0 }); },
+        resetView: () => {
+            scaleRef.current = 1;
+            panRef.current = { x: 0, y: 0 };
+            applyTransform();
+            setScale(1);
+            setPan({ x: 0, y: 0 });
+        },
     }));
 
-    // Debounced view state persistence
+    // Stable ref for onViewChange
+    const onViewChangeRef = useRef(onViewChange);
+    useEffect(() => { onViewChangeRef.current = onViewChange; }, [onViewChange]);
+
+    // Debounced view state persistence — only fires when React state settles
     useEffect(() => {
-        if (!onViewChange) return;
+        if (!onViewChangeRef.current) return;
         if (viewSaveTimerRef.current) clearTimeout(viewSaveTimerRef.current);
         viewSaveTimerRef.current = setTimeout(() => {
-            onViewChange({ scale, pan });
+            onViewChangeRef.current?.({ scale, pan });
         }, 300);
         return () => {
             if (viewSaveTimerRef.current) clearTimeout(viewSaveTimerRef.current);
         };
-    }, [scale, pan, onViewChange]);
+    }, [scale, pan]);
     const [isDragging, setIsDragging] = useState(false);
     const isDraggingRef = useRef(false); // ref mirror — lets move handler be stable (no stale closure)
     const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
@@ -220,7 +256,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
         return () => obs.disconnect();
     }, []);
 
-    // Wheel zoom — uses refs so the handler is stable (attached once, never stale)
+    // Wheel zoom — mutates refs + DOM directly for smooth animation, debounces React sync
     useEffect(() => {
         const el = containerRef.current;
         if (!el) return;
@@ -231,18 +267,21 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
             const curDims = dimsRef.current;
             const factor = e.deltaY < 0 ? 1.05 : 1 / 1.05;
             const newScale = Math.max(0.2, Math.min(5, curScale * factor));
-            // Zoom toward cursor position
             const rect = el.getBoundingClientRect();
             const cx = e.clientX - rect.left - curDims.width / 2;
             const cy = e.clientY - rect.top - curDims.height / 2;
             const ds = newScale - curScale;
-            setPan(p => ({ x: p.x - cx * ds / curScale, y: p.y - cy * ds / curScale }));
-            scaleRef.current = newScale; // update eagerly so batched events read the latest value
-            setScale(newScale);
+            panRef.current = {
+                x: panRef.current.x - cx * ds / curScale,
+                y: panRef.current.y - cy * ds / curScale,
+            };
+            scaleRef.current = newScale;
+            applyTransform();
+            scheduleSync();
         };
         el.addEventListener('wheel', handleWheel, { passive: false });
         return () => el.removeEventListener('wheel', handleWheel);
-    }, []); // stable — reads scale/dims from refs
+    }, [applyTransform, scheduleSync]);
 
     const DRAG_THRESHOLD = 5;
 
@@ -250,9 +289,9 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
         (e: React.PointerEvent) => {
             if (e.button !== 0) return;
             isDraggingRef.current = false;
-            dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
+            dragRef.current = { startX: e.clientX, startY: e.clientY, panX: panRef.current.x, panY: panRef.current.y };
         },
-        [pan],
+        [],
     );
 
     const handlePointerMove = useCallback(
@@ -264,13 +303,14 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                 if (!isDraggingRef.current) {
                     isDraggingRef.current = true;
                     setIsDragging(true);
-                    // Capture pointer so fast moves never lose the drag
                     containerRef.current?.setPointerCapture(e.pointerId);
                 }
-                setPan({ x: dragRef.current.panX + dx, y: dragRef.current.panY + dy });
+                panRef.current = { x: dragRef.current.panX + dx, y: dragRef.current.panY + dy };
+                applyTransform();
+                scheduleSync();
             }
         },
-        [], // stable — uses only refs, no stale closure on isDragging state
+        [applyTransform, scheduleSync],
     );
 
     const handlePointerUp = useCallback((e: React.PointerEvent) => {
@@ -402,6 +442,9 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
         setHoveredArcId(arcId);
     }, [pan, scale, isDragging, dims]);
 
+    // Keep the DOM transform in sync after React re-renders (e.g. data change, resize)
+    useEffect(() => { applyTransform(); }, [dims, applyTransform]);
+
     if (!rootPersonId) {
         return (
             <div
@@ -445,7 +488,7 @@ const FanChartPanel = forwardRef<FanChartPanelHandle, FanChartPanelProps>(functi
                 }}
                 onClick={handleSvgClick}
             >
-                <g transform={transform}>
+                <g ref={transformGroupRef} transform={transform}>
                     {/* Curved text paths for gen 1–3 arcs.
                         Path travels START→END clockwise (sweep=1): ascenders point outward so text
                         reads correctly from outside the chart.

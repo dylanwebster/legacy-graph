@@ -134,6 +134,11 @@ export async function gedcomRoutes(server: FastifyInstance) {
             await txManager.flush();
             await graphEngine.hydrate();
 
+            // Invalidate any stale batch geocoding results — the import changed
+            // the set of people/events so occurrence counts and matches are unreliable.
+            const batchResultsPath = path.join(dataDir, '_meta', '.batch-geocode-results.json');
+            await fs.unlink(batchResultsPath).catch(() => {});
+
             const response: Record<string, unknown> = {
                 imported: peopleToWrite.length,
                 warnings: result.warnings,

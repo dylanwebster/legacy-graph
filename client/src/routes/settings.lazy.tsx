@@ -13,6 +13,7 @@ import {
     DialogTitle,
     DialogDescription,
 } from '@/components/ui/dialog';
+import { BatchGeocodePanel } from '@/components/BatchGeocodePanel';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
     RefreshCw, Camera, Loader2, Server, Database, Clock, Activity,
@@ -310,6 +311,9 @@ function SettingsPage() {
                         )}
                     </Button>
                 </div>
+
+                {/* Geocode Locations */}
+                <BatchGeocodePanel />
 
                 {/* Export GEDCOM */}
                 <div className="space-y-3 border-t border-border/50 pt-4">

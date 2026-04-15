@@ -199,6 +199,7 @@ export const usePlacesSearch = (q: string) => {
         queryFn: () => searchPlaces(q),
         enabled: q.trim().length >= 2,
         staleTime: 60_000,
+        placeholderData: (prev) => prev,
     });
 };
 
@@ -408,3 +409,4 @@ export const useUnlinkAsset = () => {
         },
     });
 };
+
