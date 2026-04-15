@@ -7,7 +7,7 @@ import yaml from 'js-yaml';
 import matter from 'gray-matter';
 import { pipeline } from 'stream/promises';
 import { Person, PersonSchema, SlimPerson, toSlimPerson } from '../../schemas/PersonSchema';
-import { sliceTimeline } from '../../core/TimelineSlicer';
+import { sliceTimeline, type TimelineItem, type PaginatedTimeline } from '../../core/TimelineSlicer';
 import { invalidateComputed } from '../../core/GraphLogic';
 import type { AppInstance } from '../types';
 import { loadAssetIndex, saveAssetIndex, upsertAssetEntry, extractExifDate, reverseGeocodeExifGps } from '../../core/assetMetaUtils';
@@ -49,17 +49,30 @@ export async function peopleRoutes(server: FastifyInstance) {
         }
 
         const graph = graphEngine.getGraph();
-        const people: any[] = [];
 
-        graph.forEachNode((nodeId, attributes) => {
+        interface PersonListItem {
+            id: string;
+            names: SlimPerson['names'];
+            sex: string;
+            birthDate: string | undefined;
+            deathDate: string | undefined;
+            tags: string[] | undefined;
+            assetCount: number;
+            primaryAsset: string | undefined;
+            last_modified: string | undefined;
+        }
+
+        const people: PersonListItem[] = [];
+
+        graph.forEachNode((_nodeId, attributes) => {
             if (attributes.type === 'person') {
-                const p = attributes.data;
+                const p = attributes.data as SlimPerson;
                 people.push({
                     id: p.id,
                     names: p.names,
                     sex: p.sex,
-                    birthDate: p.events?.find((e: any) => e.type === 'birth')?.date,
-                    deathDate: p.events?.find((e: any) => e.type === 'death')?.date,
+                    birthDate: p.events?.find(e => e.type === 'birth')?.date,
+                    deathDate: p.events?.find(e => e.type === 'death')?.date,
                     tags: p.tags,
                     assetCount: p.assets?.length || 0,
                     primaryAsset: p.assets?.find(isImageFile),
@@ -68,13 +81,15 @@ export async function peopleRoutes(server: FastifyInstance) {
             }
         });
 
-        const VALID_SORT_FIELDS = new Set(['last_modified', 'birthDate', 'deathDate', 'assetCount']);
-        const sortBy = (sort && VALID_SORT_FIELDS.has(sort)) ? sort : 'last_modified';
+        const VALID_SORT_FIELDS = ['last_modified', 'birthDate', 'deathDate', 'assetCount'] as const;
+        type SortField = typeof VALID_SORT_FIELDS[number];
+        const validSortSet = new Set<string>(VALID_SORT_FIELDS);
+        const sortBy: SortField = (sort && validSortSet.has(sort)) ? sort as SortField : 'last_modified';
         const sortOrder = (order === 'asc' || order === 'desc') ? (order === 'asc' ? 1 : -1) : -1;
 
         people.sort((a, b) => {
-            const valA = a[sortBy] || '';
-            const valB = b[sortBy] || '';
+            const valA = a[sortBy] ?? '';
+            const valB = b[sortBy] ?? '';
             if (valA < valB) return -1 * sortOrder;
             if (valA > valB) return 1 * sortOrder;
             return 0;
@@ -116,7 +131,7 @@ export async function peopleRoutes(server: FastifyInstance) {
 
         const heavyFields = await graphEngine.loadHeavyFields(id);
 
-        let timeline: any;
+        let timeline: TimelineItem[] | PaginatedTimeline;
         if (limitStr !== undefined || offsetStr !== undefined) {
             const limit = limitStr ? parseInt(limitStr, 10) : 50;
             const offset = offsetStr ? parseInt(offsetStr, 10) : 0;
@@ -195,12 +210,12 @@ export async function peopleRoutes(server: FastifyInstance) {
             graphEngine.applyWriteSideEffects(newPerson.id, null, slim, newPerson.scrapbook_md || '');
 
             return reply.status(201).send(newPerson);
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('[API] Error creating person:', error);
             return reply.status(400).send({
                 error: 'Invalid person data',
                 code: 'VALIDATION_ERROR',
-                details: error.message
+                details: error instanceof Error ? error.message : String(error)
             });
         }
     });
@@ -256,12 +271,12 @@ export async function peopleRoutes(server: FastifyInstance) {
             graphEngine.applyWriteSideEffects(id, oldSlim, newSlim, merged.scrapbook_md || '');
 
             return merged;
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('[API] Error updating person:', error);
             return reply.status(400).send({
                 error: 'Invalid person data',
                 code: 'VALIDATION_ERROR',
-                details: error.message
+                details: error instanceof Error ? error.message : String(error)
             });
         }
     });
@@ -413,8 +428,8 @@ export async function peopleRoutes(server: FastifyInstance) {
                 filename: uniqueFilename,
                 assets: fullPerson.assets
             };
-        } catch (error: any) {
-            if (error.code === 'FST_INVALID_MULTIPART_CONTENT_TYPE') {
+        } catch (error: unknown) {
+            if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'FST_INVALID_MULTIPART_CONTENT_TYPE') {
                 return reply.status(400).send({
                     error: 'No file provided',
                     code: 'MISSING_FILE'
@@ -425,7 +440,7 @@ export async function peopleRoutes(server: FastifyInstance) {
             return reply.status(500).send({
                 error: 'Failed to upload media',
                 code: 'UPLOAD_ERROR',
-                details: error.message
+                details: error instanceof Error ? error.message : String(error)
             });
         }
     });
@@ -484,16 +499,14 @@ export async function peopleRoutes(server: FastifyInstance) {
         const otherEventRefs: string[] = [];
         graph.forEachNode((_nodeId, attrs) => {
             if (attrs.type !== 'person') return;
-            const person = attrs.data as any;
+            const person = attrs.data as SlimPerson;
             if (person.id === id) return; // already unlinked
-            if (Array.isArray(person.assets) && person.assets.includes(filename)) {
-                otherPersonRefs.push(person.id as string);
+            if (person.assets.includes(filename)) {
+                otherPersonRefs.push(person.id);
             }
-            if (Array.isArray(person.events)) {
-                for (const event of person.events) {
-                    if (Array.isArray(event.assets) && event.assets.includes(filename)) {
-                        otherEventRefs.push(person.id as string);
-                    }
+            for (const event of person.events) {
+                if (event.assets.includes(filename)) {
+                    otherEventRefs.push(person.id);
                 }
             }
         });
@@ -565,8 +578,8 @@ export async function peopleRoutes(server: FastifyInstance) {
         } as Person;
 
         const inPersonAssets = fullPerson.assets.includes(filename);
-        const inEventAssets = (fullPerson.events as any[]).some(
-            (e: any) => Array.isArray(e.assets) && e.assets.includes(filename)
+        const inEventAssets = fullPerson.events.some(
+            e => e.assets.includes(filename)
         );
 
         if (!inPersonAssets && !inEventAssets) {
@@ -574,12 +587,11 @@ export async function peopleRoutes(server: FastifyInstance) {
         }
 
         const oldSlim = graph.getNodeAttributes(id).data as SlimPerson;
-        fullPerson.assets = fullPerson.assets.filter((a) => a !== filename);
-        fullPerson.events = (fullPerson.events as any[]).map((e: any) =>
-            Array.isArray(e.assets)
-                ? { ...e, assets: e.assets.filter((a: string) => a !== filename) }
-                : e
-        );
+        fullPerson.assets = fullPerson.assets.filter(a => a !== filename);
+        fullPerson.events = fullPerson.events.map(e => ({
+            ...e,
+            assets: e.assets.filter(a => a !== filename),
+        }));
         fullPerson.last_modified = new Date().toISOString();
 
         const relativePath = path.join('people', `${id}.yaml`);

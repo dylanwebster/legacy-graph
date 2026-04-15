@@ -410,7 +410,7 @@ async function importCountryInfo(db: DatabaseSync, tsvPath: string): Promise<num
 
         // Insert alternate English names from the alternate_names table
         if (!isNaN(geonameid)) {
-            const altRows = altNamesQuery.all(geonameid) as any[];
+            const altRows = altNamesQuery.all(geonameid) as Array<{ name?: string }>;
             for (const row of altRows) {
                 if (row.name && row.name !== name) {
                     insertCountry.run(code, row.name);
@@ -472,8 +472,8 @@ async function main() {
 
     // Track the FTS rowid counter (importAllCountries uses sequential rowids)
     // We need to count how many FTS entries were created to continue the sequence
-    const ftsCountResult = db.prepare('SELECT MAX(rowid) as maxRowId FROM fts_map').get() as any;
-    const ftsRowIdAfterPlaces = ftsCountResult?.maxRowId ?? 0;
+    const ftsCountResult = db.prepare('SELECT MAX(rowid) as maxRowId FROM fts_map').get() as Record<string, unknown> | undefined;
+    const ftsRowIdAfterPlaces = (ftsCountResult?.maxRowId as number | undefined) ?? 0;
 
     // Add country geonameids to validIds so their alternate names get imported
     const countryContent = fs.readFileSync(countryInfoPath, 'utf8');

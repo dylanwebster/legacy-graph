@@ -256,6 +256,7 @@ export class GedcomReader {
                 const addr = this.getChildValue(child, 'ADDR') || "";
                 p.events.push({
                     id: crypto.randomUUID(),
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- discriminated union type from runtime GEDCOM tag map
                     type: simpleEventTags[child.tag] as any,
                     date: date,
                     sort_date: parseDate(date),

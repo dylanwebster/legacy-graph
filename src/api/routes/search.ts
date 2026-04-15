@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import type { AppInstance } from '../types';
+import type { SlimPerson } from '../../schemas/PersonSchema';
 
 export async function searchRoutes(server: FastifyInstance) {
     const { graphEngine, geocodingService } = (server as AppInstance).appServices;
@@ -42,14 +43,14 @@ export async function searchRoutes(server: FastifyInstance) {
             // Helper to resolve @N_xxx IDs to display names for excerpts
             const resolvePersonName = (personId: string): string => {
                 const nodeAttrs = graph.hasNode(personId) ? graph.getNodeAttributes(personId) : null;
-                const slim = nodeAttrs?.data as any;
+                const slim = nodeAttrs?.data as SlimPerson | undefined;
                 if (!slim?.names?.[0]) return personId;
                 const n = slim.names[0];
                 return [n.first, n.last].filter(Boolean).join(' ') || personId;
             };
             const enrichedPeople = results.people.map((p) => {
                 const nodeAttrs = graph.hasNode(p.id) ? graph.getNodeAttributes(p.id) : null;
-                const slim = nodeAttrs?.data as any;
+                const slim = nodeAttrs?.data as SlimPerson | undefined;
                 if (!slim) {
                     return {
                         id: p.id,
@@ -65,8 +66,8 @@ export async function searchRoutes(server: FastifyInstance) {
                     id: slim.id,
                     names: slim.names,
                     sex: slim.sex,
-                    birthDate: slim.events?.find((e: any) => e.type === 'birth')?.sort_date as string | undefined,
-                    deathDate: slim.events?.find((e: any) => e.type === 'death')?.sort_date as string | undefined,
+                    birthDate: slim.events?.find((e: { type: string }) => e.type === 'birth')?.sort_date as string | undefined,
+                    deathDate: slim.events?.find((e: { type: string }) => e.type === 'death')?.sort_date as string | undefined,
                     tags: slim.tags ?? [],
                     assetCount: slim.assets?.length ?? 0,
                     primaryAsset: slim.assets?.[0] as string | undefined,
@@ -82,13 +83,15 @@ export async function searchRoutes(server: FastifyInstance) {
                 const nodeAttrs = graph.hasNode(s.id) ? graph.getNodeAttributes(s.id) : null;
                 // API-facing id = strip .md
                 const apiId = s.id.endsWith('.md') ? s.id.slice(0, -3) : s.id;
-                const storyData = nodeAttrs?.data as any;
+                const storyData = nodeAttrs?.data as Record<string, unknown> | undefined;
                 if (!storyData) {
                     return { id: apiId, title: s.name, people: [] as string[], private: false, excerpt: s.snippet ?? '' };
                 }
-                const raw: string = storyData.content ?? '';
+                const raw: string = (storyData.content as string) ?? '';
+                const metadata = storyData.metadata as Record<string, unknown> | undefined;
+                const mentions = storyData.mentions as string[] | undefined;
                 // Sanitize Milkdown serialization artifacts (mirrors toFeedItem logic)
-                const content = raw.replace(/&#x20;/g, ' ').replace(/_/g, '_');
+                const content = raw.replace(/&#x20;/g, ' ').replace(/\\_/g, '_');
                 const bodyText = content
                     .replace(/@N_[a-zA-Z0-9_-]+/g, (match) => resolvePersonName(match.slice(1)))
                     .replace(/\[\[N_[a-zA-Z0-9_-]+\]\]/g, (match) => resolvePersonName(match.slice(2, -2)))
@@ -98,16 +101,16 @@ export async function searchRoutes(server: FastifyInstance) {
                     .trim();
                 return {
                     id: apiId,
-                    title: storyData.metadata?.title ?? s.name,
-                    date: storyData.metadata?.date,
-                    place: storyData.metadata?.place,
+                    title: (metadata?.title as string) ?? s.name,
+                    date: metadata?.date as string | undefined,
+                    place: metadata?.place,
                     people: Array.from(new Set([
-                        ...(storyData.metadata?.people ?? []),
-                        ...(storyData.mentions ?? [])
+                        ...((metadata?.people as string[] | undefined) ?? []),
+                        ...(mentions ?? [])
                     ])) as string[],
                     excerpt: bodyText.length > 280 ? bodyText.slice(0, 280) : bodyText,
-                    firstAsset: storyData.metadata?.assets?.[0],
-                    private: storyData.metadata?.private ?? false,
+                    firstAsset: (metadata?.assets as string[] | undefined)?.[0],
+                    private: (metadata?.private as boolean | undefined) ?? false,
                 };
             });
 
@@ -116,12 +119,12 @@ export async function searchRoutes(server: FastifyInstance) {
                 people: enrichedPeople,
                 stories: enrichedStories,
             };
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('[API] Search error:', error);
             return reply.status(500).send({
                 error: 'Search failed',
                 code: 'SEARCH_ERROR',
-                details: error.message
+                details: error instanceof Error ? error.message : String(error)
             });
         }
     });

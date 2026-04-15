@@ -187,8 +187,8 @@ async function loadPeopleIncremental(rootDir: string, cache: GraphCacheFile): Pr
                 });
                 parsed++;
             }
-        } catch (err: any) {
-            console.warn(`[HydrationWorker] Failed to process ${file}: ${err.message}`);
+        } catch (err: unknown) {
+            console.warn(`[HydrationWorker] Failed to process ${file}: ${err instanceof Error ? err.message : String(err)}`);
         }
         processed++;
         if (processed % 50 === 0 || processed === total) {

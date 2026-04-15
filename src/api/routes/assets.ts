@@ -6,7 +6,7 @@ import matter from 'gray-matter';
 import yaml from 'js-yaml';
 import { pipeline } from 'stream/promises';
 import { AssetMetadataSchema } from '../../schemas/AssetSchema';
-import { PersonSchema, toSlimPerson } from '../../schemas/PersonSchema';
+import { type Person, PersonSchema, type SlimPerson, toSlimPerson } from '../../schemas/PersonSchema';
 import type { AppInstance } from '../types';
 import { loadAssetIndex, saveAssetIndex, upsertAssetEntry, extractExifDate, reverseGeocodeExifGps } from '../../core/assetMetaUtils';
 import type { Place } from '../../schemas/PlaceSchema';
@@ -71,13 +71,13 @@ export async function assetsRoutes(server: FastifyInstance) {
         const graph = graphEngine.getGraph();
         graph.forEachNode((_nodeId, attrs) => {
             if (attrs.type !== 'person') return;
-            const person = attrs.data as any;
-            const personId = person.id as string;
+            const person = attrs.data as SlimPerson;
+            const personId = person.id;
 
             // Build display name
             const n = person.names?.[0];
             const displayName = n
-                ? `${n.first || n.given || ''} ${n.last || n.surname || ''}`.trim()
+                ? `${n.first || ''} ${n.last || ''}`.trim()
                 : personId;
             personNames.set(personId, displayName);
 
@@ -203,16 +203,16 @@ export async function assetsRoutes(server: FastifyInstance) {
                 return da < db ? -1 * sortOrder : da > db ? 1 * sortOrder : 0;
             }
             if (sort === 'created') {
-                const ca = (a.metadata as any).created_at as string | undefined;
-                const cb = (b.metadata as any).created_at as string | undefined;
+                const ca = a.metadata.created_at;
+                const cb = b.metadata.created_at;
                 if (!ca && !cb) return 0;
                 if (!ca) return 1;   // nulls sort last regardless of sortOrder
                 if (!cb) return -1;
                 return ca.localeCompare(cb) * sortOrder;
             }
             if (sort === 'modified') {
-                const ma = (a.metadata as any).modified_at as string | undefined;
-                const mb = (b.metadata as any).modified_at as string | undefined;
+                const ma = a.metadata.modified_at;
+                const mb = b.metadata.modified_at;
                 if (!ma && !mb) return 0;
                 if (!ma) return 1;   // nulls sort last regardless of sortOrder
                 if (!mb) return -1;
@@ -257,7 +257,7 @@ export async function assetsRoutes(server: FastifyInstance) {
             ...(resolvedDate !== undefined && { date: resolvedDate }),
             ...(location !== undefined && { location }),
             // Preserve existing created_at; always bump modified_at
-            created_at: (existing as any).created_at ?? now,
+            created_at: existing.created_at ?? now,
             modified_at: now,
         };
 
@@ -269,8 +269,8 @@ export async function assetsRoutes(server: FastifyInstance) {
             description: index[filename].description,
             date: index[filename].date,
             location: index[filename].location,
-            created_at: (index[filename] as any).created_at,
-            modified_at: (index[filename] as any).modified_at,
+            created_at: index[filename].created_at,
+            modified_at: index[filename].modified_at,
         };
     });
 
@@ -296,8 +296,8 @@ export async function assetsRoutes(server: FastifyInstance) {
         const graph = graphEngine.getGraph();
         graph.forEachNode((_nodeId, attrs) => {
             if (attrs.type !== 'person') return;
-            const person = attrs.data as any;
-            const personId = person.id as string;
+            const person = attrs.data as SlimPerson;
+            const personId = person.id;
             if (Array.isArray(person.assets) && person.assets.includes(filename)) {
                 people.push(personId);
             }
@@ -339,23 +339,19 @@ export async function assetsRoutes(server: FastifyInstance) {
             for (const personId of affectedPersonIds) {
                 if (!graph.hasNode(personId)) continue;
 
-                const slimData = graph.getNodeAttributes(personId).data as any;
+                const slimData = graph.getNodeAttributes(personId).data as SlimPerson;
                 const heavyFields = await graphEngine.loadHeavyFields(personId);
-                const fullPerson = {
+                const fullPerson: Person = {
                     ...slimData,
                     scrapbook_md: heavyFields?.scrapbook_md ?? '',
                     _gedcom: heavyFields?._gedcom,
-                } as any;
+                };
 
-                if (Array.isArray(fullPerson.assets)) {
-                    fullPerson.assets = fullPerson.assets.filter((a: string) => a !== filename);
-                }
-                if (Array.isArray(fullPerson.events)) {
-                    fullPerson.events = fullPerson.events.map((e: any) => ({
-                        ...e,
-                        assets: Array.isArray(e.assets) ? e.assets.filter((a: string) => a !== filename) : e.assets,
-                    }));
-                }
+                fullPerson.assets = fullPerson.assets.filter(a => a !== filename);
+                fullPerson.events = fullPerson.events.map(e => ({
+                    ...e,
+                    assets: e.assets.filter(a => a !== filename),
+                }));
                 fullPerson.last_modified = new Date().toISOString();
 
                 const primaryName = fullPerson.names?.[0];
@@ -404,18 +400,18 @@ export async function assetsRoutes(server: FastifyInstance) {
                 return reply.status(404).send({ error: 'Person not found', code: 'PERSON_NOT_FOUND' });
             }
 
-            const slimData = graph.getNodeAttributes(id).data as any;
-            const events: any[] = slimData.events ?? [];
-            const eventIdx = events.findIndex((e: any) => e.id === eventId);
+            const slimData = graph.getNodeAttributes(id).data as SlimPerson;
+            const events = slimData.events ?? [];
+            const eventIdx = events.findIndex(e => e.id === eventId);
             if (eventIdx === -1) {
                 return reply.status(404).send({ error: 'Event not found', code: 'EVENT_NOT_FOUND' });
             }
 
-            let fileData: any;
+            let fileData: Awaited<ReturnType<typeof request.file>>;
             try {
-                fileData = await (request as any).file();
-            } catch (err: any) {
-                if (err?.code === 'FST_INVALID_MULTIPART_CONTENT_TYPE') {
+                fileData = await request.file();
+            } catch (err: unknown) {
+                if (err && typeof err === 'object' && 'code' in err && err.code === 'FST_INVALID_MULTIPART_CONTENT_TYPE') {
                     return reply.status(400).send({ error: 'Request must be multipart/form-data', code: 'VALIDATION_ERROR' });
                 }
                 throw err;
@@ -464,21 +460,20 @@ export async function assetsRoutes(server: FastifyInstance) {
             }, txManager);
 
             const heavyFields = await graphEngine.loadHeavyFields(id);
-            const fullPerson = {
+            const fullPerson: Person = {
                 ...slimData,
                 scrapbook_md: heavyFields?.scrapbook_md ?? '',
                 _gedcom: heavyFields?._gedcom,
-            } as any;
+            };
 
-            fullPerson.events = (fullPerson.events as any[]).map((e: any, i: number) =>
+            fullPerson.events = fullPerson.events.map((e, i) =>
                 i === eventIdx
-                    ? { ...e, assets: [...(Array.isArray(e.assets) ? e.assets : []), uniqueFilename] }
+                    ? { ...e, assets: [...e.assets, uniqueFilename] }
                     : e
             );
             // Also link the uploaded file to the person's top-level assets[] (idempotent)
-            if (!Array.isArray(fullPerson.assets)) fullPerson.assets = [];
-            if (!(fullPerson.assets as string[]).includes(uniqueFilename)) {
-                fullPerson.assets = [...(fullPerson.assets as string[]), uniqueFilename];
+            if (!fullPerson.assets.includes(uniqueFilename)) {
+                fullPerson.assets = [...fullPerson.assets, uniqueFilename];
             }
             fullPerson.last_modified = new Date().toISOString();
 
@@ -505,7 +500,7 @@ export async function assetsRoutes(server: FastifyInstance) {
         const rejected: Array<{ originalName: string; reason: string }> = [];
 
         try {
-            const parts = (request as any).parts();
+            const parts = request.parts();
             for await (const part of parts) {
                 if (part.type !== 'file') continue;
 
@@ -549,8 +544,8 @@ export async function assetsRoutes(server: FastifyInstance) {
 
                 uploaded.push({ filename: uniqueFilename, originalName });
             }
-        } catch (err: any) {
-            if (err?.code === 'FST_INVALID_MULTIPART_CONTENT_TYPE') {
+        } catch (err: unknown) {
+            if (err && typeof err === 'object' && 'code' in err && err.code === 'FST_INVALID_MULTIPART_CONTENT_TYPE') {
                 return reply.status(400).send({ error: 'No files provided', code: 'VALIDATION_ERROR' });
             }
             throw err;
@@ -587,20 +582,20 @@ export async function assetsRoutes(server: FastifyInstance) {
             return reply.status(400).send({ error: 'Asset file not found on disk', code: 'ASSET_NOT_FOUND' });
         }
 
-        const slimData = graph.getNodeAttributes(id).data as any;
+        const slimData = graph.getNodeAttributes(id).data as SlimPerson;
         const heavyFields = await graphEngine.loadHeavyFields(id);
-        const fullPerson = {
+        const fullPerson: Person = {
             ...slimData,
             scrapbook_md: heavyFields?.scrapbook_md ?? '',
             _gedcom: heavyFields?._gedcom,
-        } as any;
+        };
 
         // Idempotent
-        if ((fullPerson.assets as string[]).includes(filename)) {
+        if (fullPerson.assets.includes(filename)) {
             return { assets: fullPerson.assets };
         }
 
-        fullPerson.assets = [...(fullPerson.assets as string[]), filename];
+        fullPerson.assets = [...fullPerson.assets, filename];
         fullPerson.last_modified = new Date().toISOString();
 
         PersonSchema.parse(fullPerson);

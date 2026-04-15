@@ -8,7 +8,8 @@ import { pipeline } from 'stream/promises';
 import { remark } from 'remark';
 import { visit } from 'unist-util-visit';
 import { StorySchema, StoryFeedItem, FullStory } from '../../schemas/StorySchema';
-import { formatPlaceDisplay } from '../../schemas/PlaceSchema';
+import { formatPlaceDisplay, type Place } from '../../schemas/PlaceSchema';
+import type { SlimPerson } from '../../schemas/PersonSchema';
 import type { AppInstance } from '../types';
 
 /** Strip `.md` from a filename to get the API-facing story id. */
@@ -20,6 +21,7 @@ function filenameToId(filename: string): string {
 function extractMentions(content: string): string[] {
     const mentions = new Set<string>();
     remark().use(() => (tree) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- unist-util-visit node type is untyped
         visit(tree, 'text', (node: any) => {
             const regex = /(@N_[a-zA-Z0-9_-]+)|(\[\[(N_[a-zA-Z0-9_-]+)\]\])/g;
             let match;
@@ -35,12 +37,12 @@ function extractMentions(content: string): string[] {
 /** Build a StoryFeedItem from raw story data. */
 function toFeedItem(
     id: string,
-    metadata: any,
+    metadata: Record<string, unknown>,
     content: string,
     mentions: string[],
     resolvePersonName?: (personId: string) => string,
 ): StoryFeedItem {
-    const people = Array.from(new Set([...(metadata.people ?? []), ...mentions]));
+    const people = Array.from(new Set([...((metadata.people as string[] | undefined) ?? []), ...mentions]));
     // Sanitize Milkdown serialization artifacts before processing
     // (Milkdown escapes _ as \_ and encodes spaces as &#x20; in raw markdown)
     const sanitized = content.replace(/&#x20;/g, ' ').replace(/\\_/g, '_');
@@ -78,21 +80,21 @@ function toFeedItem(
     const excerpt = bodyText.length > 280 ? bodyText.slice(0, 280) : bodyText;
     return {
         id,
-        title: metadata.title,
-        date: metadata.date,
-        place: metadata.place,
+        title: metadata.title as string,
+        date: metadata.date as string | undefined,
+        place: metadata.place as Place | undefined,
         people,
         excerpt,
-        firstAsset: metadata.assets?.[0],
-        private: metadata.private ?? false,
-        created_at: metadata.created_at,
-        modified_at: metadata.modified_at,
+        firstAsset: (metadata.assets as string[] | undefined)?.[0],
+        private: (metadata.private as boolean | undefined) ?? false,
+        created_at: metadata.created_at as string | undefined,
+        modified_at: metadata.modified_at as string | undefined,
     };
 }
 
 /** Build a FullStory response from raw story data. */
-function toFullStory(id: string, metadata: any, content: string, mentions: string[]): FullStory {
-    return { id, metadata, content: content.replace(/^\n/, '').trimEnd(), mentions };
+function toFullStory(id: string, metadata: Record<string, unknown>, content: string, mentions: string[]): FullStory {
+    return { id, metadata: metadata as FullStory['metadata'], content: content.replace(/^\n/, '').trimEnd(), mentions };
 }
 
 /** Write a story file to disk and return its parsed FullStory representation. */
@@ -103,6 +105,7 @@ async function writeStoryFile(
     writeFn: (relativePath: string, fileContent: string) => Promise<void>
 ): Promise<FullStory> {
     const parsed = StorySchema.parse(metadata);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- gray-matter stringify expects object type incompatible with Zod output
     const fileContent = matter.stringify(content, parsed as any);
     await writeFn(path.join('stories', `${id}.md`), fileContent);
     const mentions = extractMentions(content);
@@ -114,7 +117,7 @@ function makePersonNameResolver(graphEngine: AppInstance['appServices']['graphEn
     const graph = graphEngine.getGraph();
     return (personId: string) => {
         const nodeAttrs = graph.hasNode(personId) ? graph.getNodeAttributes(personId) : null;
-        const slim = nodeAttrs?.data as any;
+        const slim = nodeAttrs?.data as SlimPerson | undefined;
         if (!slim?.names?.[0]) return personId;
         const n = slim.names[0];
         return [n.first, n.last].filter(Boolean).join(' ') || personId;
@@ -293,8 +296,8 @@ export async function storiesRoutes(server: FastifyInstance) {
                 (rel, fc) => txManager.writeFile(rel, fc, `story ${id}`));
             await graphEngine.applyStoryWriteSideEffects(path.join(dataDir, 'stories', `${id}.md`));
             return reply.status(201).send(story);
-        } catch (error: any) {
-            return reply.status(400).send({ error: 'Invalid story data', code: 'VALIDATION_ERROR', details: error.message });
+        } catch (error: unknown) {
+            return reply.status(400).send({ error: 'Invalid story data', code: 'VALIDATION_ERROR', details: error instanceof Error ? error.message : String(error) });
         }
     });
 
@@ -355,8 +358,8 @@ export async function storiesRoutes(server: FastifyInstance) {
                 (rel, fc) => txManager.writeFile(rel, fc, `story ${id}`));
             await graphEngine.applyStoryWriteSideEffects(path.join(dataDir, 'stories', `${id}.md`));
             return reply.status(200).send(story);
-        } catch (error: any) {
-            return reply.status(400).send({ error: 'Invalid story data', code: 'VALIDATION_ERROR', details: error.message });
+        } catch (error: unknown) {
+            return reply.status(400).send({ error: 'Invalid story data', code: 'VALIDATION_ERROR', details: error instanceof Error ? error.message : String(error) });
         }
     });
 
@@ -401,7 +404,7 @@ export async function storiesRoutes(server: FastifyInstance) {
             const referencedByPeople = new Set<string>();
             const graph = graphEngine.getGraph();
             graph.forEachNode((_nodeId, attrs) => {
-                const personAssets: unknown[] = (attrs?.data as any)?.assets ?? [];
+                const personAssets: unknown[] = (attrs?.data as SlimPerson | undefined)?.assets ?? [];
                 for (const a of personAssets) {
                     if (typeof a === 'string') referencedByPeople.add(a);
                 }
@@ -471,11 +474,12 @@ export async function storiesRoutes(server: FastifyInstance) {
             return reply.status(404).send({ error: 'Story not found', code: 'STORY_NOT_FOUND' });
         }
 
-        let data: any;
+        let data: Awaited<ReturnType<import('fastify').FastifyRequest['file']>> | undefined;
         try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Fastify multipart plugin adds .file() dynamically
             data = await (request as any).file();
-        } catch (err: any) {
-            if (err?.code === 'FST_INVALID_MULTIPART_CONTENT_TYPE') {
+        } catch (err: unknown) {
+            if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'FST_INVALID_MULTIPART_CONTENT_TYPE') {
                 return reply.status(400).send({ error: 'Request must be multipart/form-data', code: 'VALIDATION_ERROR' });
             }
             throw err;

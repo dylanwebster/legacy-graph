@@ -177,8 +177,8 @@ export class TransactionManager {
                     message,
                     author
                 });
-            } catch (err: any) {
-                console.error('[TransactionManager] Commit failed:', err.message);
+            } catch (err: unknown) {
+                console.error('[TransactionManager] Commit failed:', err instanceof Error ? err.message : String(err));
                 // Re-queue failed writes so they're not lost
                 this.pendingWrites.push(...batch);
             }

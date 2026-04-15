@@ -75,7 +75,7 @@ export async function systemRoutes(server: FastifyInstance) {
                 }
 
                 const events = person.events || [];
-                events.forEach((e: any) => {
+                events.forEach((e: { type: string; partner_id?: string }) => {
                     if (e.type === 'marriage' && e.partner_id) {
                         const pair = [nodeId, e.partner_id].sort().join(':');
                         familyPairs.add(pair);
@@ -114,12 +114,12 @@ export async function systemRoutes(server: FastifyInstance) {
                 edgeCount: graph.size,
                 timestamp: new Date().toISOString()
             };
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('[API] Rebuild error:', error);
             return reply.status(500).send({
                 error: 'Failed to rebuild graph',
                 code: 'REBUILD_ERROR',
-                details: error.message
+                details: error instanceof Error ? error.message : String(error)
             });
         }
     });
@@ -137,7 +137,7 @@ export async function systemRoutes(server: FastifyInstance) {
             return yr > 999 && yr < 2200 ? yr : null;
         }
 
-        function extractPlace(event: any): string | null {
+        function extractPlace(event: { location?: string | { name?: string; historicalName?: string } }): string | null {
             const loc = event?.location;
             if (!loc) return null;
             if (typeof loc === 'string') return loc || null;
@@ -149,8 +149,8 @@ export async function systemRoutes(server: FastifyInstance) {
             const p = attributes.data;
             const name = p.names?.[0];
             const label = name ? `${name.first ?? ''} ${name.last ?? ''}`.trim() : nodeId;
-            const birthEvent = p.events?.find((e: any) => e.type === 'birth');
-            const deathEvent = p.events?.find((e: any) => e.type === 'death');
+            const birthEvent = p.events?.find((e: { type: string }) => e.type === 'birth');
+            const deathEvent = p.events?.find((e: { type: string }) => e.type === 'death');
 
             // Prefer sort_date (always ISO YYYY-MM-DD) over display date
             // which may be in GEDCOM format ("15 JAN 1920" → slice(0,4) = "15 J" → 15).
@@ -182,7 +182,7 @@ export async function systemRoutes(server: FastifyInstance) {
             }
 
             // Spouse edges from marriage events (deduplicated)
-            const marriageEvents = (p.events ?? []).filter((e: any) => e.type === 'marriage' && e.partner_id);
+            const marriageEvents = (p.events ?? []).filter((e: { type: string; partner_id?: string }) => e.type === 'marriage' && e.partner_id);
             for (const ev of marriageEvents) {
                 const [a, b] = [nodeId, ev.partner_id].sort();
                 const key = `sp:${a}:${b}`;
@@ -256,12 +256,12 @@ export async function systemRoutes(server: FastifyInstance) {
                 tag: name,
                 timestamp: new Date().toISOString()
             };
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('[API] Snapshot error:', error);
             return reply.status(500).send({
                 error: 'Failed to create snapshot',
                 code: 'SNAPSHOT_ERROR',
-                details: error.message
+                details: error instanceof Error ? error.message : String(error)
             });
         }
     });

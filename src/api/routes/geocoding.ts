@@ -369,7 +369,7 @@ export async function geocodingRoutes(server: FastifyInstance) {
                     _gedcom: heavyFields._gedcom ?? {},
                 };
 
-                const gedcom = currentPerson._gedcom as Record<string, any>;
+                const gedcom = currentPerson._gedcom as Record<string, unknown>;
                 if (!gedcom.original_locations) {
                     gedcom.original_locations = {};
                 }
