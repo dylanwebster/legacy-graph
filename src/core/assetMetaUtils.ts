@@ -4,7 +4,7 @@ import yaml from 'js-yaml';
 import sharp from 'sharp';
 import exifReader from 'exif-reader';
 import { Mutex } from 'async-mutex';
-import { AssetIndexSchema } from '../schemas/AssetSchema';
+import { AssetIndexSchema, AssetMetadataSchema, type AssetIndex, type AssetMetadata } from '../schemas/AssetSchema';
 import type { Place } from '../schemas/PlaceSchema';
 import type { GeocodingService } from './GeocodingService';
 
@@ -15,8 +15,7 @@ const META_REL = path.join('_meta', 'assets.yaml');
 
 const EXIF_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.avif', '.heic', '.heif', '.tiff', '.tif']);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function loadAssetIndex(dataDir: string): Promise<Record<string, any>> {
+export async function loadAssetIndex(dataDir: string): Promise<AssetIndex> {
     try {
         const raw = await fs.readFile(path.join(dataDir, META_REL), 'utf8');
         return AssetIndexSchema.parse(yaml.load(raw) ?? {});
@@ -30,8 +29,7 @@ export async function loadAssetIndex(dataDir: string): Promise<Record<string, an
 
 export async function saveAssetIndex(
     dataDir: string,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    index: Record<string, any>,
+    index: AssetIndex,
     txManager: { writeFile: (rel: string, content: string, label: string) => Promise<void> },
 ): Promise<void> {
     await fs.mkdir(path.join(dataDir, '_meta'), { recursive: true });
@@ -158,15 +156,14 @@ export async function reverseGeocodeExifGps(
 export async function upsertAssetEntry(
     dataDir: string,
     filename: string,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    entry: Record<string, any>,
+    entry: Partial<AssetMetadata>,
     txManager: { writeFile: (rel: string, content: string, label: string) => Promise<void> },
 ): Promise<void> {
     await assetIndexMutex.runExclusive(async () => {
         const index = await loadAssetIndex(dataDir);
         if (!index[filename]) {
-            const now = (entry.created_at as string | undefined) ?? new Date().toISOString();
-            index[filename] = { ...entry, created_at: now, modified_at: now };
+            const now = entry.created_at ?? new Date().toISOString();
+            index[filename] = AssetMetadataSchema.parse({ ...entry, created_at: now, modified_at: now });
             await saveAssetIndex(dataDir, index, txManager);
         }
     });

@@ -57,9 +57,11 @@ export function sliceTimeline(graph: Graph, personId: string, options?: Timeline
         ? { items: [], totalCount: 0, offset: options.offset ?? 0, limit: options.limit ?? 0 }
         : [];
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- overloaded return type cannot be narrowed
     if (!graph.hasNode(personId)) return emptyResult as any;
 
     const nodeAttr = graph.getNodeAttributes(personId);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- overloaded return type cannot be narrowed
     if (nodeAttr.type !== 'person') return emptyResult as any;
 
     const person = nodeAttr.data as Person;
@@ -105,6 +107,7 @@ export function sliceTimeline(graph: Graph, personId: string, options?: Timeline
         }
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- overloaded return type cannot be narrowed
     if (sortable.length === 0 && undated.length === 0) return emptyResult as any;
 
     // 3. Sort dated items by sort_date

@@ -42,8 +42,8 @@ export class BootLoader {
                     }
 
                     return { data, filePath: file };
-                } catch (err: any) {
-                    console.warn(`[BootLoader] Failed to load ${file}: ${err.message}`);
+                } catch (err: unknown) {
+                    console.warn(`[BootLoader] Failed to load ${file}: ${err instanceof Error ? err.message : String(err)}`);
                     return null;
                 }
             })

@@ -30,11 +30,11 @@ export async function loadAuthConfig(dataDir: string): Promise<AuthConfig | null
         const raw = await fs.readFile(authPath, 'utf-8');
         const parsed = yaml.load(raw);
         return AuthConfigSchema.parse(parsed);
-    } catch (err: any) {
-        if (err.code === 'ENOENT') {
+    } catch (err: unknown) {
+        if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
             return null; // No auth file — auth disabled
         }
-        throw new Error(`Invalid auth config at ${authPath}: ${err.message}`, { cause: err });
+        throw new Error(`Invalid auth config at ${authPath}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
     }
 }
 
@@ -61,6 +61,7 @@ export function issueToken(authConfig: AuthConfig, username: string): string {
     return jwt.sign(
         { username },
         authConfig.jwt_secret,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- jwt.sign expiresIn accepts string but types require number|undefined
         { expiresIn: authConfig.session_expiry as any }
     );
 }
@@ -113,6 +114,7 @@ export function registerAuthGuard(
         }
 
         // Attach user info to request for downstream use
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Fastify request decoration for auth user
         (request as any).user = decoded;
     });
 }

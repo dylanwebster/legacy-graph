@@ -7,14 +7,16 @@ import type { AppInstance } from '../types';
 import type { Person } from '../../schemas/PersonSchema';
 
 function buildDedupKey(person: unknown): string | null {
-    const p = person as any;
-    const primaryName = p.names?.find((n: any) => n.primary) ?? p.names?.[0];
+    const p = person as Record<string, unknown>;
+    const names = p.names as Array<{ primary?: boolean; first?: string; last?: string }> | undefined;
+    const primaryName = names?.find((n) => n.primary) ?? names?.[0];
     if (!primaryName?.first || !primaryName?.last) return null;
 
     const first = String(primaryName.first).toLowerCase().trim();
     const last = String(primaryName.last).toLowerCase().trim();
 
-    const birthEvent = p.events?.find((e: any) => e.type === 'birth');
+    const events = p.events as Array<{ type: string; sort_date?: string; date?: string }> | undefined;
+    const birthEvent = events?.find((e) => e.type === 'birth');
     const rawDate = birthEvent?.sort_date || birthEvent?.date;
     const yearMatch = rawDate?.match(/(\d{4})/);
     const birthYear = yearMatch ? yearMatch[1] : null;
@@ -145,12 +147,12 @@ export async function gedcomRoutes(server: FastifyInstance) {
             };
             if (mode === 'additive') response.skipped = skipped;
             return response;
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('[API] GEDCOM import error:', error);
             return reply.status(400).send({
                 error: 'Failed to parse GEDCOM',
                 code: 'INVALID_GEDCOM',
-                details: error.message
+                details: error instanceof Error ? error.message : String(error)
             });
         }
     });
