@@ -49,7 +49,20 @@ export async function peopleRoutes(server: FastifyInstance) {
         }
 
         const graph = graphEngine.getGraph();
-        const people: Array<Record<string, unknown>> = [];
+
+        interface PersonListItem {
+            id: string;
+            names: SlimPerson['names'];
+            sex: string;
+            birthDate: string | undefined;
+            deathDate: string | undefined;
+            tags: string[] | undefined;
+            assetCount: number;
+            primaryAsset: string | undefined;
+            last_modified: string | undefined;
+        }
+
+        const people: PersonListItem[] = [];
 
         graph.forEachNode((_nodeId, attributes) => {
             if (attributes.type === 'person') {
@@ -68,13 +81,15 @@ export async function peopleRoutes(server: FastifyInstance) {
             }
         });
 
-        const VALID_SORT_FIELDS = new Set(['last_modified', 'birthDate', 'deathDate', 'assetCount']);
-        const sortBy = (sort && VALID_SORT_FIELDS.has(sort)) ? sort : 'last_modified';
+        const VALID_SORT_FIELDS = ['last_modified', 'birthDate', 'deathDate', 'assetCount'] as const;
+        type SortField = typeof VALID_SORT_FIELDS[number];
+        const validSortSet = new Set<string>(VALID_SORT_FIELDS);
+        const sortBy: SortField = (sort && validSortSet.has(sort)) ? sort as SortField : 'last_modified';
         const sortOrder = (order === 'asc' || order === 'desc') ? (order === 'asc' ? 1 : -1) : -1;
 
         people.sort((a, b) => {
-            const valA = a[sortBy] || '';
-            const valB = b[sortBy] || '';
+            const valA = a[sortBy] ?? '';
+            const valB = b[sortBy] ?? '';
             if (valA < valB) return -1 * sortOrder;
             if (valA > valB) return 1 * sortOrder;
             return 0;

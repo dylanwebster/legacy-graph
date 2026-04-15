@@ -91,7 +91,7 @@ export async function searchRoutes(server: FastifyInstance) {
                 const metadata = storyData.metadata as Record<string, unknown> | undefined;
                 const mentions = storyData.mentions as string[] | undefined;
                 // Sanitize Milkdown serialization artifacts (mirrors toFeedItem logic)
-                const content = raw.replace(/&#x20;/g, ' ').replace(/_/g, '_');
+                const content = raw.replace(/&#x20;/g, ' ').replace(/\\_/g, '_');
                 const bodyText = content
                     .replace(/@N_[a-zA-Z0-9_-]+/g, (match) => resolvePersonName(match.slice(1)))
                     .replace(/\[\[N_[a-zA-Z0-9_-]+\]\]/g, (match) => resolvePersonName(match.slice(2, -2)))
