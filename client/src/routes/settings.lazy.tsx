@@ -443,12 +443,26 @@ function GeocodeLocationsSection() {
             if (store.filter === 'low' && r.match?.confidence !== 'low') return false;
             if (store.filter === 'unmatched' && r.match !== null) return false;
             if (store.searchQuery) {
-                const q = store.searchQuery.toLowerCase();
-                const override = store.overrides.get(r.locationString);
-                if (!r.locationString.toLowerCase().includes(q) &&
-                    !(r.match?.place.name ?? '').toLowerCase().includes(q) &&
-                    !(override?.place.name ?? '').toLowerCase().includes(q)) {
-                    return false;
+                const q = store.searchQuery.trim();
+                if (q) {
+                    const override = store.overrides.get(r.locationString);
+                    const effectivePlace = override?.place ?? r.match?.place;
+                    const effectiveSiteName = override?.siteName ?? r.match?.siteName;
+                    const haystack = [
+                        r.locationString,
+                        effectivePlace?.name,
+                        effectivePlace?.admin1Name,
+                        effectivePlace?.admin2Name,
+                        effectivePlace?.countryCode,
+                        effectivePlace?.historicalName,
+                        effectiveSiteName,
+                    ].filter(Boolean).join(' | ').toLowerCase();
+                    // Split on commas into segments — each segment must appear
+                    // as a phrase. "Modesto, California" matches any row containing
+                    // both "modesto" and "california". "Hampshire County" (no comma)
+                    // stays a single phrase so it won't match "New Hampshire" + some county.
+                    const segments = q.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+                    if (!segments.every(seg => haystack.includes(seg))) return false;
                 }
             }
             return true;
