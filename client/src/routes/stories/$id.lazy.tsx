@@ -10,8 +10,8 @@ import {
     DialogDescription, DialogFooter,
 } from '@/shared/ui/dialog';
 import { PersonChip } from '@/shared/components/PersonChip';
-import { MilkdownEditor } from '@/components/MilkdownEditor';
-import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
+import { MilkdownEditor } from '@/features/editor/MilkdownEditor';
+import { SmartDateInput, parseToISO } from '@/features/editor/SmartDateInput';
 import { Button } from '@/shared/ui/button';
 import { Badge } from '@/shared/ui/badge';
 import { Skeleton } from '@/shared/ui/skeleton';

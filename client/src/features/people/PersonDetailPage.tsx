@@ -32,7 +32,7 @@ import {
     Pencil, X, Check, UserPlus, Star, ZoomIn, Upload, Trash2, Crop, Link2,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MilkdownEditor } from '@/components/MilkdownEditor';
+import { MilkdownEditor } from '@/features/editor/MilkdownEditor';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { PersonTimeline } from './components/PersonTimeline';

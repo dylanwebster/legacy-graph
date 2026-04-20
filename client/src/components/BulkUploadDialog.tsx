@@ -5,7 +5,7 @@ import type { Place } from '@/shared/api/people';
 import { PlaceSearchCombobox } from '@/shared/components/PlaceSearchCombobox';
 import { PersonSearchCombobox } from '@/shared/components/PersonSearchCombobox';
 import { PersonChip } from '@/shared/components/PersonChip';
-import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
+import { SmartDateInput, parseToISO } from '@/features/editor/SmartDateInput';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import {

@@ -8,7 +8,7 @@ import { assetType } from '@/shared/lib/assets';
 import { formatPlaceDisplay, formatCoordinates } from '@/shared/lib/places';
 import { PersonChip } from '@/shared/components/PersonChip';
 import { PersonSearchCombobox } from '@/shared/components/PersonSearchCombobox';
-import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
+import { SmartDateInput, parseToISO } from '@/features/editor/SmartDateInput';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { Input } from '@/shared/ui/input';
