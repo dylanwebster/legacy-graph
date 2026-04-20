@@ -56,13 +56,15 @@ export function MapView() {
 
     const basemap = useBasemapStatus();
     const events = useMapEvents({ scope, focalPersonId });
-    const pmtilesUrl = basemap.data?.available ? `${window.location.origin}${BASEMAP_TILES_URL}` : null;
+    const basemapAvailable = basemap.data?.available ?? false;
+    const pmtilesUrl = basemapAvailable ? `${window.location.origin}${BASEMAP_TILES_URL}` : null;
 
     // Register pmtiles protocol once, before any map initialization uses it.
     useEffect(() => { registerPmtilesProtocol(); }, []);
 
-    // Initialize MapLibre + deck.gl overlay on mount.
+    // Initialize MapLibre + deck.gl overlay on mount — only once the basemap is available.
     useEffect(() => {
+        if (!basemapAvailable || !pmtilesUrl) return;
         if (!containerRef.current || mapRef.current) return;
         const style = theme === 'dark' ? nightStyle(pmtilesUrl) : dayStyle(pmtilesUrl);
         const map = new maplibregl.Map({
@@ -86,11 +88,11 @@ export function MapView() {
             overlayRef.current = null;
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [basemapAvailable, pmtilesUrl]);
 
-    // Swap style when theme toggles or PMTiles availability changes.
+    // Swap style when theme toggles.
     useEffect(() => {
-        if (!mapRef.current) return;
+        if (!mapRef.current || !pmtilesUrl) return;
         const style = theme === 'dark' ? nightStyle(pmtilesUrl) : dayStyle(pmtilesUrl);
         mapRef.current.setStyle(style, { diff: false });
     }, [theme, pmtilesUrl]);
@@ -160,18 +162,30 @@ export function MapView() {
         return () => clearTimeout(t);
     }, [scope, focalPersonId, granularity, speed, loop, isPlaying, windowStart, windowEnd, navigate, search.event]);
 
-    const showBasemapBanner = basemap.isFetched && !basemap.data?.available;
+    if (basemap.isFetched && !basemapAvailable) {
+        return (
+            <div className="flex h-full w-full items-center justify-center bg-muted/20 p-6">
+                <div className="max-w-md rounded-lg border border-border bg-card p-6 shadow-sm text-center">
+                    <h2 className="text-lg font-semibold mb-2">Basemap not built</h2>
+                    <p className="text-sm text-muted-foreground mb-4">
+                        The Map View needs an offline PMTiles basemap to render. Build it once and the map will light up.
+                    </p>
+                    <pre className="bg-muted rounded px-3 py-2 text-left text-xs font-mono mb-4 overflow-x-auto">
+npm run map:build -- --url &lt;world.pmtiles&gt;
+                    </pre>
+                    <p className="text-xs text-muted-foreground">
+                        Point <code className="font-mono">--url</code> at a PMTiles world build (e.g. from{' '}
+                        <a href="https://maps.protomaps.com" className="underline" target="_blank" rel="noreferrer">maps.protomaps.com</a>).
+                        The file is saved to <code className="font-mono">~/.legacy-graph/basemap.pmtiles</code>. Reload this page when done.
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="relative h-full w-full">
             <div ref={containerRef} className="absolute inset-0" />
-
-            {showBasemapBanner && (
-                <div className="absolute left-4 right-4 top-4 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[480px] rounded-md bg-amber-500/15 border border-amber-500/40 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 backdrop-blur">
-                    Basemap not built — run <code className="font-mono">npm run map:build</code> for offline tiles. Falling back to OpenStreetMap raster tiles.
-                </div>
-            )}
-
             <MapToolbar />
             <TimeSlider />
             <EventDrawer event={openEvent} onClose={() => setOpenEvent(null)} />
