@@ -72,6 +72,7 @@ export function computeEffectiveBirthYears(
 // BFS from rootId to assign Y-generation levels:
 //   root=0, parents=-1, grandparents=-2, children=+1, grandchildren=+2, …
 // Returns a Map<nodeId, level>; nodes not reachable from root are absent.
+// Expects links already swapped by stableGraphData: source=parent, target=child.
 
 export function computeGenerationLevels(
     nodes: Array<{ id: string }>,
@@ -86,8 +87,8 @@ export function computeGenerationLevels(
     for (const n of nodes) { parentIds.set(n.id, []); childIds.set(n.id, []); }
     for (const l of links) {
         if (l.type !== 'parent_child') continue;
-        const childId = getId(l.source); // source = child (API convention)
-        const parentId = getId(l.target); // target = parent (API convention)
+        const parentId = getId(l.source); // source = parent (post-swap in stableGraphData)
+        const childId = getId(l.target);  // target = child
         parentIds.get(childId)?.push(parentId);
         childIds.get(parentId)?.push(childId);
     }

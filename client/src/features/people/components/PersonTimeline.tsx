@@ -3,14 +3,15 @@ import { Link } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Calendar, MapPin, ChevronRight, BookOpen, Building2 } from 'lucide-react';
 import { formatPlaceDisplay } from '@/shared/lib/places';
+import type { Place, TimelineItem, TimelineEventItem } from '@/shared/api/people';
 import { EVENT_ICONS, EVENT_LABELS } from '../eventTypeConfig';
 
 export function PersonTimeline({
     timeline,
     onEditEvent,
 }: {
-    timeline: Array<Record<string, unknown>>;
-    onEditEvent: (event: Record<string, unknown>) => void;
+    timeline: TimelineItem[];
+    onEditEvent: (event: TimelineEventItem) => void;
 }) {
     const scrollRef = useRef<HTMLDivElement>(null);
     const rowVirtualizer = useVirtualizer({
@@ -36,12 +37,6 @@ export function PersonTimeline({
         >
             {rowVirtualizer.getVirtualItems().map((virtualItem) => {
                 const item = timeline[virtualItem.index];
-                const isGap = item.type === 'gap';
-                const isUnknownDateHeader = item.type === 'unknown_date_header';
-                // Timeline items: { type, sort_date, data: LegacyEvent } for events.
-                // Actual fields (date, location, description) are nested in 'data'.
-                const details = (item.data as Record<string, unknown>) ?? item;
-                const IconComp = EVENT_ICONS[String(details.type ?? item.type)] ?? Calendar;
 
                 return (
                     <div
@@ -57,13 +52,13 @@ export function PersonTimeline({
                         }}
                         className="pb-3"
                     >
-                        {isUnknownDateHeader ? (
+                        {item.type === 'unknown_date_header' ? (
                             <div className="flex items-center gap-2 py-2 px-3">
                                 <div className="h-px flex-1 bg-border/50" />
                                 <span className="text-xs text-muted-foreground whitespace-nowrap">Undated Events</span>
                                 <div className="h-px flex-1 bg-border/50" />
                             </div>
-                        ) : isGap ? (
+                        ) : item.type === 'gap' ? (
                             <div className="flex items-center gap-2 py-2 px-3">
                                 <div className="h-px flex-1 bg-border" />
                                 <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -74,7 +69,7 @@ export function PersonTimeline({
                         ) : item.type === 'story' ? (
                             <Link
                                 to="/stories/$id"
-                                params={{ id: String((item as Record<string, unknown>).id ?? '').replace(/\.md$/, '') }}
+                                params={{ id: item.id.replace(/\.md$/, '') }}
                                 className="flex gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors group"
                             >
                                 <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/20">
@@ -82,9 +77,9 @@ export function PersonTimeline({
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
-                                        <span className="font-medium text-sm">{String((item as Record<string, unknown>).title ?? 'Story')}</span>
-                                        {!!(item as Record<string, unknown>).sort_date && (
-                                            <span className="text-xs text-muted-foreground font-mono">{String((item as Record<string, unknown>).sort_date)}</span>
+                                        <span className="font-medium text-sm">{item.title || 'Story'}</span>
+                                        {item.sort_date && (
+                                            <span className="text-xs text-muted-foreground font-mono">{item.sort_date}</span>
                                         )}
                                     </div>
                                     <p className="text-xs text-muted-foreground mt-0.5">Mentioned in this story</p>
@@ -92,47 +87,60 @@ export function PersonTimeline({
                                 <ChevronRight className="h-4 w-4 text-muted-foreground self-center opacity-0 group-hover:opacity-100 transition-opacity" />
                             </Link>
                         ) : (
-                            <button
-                                className="w-full flex gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 cursor-pointer transition-colors group text-left"
-                                onClick={() => onEditEvent(item)}
-                            >
-                                <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center shrink-0 group-hover:bg-primary/10">
-                                    <IconComp className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-medium text-sm">{EVENT_LABELS[String(details.type ?? item.type ?? '')] ?? String(details.type ?? item.type ?? '')}</span>
-                                        {!!details.date && (
-                                            <span className="text-xs text-muted-foreground font-mono">{String(details.date)}</span>
-                                        )}
-                                    </div>
-                                    {!!details.location && (
-                                        <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-                                            <MapPin className="h-3 w-3" />
-                                            <span className="truncate">
-                                                {typeof details.location === 'object' && details.location !== null
-                                                    ? formatPlaceDisplay(details.location as import('@/shared/api/people').Place)
-                                                    : String(details.location)}
-                                            </span>
-                                        </div>
-                                    )}
-                                    {!!details.site_name && (
-                                        <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-                                            <Building2 className="h-3 w-3" />
-                                            <span className="truncate">{String(details.site_name)}</span>
-                                        </div>
-                                    )}
-                                    {!!details.description && (
-                                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{String(details.description)}</p>
-                                    )}
-                                </div>
-                                <ChevronRight className="h-4 w-4 text-muted-foreground self-center opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </button>
+                            <EventRow item={item} onEdit={() => onEditEvent(item)} />
                         )}
                     </div>
                 );
             })}
         </div>
         </div>
+    );
+}
+
+function EventRow({ item, onEdit }: { item: TimelineEventItem; onEdit: () => void }) {
+    const details = item.data;
+    const eventType = (details.type as string | undefined) ?? item.type;
+    const IconComp = EVENT_ICONS[eventType] ?? Calendar;
+    const label = EVENT_LABELS[eventType] ?? eventType;
+    const date = typeof details.date === 'string' ? details.date : undefined;
+    const location = details.location;
+    const siteName = typeof details.site_name === 'string' ? details.site_name : undefined;
+    const description = typeof details.description === 'string' ? details.description : undefined;
+
+    return (
+        <button
+            className="w-full flex gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 cursor-pointer transition-colors group text-left"
+            onClick={onEdit}
+        >
+            <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center shrink-0 group-hover:bg-primary/10">
+                <IconComp className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">{label}</span>
+                    {date && <span className="text-xs text-muted-foreground font-mono">{date}</span>}
+                </div>
+                {!!location && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                        <MapPin className="h-3 w-3" />
+                        <span className="truncate">
+                            {typeof location === 'object' && location !== null
+                                ? formatPlaceDisplay(location as Place)
+                                : String(location)}
+                        </span>
+                    </div>
+                )}
+                {siteName && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                        <Building2 className="h-3 w-3" />
+                        <span className="truncate">{siteName}</span>
+                    </div>
+                )}
+                {description && (
+                    <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{description}</p>
+                )}
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground self-center opacity-0 group-hover:opacity-100 transition-opacity" />
+        </button>
     );
 }

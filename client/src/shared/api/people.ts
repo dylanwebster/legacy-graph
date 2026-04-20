@@ -19,6 +19,52 @@ export interface PersonName {
     surname?: string;
 }
 
+export type EventType =
+    | 'birth'
+    | 'death'
+    | 'marriage'
+    | 'divorce'
+    | 'engagement'
+    | 'residence'
+    | 'census'
+    | 'occupation'
+    | 'education'
+    | 'military_service'
+    | 'immigration'
+    | 'emigration'
+    | 'adoption'
+    | 'baptism'
+    | 'burial'
+    | 'generic';
+
+export interface TimelineEventItem {
+    type: EventType;
+    sort_date: string;
+    data: Record<string, unknown>;
+}
+
+export interface TimelineStoryItem {
+    type: 'story';
+    sort_date: string;
+    id: string;
+    title: string;
+}
+
+export interface TimelineGapItem {
+    type: 'gap';
+    years: number;
+}
+
+export interface TimelineUnknownDateHeaderItem {
+    type: 'unknown_date_header';
+}
+
+export type TimelineItem =
+    | TimelineEventItem
+    | TimelineStoryItem
+    | TimelineGapItem
+    | TimelineUnknownDateHeaderItem;
+
 export interface SlimPersonSummary {
     id: string;
     names: PersonName[];
@@ -41,7 +87,7 @@ export interface PersonDetail {
     relationships: {
         parents: Array<{ id: string; type: string }>;
     };
-    timeline: Array<Record<string, unknown>>;
+    timeline: TimelineItem[];
     scrapbook_md?: string;
     _gedcom?: Record<string, unknown>;
     _computed: {

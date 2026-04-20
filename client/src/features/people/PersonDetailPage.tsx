@@ -1,6 +1,7 @@
 import { useNavigate } from '@tanstack/react-router';
 import { usePerson, useUpdatePerson, useDeleteAsset, useDeleteAssetPermanently, useAssets, useLinkAsset } from '@/shared/api/hooks';
 import type { AssetListItem } from '@/shared/api/client';
+import type { TimelineEventItem } from '@/shared/api/people';
 import { AssetLightbox } from '@/features/assets/components/AssetLightbox';
 import { AssetPickerDialog } from '@/features/assets/components/AssetPickerDialog';
 import { CustomAvatar } from '@/shared/components/CustomAvatar';
@@ -352,12 +353,10 @@ export function PersonDetailPage({ id }: { id: string }) {
     // --- Event editor ---
     const openAddEvent = () => { openEventDialog(); };
 
-    const openEditEvent = (timelineItem: Record<string, unknown>) => {
-        // Timeline items have shape { type, sort_date, data: LegacyEvent }.
-        // The raw event matching person.events is in the 'data' field.
-        const rawEvent = (timelineItem.data ?? timelineItem) as Record<string, unknown>;
+    const openEditEvent = (timelineItem: TimelineEventItem) => {
+        const rawEvent = timelineItem.data;
         const idx = events.findIndex((e) => JSON.stringify(e) === JSON.stringify(rawEvent));
-        if (idx < 0) return; // gap or story — not editable here
+        if (idx < 0) return;
         openEventDialog(rawEvent.type as string, idx);
     };
 
