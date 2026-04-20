@@ -1,7 +1,7 @@
 import { usePerson } from '@/shared/api/hooks';
 import type { GraphNodeData, GraphLinkData } from '@/shared/api/hooks';
 import { useQueryClient } from '@tanstack/react-query';
-import { PersonCardBody, lifeLine, resolveSpouseLabel } from '@/components/viz/PersonPreviewCard';
+import { PersonCardBody, lifeLine, resolveSpouseLabel } from '@/features/dashboard/PersonPreviewCard';
 import { deriveName } from '@/shared/components/PersonChip';
 
 /**

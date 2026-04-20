@@ -5,7 +5,7 @@ import type { GraphNodeData, GraphLinkData } from '@/shared/api/hooks';
 import {
     buildFamilyTree,
     computeAdaptiveTreeLayout,
-} from '@/utils/genealogyLayout';
+} from '@/features/dashboard/pedigreeLayout';
 import { sexColor as sexStroke } from '@/shared/lib/sexColors';
 import { abbreviateName } from '@/shared/lib/names';
 import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from './PersonPreviewCard';

@@ -6,7 +6,7 @@ import {
     computeFanArcLayout,
     type AncestorSlot,
     type FanArc,
-} from '@/utils/genealogyLayout';
+} from '@/features/dashboard/pedigreeLayout';
 import { sexColor } from '@/shared/lib/sexColors';
 import { CircleDot } from 'lucide-react';
 import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from './PersonPreviewCard';
