@@ -2,6 +2,8 @@ node_modules
 dist
 coverage
 .DS_Store
+.vscode/
+.idea/
 .env
 /data/
 /scratch/
