@@ -1,14 +1,14 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
-import { useStories, useDeleteStory } from '@/api/hooks';
-import type { StoryFeedItem } from '@/api/stories';
-import { PersonChip } from '@/components/PersonChip';
+import { useStories, useDeleteStory } from '@/shared/api/hooks';
+import type { StoryFeedItem } from '@/shared/api/stories';
+import { PersonChip } from '@/shared/components/PersonChip';
 import { AssetSearchBar } from '@/components/AssetSearchBar';
 import type { PersonChipData } from '@/components/AssetSearchBar';
-import { TopBarActions } from '@/components/TopBarSlotContext';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
+import { TopBarActions } from '@/shared/components/layout/TopBarSlotContext';
+import { Button } from '@/shared/ui/button';
+import { Badge } from '@/shared/ui/badge';
+import { Skeleton } from '@/shared/ui/skeleton';
 import {
     Dialog,
     DialogContent,
@@ -16,14 +16,14 @@ import {
     DialogTitle,
     DialogDescription,
     DialogFooter,
-} from '@/components/ui/dialog';
+} from '@/shared/ui/dialog';
 import { useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Plus, Trash2, MapPin, Users, CalendarDays, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { toast } from 'sonner';
-import { useUIStore } from '@/store/uiStore';
-import type { StoriesSortKey } from '@/store/uiStore';
-import { formatPlaceDisplay } from '@/lib/placeUtils';
+import { useUIStore } from '@/shared/store/uiStore';
+import type { StoriesSortKey } from '@/shared/store/uiStore';
+import { formatPlaceDisplay } from '@/shared/lib/places';
 
 export const Route = createLazyFileRoute('/stories/')({
     component: StoriesFeed,

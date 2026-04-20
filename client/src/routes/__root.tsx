@@ -1,12 +1,12 @@
 import { createRootRoute, Outlet } from '@tanstack/react-router';
 import { Toaster } from 'sonner';
-import { HydrationProgress } from '@/components/HydrationProgress';
-import { ErrorFallback } from '@/components/ErrorFallback';
-import { GlobalNotFound } from '@/components/GlobalNotFound';
-import { Sidebar } from '@/components/Sidebar';
-import { TopBar } from '@/components/TopBar';
+import { HydrationProgress } from '@/shared/components/HydrationProgress';
+import { ErrorFallback } from '@/shared/components/ErrorFallback';
+import { GlobalNotFound } from '@/shared/components/GlobalNotFound';
+import { Sidebar } from '@/shared/components/layout/Sidebar';
+import { TopBar } from '@/shared/components/layout/TopBar';
 import { CommandPalette } from '@/components/CommandPalette';
-import { TopBarSlotProvider } from '@/components/TopBarSlotContext';
+import { TopBarSlotProvider } from '@/shared/components/layout/TopBarSlotContext';
 
 export const Route = createRootRoute({
     component: () => (

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { usePerson } from '@/api/hooks';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
-import { deriveName } from '@/components/PersonChip';
-import { PersonHoverCard } from '@/components/PersonHoverCard';
+import { usePerson } from '@/shared/api/hooks';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/shared/ui/hover-card';
+import { deriveName } from '@/shared/components/PersonChip';
+import { PersonHoverCard } from '@/shared/components/PersonHoverCard';
 
 interface InlinePersonMentionProps {
     id: string;

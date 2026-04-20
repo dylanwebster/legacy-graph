@@ -2,27 +2,27 @@ import {
     useState, useEffect, useRef, useCallback,
 } from 'react';
 import { createLazyFileRoute, useNavigate, useSearch as useRouterSearch, Link, useBlocker } from '@tanstack/react-router';
-import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia, useDeleteStoryMedia, useDeleteStory } from '@/api/hooks';
+import { useStory, useCreateStory, useUpdateStory, useUploadStoryMedia, useDeleteStoryMedia, useDeleteStory } from '@/shared/api/hooks';
 import { useQueryClient } from '@tanstack/react-query';
-import { storiesApi } from '@/api/stories';
+import { storiesApi } from '@/shared/api/stories';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle,
     DialogDescription, DialogFooter,
-} from '@/components/ui/dialog';
-import { PersonChip } from '@/components/PersonChip';
+} from '@/shared/ui/dialog';
+import { PersonChip } from '@/shared/components/PersonChip';
 import { MilkdownEditor } from '@/components/MilkdownEditor';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/shared/ui/button';
+import { Badge } from '@/shared/ui/badge';
+import { Skeleton } from '@/shared/ui/skeleton';
 import {
     Pencil, Save, ArrowLeft, MapPin, CalendarDays,
     X, Lock, Unlock, ChevronLeft, ChevronRight, Star, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { UpdateStoryInput, FullStory } from '@/api/stories';
-import type { Place } from '@/api/people';
-import { formatPlaceDisplay, formatCoordinates } from '@/lib/placeUtils';
+import type { UpdateStoryInput, FullStory } from '@/shared/api/stories';
+import type { Place } from '@/shared/api/people';
+import { formatPlaceDisplay, formatCoordinates } from '@/shared/lib/places';
 
 export const Route = createLazyFileRoute('/stories/$id')({
     component: StoryPage,
@@ -50,10 +50,10 @@ function extractMentionIds(content: string): string[] {
     return Array.from(ids);
 }
 
-import { PlaceSearchCombobox as PlaceSearchComboboxBase } from '@/components/PlaceSearchCombobox';
+import { PlaceSearchCombobox as PlaceSearchComboboxBase } from '@/shared/components/PlaceSearchCombobox';
 
 // Story-specific wrapper: adds MapPin icon layout
-function PlaceSearchCombobox({ value, onChange, onSelect, initialPlace }: { value: string; onChange: (name: string) => void; onSelect?: (place: import('@/api/people').Place) => void; initialPlace?: import('@/api/people').Place | null }) {
+function PlaceSearchCombobox({ value, onChange, onSelect, initialPlace }: { value: string; onChange: (name: string) => void; onSelect?: (place: import('@/shared/api/people').Place) => void; initialPlace?: import('@/shared/api/people').Place | null }) {
     return (
         <div className="flex items-center gap-1.5">
             <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />

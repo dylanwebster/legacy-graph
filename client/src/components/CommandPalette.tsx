@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useUIStore } from '@/store/uiStore';
-import { useSearch } from '@/api/hooks';
-import type { PlaceResult } from '@/api/hooks';
-import type { SlimPersonSummary } from '@/api/people';
-import type { StoryFeedItem } from '@/api/stories';
-import { CustomAvatar } from './CustomAvatar';
+import { useUIStore } from '@/shared/store/uiStore';
+import { useSearch } from '@/shared/api/hooks';
+import type { PlaceResult } from '@/shared/api/hooks';
+import type { SlimPersonSummary } from '@/shared/api/people';
+import type { StoryFeedItem } from '@/shared/api/stories';
+import { CustomAvatar } from '@/shared/components/CustomAvatar';
 import {
     CommandDialog,
     CommandInput,
@@ -14,7 +14,7 @@ import {
     CommandGroup,
     CommandItem,
     CommandSeparator,
-} from '@/components/ui/command';
+} from '@/shared/ui/command';
 import { Users, BookOpen, MapPin, ArrowRight } from 'lucide-react';
 
 function useDebounce<T>(value: T, delay: number): T {

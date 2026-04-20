@@ -1,13 +1,13 @@
 import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { usePerson, useUpdatePerson, useDeleteAsset, useDeleteAssetPermanently, useAssets, useLinkAsset } from '@/api/hooks';
-import type { AssetListItem } from '@/api/client';
+import { usePerson, useUpdatePerson, useDeleteAsset, useDeleteAssetPermanently, useAssets, useLinkAsset } from '@/shared/api/hooks';
+import type { AssetListItem } from '@/shared/api/client';
 import { AssetLightbox } from '@/components/AssetLightbox';
 import { AssetPickerDialog } from '@/components/AssetPickerDialog';
-import { CustomAvatar } from '@/components/CustomAvatar';
-import { loadAvatarCrop, saveAvatarCrop, clearAvatarCrop } from '@/lib/avatarCrop';
-import { assetType, primaryImageAsset } from '@/lib/assetUtils';
-import { formatPlaceDisplay } from '@/lib/placeUtils';
-import { PersonChip } from '@/components/PersonChip';
+import { CustomAvatar } from '@/shared/components/CustomAvatar';
+import { loadAvatarCrop, saveAvatarCrop, clearAvatarCrop } from '@/shared/lib/avatarCrop';
+import { assetType, primaryImageAsset } from '@/shared/lib/assets';
+import { formatPlaceDisplay } from '@/shared/lib/places';
+import { PersonChip } from '@/shared/components/PersonChip';
 import { EventEditorDialog } from '@/components/EventEditorDialog';
 import { RelationshipEditorDialog } from '@/components/RelationshipEditorDialog';
 import { AvatarCropDialog } from '@/components/AvatarCropDialog';
@@ -18,17 +18,17 @@ import {
     DialogTitle as ConfirmDialogTitle,
     DialogDescription as ConfirmDialogDescription,
     DialogFooter as ConfirmDialogFooter,
-} from '@/components/ui/dialog';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+} from '@/shared/ui/dialog';
+import { Badge } from '@/shared/ui/badge';
+import { Skeleton } from '@/shared/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 import {
     ResizableHandle,
     ResizablePanel,
     ResizablePanelGroup,
-} from '@/components/ui/resizable';
+} from '@/shared/ui/resizable';
 import {
     Calendar, MapPin, Heart, Sunrise, Sunset, Leaf, GraduationCap, Briefcase, Church,
     Ship, ScrollText, FileText, Plus, ChevronRight, Image, BookOpen, Code,
@@ -1060,7 +1060,7 @@ function VirtualizedTimeline({
                                             <MapPin className="h-3 w-3" />
                                             <span className="truncate">
                                                 {typeof details.location === 'object' && details.location !== null
-                                                    ? formatPlaceDisplay(details.location as import('@/api/people').Place)
+                                                    ? formatPlaceDisplay(details.location as import('@/shared/api/people').Place)
                                                     : String(details.location)}
                                             </span>
                                         </div>

@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useAssets } from '@/api/hooks';
-import type { AssetListItem, AssetsQueryParams } from '@/api/client';
-import { assetType } from '@/lib/assetUtils';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import { useAssets } from '@/shared/api/hooks';
+import type { AssetListItem, AssetsQueryParams } from '@/shared/api/client';
+import { assetType } from '@/shared/lib/assets';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/shared/ui/dialog';
+import { Button } from '@/shared/ui/button';
 import { AssetSearchBar } from '@/components/AssetSearchBar';
 import type { PersonChipData } from '@/components/AssetSearchBar';
 import { FileText, Check, SortAsc, SortDesc, ArrowUpDown } from 'lucide-react';

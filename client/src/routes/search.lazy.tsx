@@ -1,9 +1,9 @@
 import { createLazyFileRoute, useSearch as useRouterSearch } from '@tanstack/react-router';
-import { useSearch } from '@/api/hooks';
-import { CustomAvatar } from '@/components/CustomAvatar';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { useSearch } from '@/shared/api/hooks';
+import { CustomAvatar } from '@/shared/components/CustomAvatar';
+import { Skeleton } from '@/shared/ui/skeleton';
+import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
 import { SearchBar } from '@/components/SearchBar';
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';

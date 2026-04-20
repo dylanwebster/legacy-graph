@@ -1,15 +1,15 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
-import { usePeople, useSearch } from '@/api/hooks';
-import type { SlimPersonSummary } from '@/api/people';
-import { CustomAvatar } from '@/components/CustomAvatar';
-import { loadAvatarCrop } from '@/lib/avatarCrop';
+import { usePeople, useSearch } from '@/shared/api/hooks';
+import type { SlimPersonSummary } from '@/shared/api/people';
+import { CustomAvatar } from '@/shared/components/CustomAvatar';
+import { loadAvatarCrop } from '@/shared/lib/avatarCrop';
 import { CreatePersonDialog } from '@/components/CreatePersonDialog';
-import { TopBarActions } from '@/components/TopBarSlotContext';
+import { TopBarActions } from '@/shared/components/layout/TopBarSlotContext';
 import { SearchBar } from '@/components/SearchBar';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Button } from '@/components/ui/button';
+import { Badge } from '@/shared/ui/badge';
+import { Skeleton } from '@/shared/ui/skeleton';
+import { Button } from '@/shared/ui/button';
 import { ChevronUp, ChevronDown, ArrowUpDown, UserPlus } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 

@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
-import type { SlimPersonSummary } from '@/api/people';
+import type { SlimPersonSummary } from '@/shared/api/people';
 
 interface MentionListProps {
     items: SlimPersonSummary[];

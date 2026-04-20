@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useUpdateAssetMeta, useLinkAsset, useUnlinkAsset } from '@/api/hooks';
-import type { AssetListItem } from '@/api/client';
-import type { Place } from '@/api/people';
-import { assetType } from '@/lib/assetUtils';
-import { formatPlaceDisplay, formatCoordinates } from '@/lib/placeUtils';
-import { PersonChip } from '@/components/PersonChip';
-import { PersonSearchCombobox } from '@/components/PersonSearchCombobox';
+import { useUpdateAssetMeta, useLinkAsset, useUnlinkAsset } from '@/shared/api/hooks';
+import type { AssetListItem } from '@/shared/api/client';
+import type { Place } from '@/shared/api/people';
+import { assetType } from '@/shared/lib/assets';
+import { formatPlaceDisplay, formatCoordinates } from '@/shared/lib/places';
+import { PersonChip } from '@/shared/components/PersonChip';
+import { PersonSearchCombobox } from '@/shared/components/PersonSearchCombobox';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 import {
     ChevronLeft, ChevronRight, X, FileText, ExternalLink,
     Pencil, Check, Trash2, MapPin,
@@ -19,7 +19,7 @@ import {
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 
-import { PlaceSearchCombobox } from '@/components/PlaceSearchCombobox';
+import { PlaceSearchCombobox } from '@/shared/components/PlaceSearchCombobox';
 
 export interface AssetLightboxProps {
     filename: string;

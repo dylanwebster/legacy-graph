@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
-import { useSearch } from '@/api/hooks';
-import { Badge } from '@/components/ui/badge';
-import { CustomAvatar } from '@/components/CustomAvatar';
+import { useSearch } from '@/shared/api/hooks';
+import { Badge } from '@/shared/ui/badge';
+import { CustomAvatar } from '@/shared/components/CustomAvatar';
 import { X, Search } from 'lucide-react';
 
 export interface PersonChipData {

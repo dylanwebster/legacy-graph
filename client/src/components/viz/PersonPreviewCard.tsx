@@ -1,7 +1,7 @@
 import { Focus, X } from 'lucide-react';
-import { CustomAvatar } from '@/components/CustomAvatar';
-import type { GraphLinkData, GraphNodeData } from '@/api/hooks';
-import { abbreviateName } from '@/utils/nameUtils';
+import { CustomAvatar } from '@/shared/components/CustomAvatar';
+import type { GraphLinkData, GraphNodeData } from '@/shared/api/hooks';
+import { abbreviateName } from '@/shared/lib/names';
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 

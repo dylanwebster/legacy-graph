@@ -1,15 +1,15 @@
 import { useRef, useState, useMemo, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { ArrowRight, ArrowUp, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Network } from 'lucide-react';
-import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
+import type { GraphNodeData, GraphLinkData } from '@/shared/api/hooks';
 import {
     buildFamilyTree,
     computeAdaptiveTreeLayout,
 } from '@/utils/genealogyLayout';
-import { sexColor as sexStroke } from '@/utils/sexColors';
-import { abbreviateName } from '@/utils/nameUtils';
+import { sexColor as sexStroke } from '@/shared/lib/sexColors';
+import { abbreviateName } from '@/shared/lib/names';
 import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from './PersonPreviewCard';
-import { useUIStore } from '@/store/uiStore';
+import { useUIStore } from '@/shared/store/uiStore';
 
 // ─── Handle ───────────────────────────────────────────────────────────────────
 

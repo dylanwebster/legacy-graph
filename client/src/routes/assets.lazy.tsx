@@ -1,20 +1,20 @@
 import { createLazyFileRoute, Link } from '@tanstack/react-router';
-import { PersonChip } from '@/components/PersonChip';
+import { PersonChip } from '@/shared/components/PersonChip';
 import { ExternalLink } from 'lucide-react';
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useAssets, useDeleteGalleryAsset } from '@/api/hooks';
+import { useAssets, useDeleteGalleryAsset } from '@/shared/api/hooks';
 import { useQueryClient } from '@tanstack/react-query';
-import type { AssetListItem } from '@/api/client';
-import type { AssetsQueryParams } from '@/api/client';
-import { assetType } from '@/lib/assetUtils';
-import { formatPlaceDisplay } from '@/lib/placeUtils';
+import type { AssetListItem } from '@/shared/api/client';
+import type { AssetsQueryParams } from '@/shared/api/client';
+import { assetType } from '@/shared/lib/assets';
+import { formatPlaceDisplay } from '@/shared/lib/places';
 import { AssetLightbox } from '@/components/AssetLightbox';
 import { AssetSearchBar } from '@/components/AssetSearchBar';
 import type { PersonChipData } from '@/components/AssetSearchBar';
-import { TopBarActions } from '@/components/TopBarSlotContext';
+import { TopBarActions } from '@/shared/components/layout/TopBarSlotContext';
 import { BulkUploadDialog } from '@/components/BulkUploadDialog';
-import { Badge } from '@/components/ui/badge';
+import { Badge } from '@/shared/ui/badge';
 import {
     Dialog,
     DialogContent,
@@ -22,8 +22,8 @@ import {
     DialogTitle,
     DialogDescription,
     DialogFooter,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+} from '@/shared/ui/dialog';
+import { Button } from '@/shared/ui/button';
 import {
     FileText, Trash2, ZoomIn, Upload,
     ArrowUpDown, ArrowUp, ArrowDown,

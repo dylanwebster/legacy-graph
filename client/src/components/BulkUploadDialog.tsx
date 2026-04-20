@@ -1,20 +1,20 @@
 import { useState, useRef, useCallback } from 'react';
-import { uploadGalleryAssets, updateAssetMeta, linkAssetToPerson } from '@/api/client';
-import type { AssetMetadata } from '@/api/client';
-import type { Place } from '@/api/people';
-import { PlaceSearchCombobox } from '@/components/PlaceSearchCombobox';
-import { PersonSearchCombobox } from '@/components/PersonSearchCombobox';
-import { PersonChip } from '@/components/PersonChip';
+import { uploadGalleryAssets, updateAssetMeta, linkAssetToPerson } from '@/shared/api/client';
+import type { AssetMetadata } from '@/shared/api/client';
+import type { Place } from '@/shared/api/people';
+import { PlaceSearchCombobox } from '@/shared/components/PlaceSearchCombobox';
+import { PersonSearchCombobox } from '@/shared/components/PersonSearchCombobox';
+import { PersonChip } from '@/shared/components/PersonChip';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
 import {
     Dialog,
     DialogContent,
     DialogHeader,
     DialogTitle,
     DialogFooter,
-} from '@/components/ui/dialog';
+} from '@/shared/ui/dialog';
 import { FileText, Upload, X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 

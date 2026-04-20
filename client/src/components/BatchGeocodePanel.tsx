@@ -1,11 +1,11 @@
-import type { BatchGeocodeResult } from '@/api/client';
-import type { Place } from '@/api/people';
-import { useGeocodeStore, type SortBy, type SortOrder } from '@/store/geocodeStore';
+import type { BatchGeocodeResult } from '@/shared/api/client';
+import type { Place } from '@/shared/api/people';
+import { useGeocodeStore, type SortBy, type SortOrder } from '@/shared/store/geocodeStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/shared/ui/button';
+import { Badge } from '@/shared/ui/badge';
+import { Input } from '@/shared/ui/input';
 import {
     Dialog,
     DialogContent,
@@ -13,10 +13,10 @@ import {
     DialogTitle,
     DialogDescription,
     DialogFooter,
-} from '@/components/ui/dialog';
-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { PlaceSearchCombobox } from '@/components/PlaceSearchCombobox';
-import { formatPlaceDisplay, formatCoordinates } from '@/lib/placeUtils';
+} from '@/shared/ui/dialog';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/shared/ui/tooltip';
+import { PlaceSearchCombobox } from '@/shared/components/PlaceSearchCombobox';
+import { formatPlaceDisplay, formatCoordinates } from '@/shared/lib/places';
 import { useState, useCallback, useEffect, useMemo, memo } from 'react';
 import {
     RefreshCw, Loader2, Download,

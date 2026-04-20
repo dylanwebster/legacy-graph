@@ -19,8 +19,8 @@ import { replaceAll } from "@milkdown/utils";
 import { createPortal } from "react-dom";
 import { MentionList } from "./MentionList";
 import type { MentionListHandle } from "./MentionList";
-import type { SlimPersonSummary } from "@/api/people";
-import { PersonHoverCard } from "@/components/PersonHoverCard";
+import type { SlimPersonSummary } from "@/shared/api/people";
+import { PersonHoverCard } from "@/shared/components/PersonHoverCard";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

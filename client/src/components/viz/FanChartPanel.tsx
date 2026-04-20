@@ -1,16 +1,16 @@
 import { useRef, useState, useMemo, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import type { GraphNodeData, GraphLinkData } from '@/api/hooks';
+import type { GraphNodeData, GraphLinkData } from '@/shared/api/hooks';
 import {
     buildAncestorTree,
     computeFanArcLayout,
     type AncestorSlot,
     type FanArc,
 } from '@/utils/genealogyLayout';
-import { sexColor } from '@/utils/sexColors';
+import { sexColor } from '@/shared/lib/sexColors';
 import { CircleDot } from 'lucide-react';
 import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from './PersonPreviewCard';
-import { abbreviateName } from '@/utils/nameUtils';
+import { abbreviateName } from '@/shared/lib/names';
 
 // ─── Handle ───────────────────────────────────────────────────────────────────
 

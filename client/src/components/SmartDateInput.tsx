@@ -1,5 +1,5 @@
 import type React from 'react';
-import { Input } from '@/components/ui/input';
+import { Input } from '@/shared/ui/input';
 
 const MONTHS: Record<string, number> = {
     january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,

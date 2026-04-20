@@ -1,25 +1,25 @@
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
-import { useSystemStatus } from '@/api/hooks';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Input } from '@/components/ui/input';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Label } from '@/components/ui/label';
+import { useSystemStatus } from '@/shared/api/hooks';
+import { Button } from '@/shared/ui/button';
+import { Badge } from '@/shared/ui/badge';
+import { Skeleton } from '@/shared/ui/skeleton';
+import { Input } from '@/shared/ui/input';
+import { RadioGroup, RadioGroupItem } from '@/shared/ui/radio-group';
+import { Label } from '@/shared/ui/label';
 import {
     Dialog,
     DialogContent,
     DialogHeader,
     DialogTitle,
     DialogDescription,
-} from '@/components/ui/dialog';
+} from '@/shared/ui/dialog';
 import { BatchGeocodePanel } from '@/components/BatchGeocodePanel';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
     RefreshCw, Camera, Loader2, Server, Database, Clock, Activity,
     Sun, Moon, Palette, Upload, Download, AlertTriangle, CheckCircle2,
 } from 'lucide-react';
-import { useUIStore } from '@/store/uiStore';
+import { useUIStore } from '@/shared/store/uiStore';
 
 export const Route = createLazyFileRoute('/settings')({
     component: SettingsPage,

@@ -1,18 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useUpdatePerson, useSearch, useUploadEventMedia, useAssets, useDeleteGalleryAsset } from '@/api/hooks';
-import type { Place } from '@/api/people';
-import { CustomAvatar } from '@/components/CustomAvatar';
+import { useUpdatePerson, useSearch, useUploadEventMedia, useAssets, useDeleteGalleryAsset } from '@/shared/api/hooks';
+import type { Place } from '@/shared/api/people';
+import { CustomAvatar } from '@/shared/components/CustomAvatar';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
 import { AssetPickerDialog } from '@/components/AssetPickerDialog';
 import type { PersonChipData } from '@/components/AssetSearchBar';
 import { AssetLightbox } from '@/components/AssetLightbox';
-import { PlaceSearchCombobox } from '@/components/PlaceSearchCombobox';
+import { PlaceSearchCombobox } from '@/shared/components/PlaceSearchCombobox';
 import {
     Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+} from '@/shared/ui/dialog';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 import {
     Sunrise, Sunset, Heart, MapPin, GraduationCap, Briefcase, Church, Ship,
     ScrollText, Users, FileText, Calendar, Leaf, ChevronDown, Check,
@@ -20,9 +20,9 @@ import {
 } from 'lucide-react';
 import {
     Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
-} from '@/components/ui/command';
-import { assetType } from '@/lib/assetUtils';
-import { formatPlaceDisplay } from '@/lib/placeUtils';
+} from '@/shared/ui/command';
+import { assetType } from '@/shared/lib/assets';
+import { formatPlaceDisplay } from '@/shared/lib/places';
 import { toast } from 'sonner';
 
 const EVENT_META = {

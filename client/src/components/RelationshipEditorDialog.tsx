@@ -1,18 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useUpdatePerson } from '@/api/hooks';
-import { useSearch } from '@/api/hooks';
-import { peopleApi } from '@/api/people';
-import { PersonChip } from '@/components/PersonChip';
-import { CustomAvatar } from '@/components/CustomAvatar';
+import { useUpdatePerson } from '@/shared/api/hooks';
+import { useSearch } from '@/shared/api/hooks';
+import { peopleApi } from '@/shared/api/people';
+import { PersonChip } from '@/shared/components/PersonChip';
+import { CustomAvatar } from '@/shared/components/CustomAvatar';
 import { CreatePersonDialog } from '@/components/CreatePersonDialog';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+} from '@/shared/ui/dialog';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
 import { toast } from 'sonner';
 import { X, UserPlus } from 'lucide-react';
 
