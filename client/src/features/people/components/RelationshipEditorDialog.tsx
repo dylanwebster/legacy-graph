@@ -5,7 +5,7 @@ import { useSearch } from '@/shared/api/hooks';
 import { peopleApi } from '@/shared/api/people';
 import { PersonChip } from '@/shared/components/PersonChip';
 import { CustomAvatar } from '@/shared/components/CustomAvatar';
-import { CreatePersonDialog } from '@/components/CreatePersonDialog';
+import { CreatePersonDialog } from '@/features/people/components/CreatePersonDialog';
 import { SmartDateInput, parseToISO } from '@/components/SmartDateInput';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
