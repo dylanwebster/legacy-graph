@@ -612,7 +612,7 @@ export function PersonDetailPage({ id }: { id: string }) {
                         </div>
                         <PersonTimeline
                             key={id}
-                            timeline={timeline as Array<Record<string, unknown>>}
+                            timeline={timeline}
                             onEditEvent={openEditEvent}
                         />
                     </div>
