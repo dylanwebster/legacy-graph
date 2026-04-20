@@ -13,7 +13,7 @@ const PEOPLE_DIR = path.join(DATA_DIR, 'people');
 const STORIES_DIR = path.join(DATA_DIR, 'stories');
 
 function writePersonYaml(id: string, first: string, last: string) {
-    const content = `version: "5.0"
+    const content = `version: "5.1"
 id: "${id}"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"

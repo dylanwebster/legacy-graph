@@ -15,7 +15,7 @@ const STORIES_DIR = path.join(DATA_DIR, 'stories');
 function writePersonYaml(id: string, first: string, last: string, extras: Record<string, any> = {}) {
     const scrapbook = extras.scrapbook_md ?? 'This is a scrapbook entry about ' + first;
     const gedcom = extras._gedcom ? `\n_gedcom:\n  CUSTOM_TAG: "${extras._gedcom.CUSTOM_TAG}"` : '';
-    const content = `version: "5.0"
+    const content = `version: "5.1"
 id: "${id}"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"
@@ -46,7 +46,7 @@ describe('Slim Node Strategy (Phase 3.7.1)', () => {
     describe('toSlimPerson utility', () => {
         it('should strip scrapbook_md and _gedcom from a Person object', () => {
             const person = {
-                version: '5.0' as const,
+                version: "5.1" as const,
                 id: 'N_test',
                 created: '2023-01-01T00:00:00Z',
                 last_modified: '2023-01-01T00:00:00Z',

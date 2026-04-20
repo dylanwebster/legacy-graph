@@ -17,6 +17,8 @@ import { gedcomRoutes } from './api/routes/gedcom';
 import { storiesRoutes } from './api/routes/stories';
 import { assetsRoutes } from './api/routes/assets';
 import { geocodingRoutes } from './api/routes/geocoding';
+import { mapRoutes } from './api/routes/map';
+import { basemapRoutes } from './api/routes/basemap';
 import type { AppServices } from './api/types';
 
 export interface ServerConfig {
@@ -82,6 +84,9 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
             const url = request.url;
             if (url === '/api/system/status' ||
                 url === '/api/system/hydration/stream' ||
+                url === '/api/system/basemap' ||
+                url === '/api/basemap/tiles' ||
+                url.startsWith('/api/basemap/tiles?') ||
                 url === '/api/auth/login' ||
                 url === '/api/auth/logout') {
                 return;
@@ -107,6 +112,8 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
     await server.register(storiesRoutes);
     await server.register(assetsRoutes);
     await server.register(geocodingRoutes);
+    await server.register(mapRoutes);
+    await server.register(basemapRoutes);
 
     // Phase 3.9.3 Static Asset Delivery Performance
     await server.register(fastifyStatic, {

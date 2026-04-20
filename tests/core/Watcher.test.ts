@@ -36,7 +36,7 @@ describe('Watcher Integration (@parcel/watcher)', () => {
         await engine.startWatcher();
 
         // Write a new person YAML
-        const yamlContent = `version: "5.0"
+        const yamlContent = `version: "5.1"
 id: "N_WATCHADD"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"
@@ -59,7 +59,7 @@ assets: []`;
 
     it('should detect file change and update the graph', async () => {
         // Pre-populate a person
-        const initialYaml = `version: "5.0"
+        const initialYaml = `version: "5.1"
 id: "N_WATCHCHANGE"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"
@@ -88,7 +88,7 @@ assets: []`;
 
     it('should detect file deletion and remove node from graph', async () => {
         // Pre-populate a person
-        const yamlContent = `version: "5.0"
+        const yamlContent = `version: "5.1"
 id: "N_WATCHDEL"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"
@@ -129,7 +129,7 @@ assets: []`;
         await engine.withSuspendedWatcher(async () => {
             for (let i = 0; i < 60; i++) {
                 const filePath = path.join(TEST_DIR, 'people', `suspended_${i}.yaml`);
-                const yamlContent = `version: "5.0"
+                const yamlContent = `version: "5.1"
 id: "N_SUSP_${i}"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"
@@ -176,7 +176,7 @@ assets: []`;
 
         // Write 55 files in a tight loop to simulate a burst (e.g. git checkout)
         for (let i = 0; i < 55; i++) {
-            const yamlContent = `version: "5.0"
+            const yamlContent = `version: "5.1"
 id: "N_BURST_${i}"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"
@@ -214,7 +214,7 @@ describe('Story Watcher (Phase 3.8.5)', () => {
         fs.mkdirSync(path.join(TEST_DIR, 'stories'), { recursive: true });
 
         // Create a person for story mentions
-        const personYaml = `version: "5.0"
+        const personYaml = `version: "5.1"
 id: "N_STORYREF"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"

@@ -9,7 +9,7 @@ describe('SearchService', () => {
     let searchService: SearchService;
 
     const alan: Person = {
-        version: "5.0",
+        version: "5.1",
         id: "N_ALAN",
         created: "2023-01-01T00:00:00Z",
         last_modified: "2023-01-01T00:00:00Z",
@@ -26,7 +26,7 @@ describe('SearchService', () => {
     };
 
     const grace: Person = {
-        version: "5.0",
+        version: "5.1",
         id: "N_GRACE",
         created: "2023-01-01T00:00:00Z",
         last_modified: "2023-01-01T00:00:00Z",
@@ -136,7 +136,7 @@ describe('SearchService', () => {
     it('should return place count reflecting number of people at that location', async () => {
         // Add another person with an event in London
         const ada: Person = {
-            version: "5.0",
+            version: "5.1",
             id: "N_ADA",
             created: "2023-01-01T00:00:00Z",
             last_modified: "2023-01-01T00:00:00Z",
@@ -208,7 +208,7 @@ describe('SearchService', () => {
         const people = [];
         for (let i = 0; i < 10; i++) {
             const person: Person = {
-                version: "5.0",
+                version: "5.1",
                 id: `N_P${i}`,
                 created: "2023-01-01T00:00:00Z",
                 last_modified: "2023-01-01T00:00:00Z",
@@ -236,7 +236,7 @@ describe('SearchService', () => {
         // Add enough people
         for (let i = 0; i < 5; i++) {
             const person: Person = {
-                version: "5.0",
+                version: "5.1",
                 id: `N_OFF${i}`,
                 created: "2023-01-01T00:00:00Z",
                 last_modified: "2023-01-01T00:00:00Z",
@@ -315,13 +315,13 @@ describe('SearchService', () => {
 
     it('should find a person with middle initial via first+last name query', async () => {
         const geneE: Person = {
-            version: "5.0", id: "N_GENE_E",
+            version: "5.1", id: "N_GENE_E",
             created: "2023-01-01T00:00:00Z", last_modified: "2023-01-01T00:00:00Z",
             names: [{ first: "Gene E", last: "Webster", primary: true }],
             sex: "M", tags: [], relationships: { parents: [] }, events: [], assets: [], scrapbook_md: ""
         };
         const geneLee: Person = {
-            version: "5.0", id: "N_GENE_LEE",
+            version: "5.1", id: "N_GENE_LEE",
             created: "2023-01-01T00:00:00Z", last_modified: "2023-01-01T00:00:00Z",
             names: [{ first: "Gene Lee", last: "Webster", primary: true }],
             sex: "M", tags: [], relationships: { parents: [] }, events: [], assets: [], scrapbook_md: ""
@@ -338,7 +338,7 @@ describe('SearchService', () => {
 
     it('should find a person with middle initial and period via first+last name query', async () => {
         const geneEPeriod: Person = {
-            version: "5.0", id: "N_GENE_EP",
+            version: "5.1", id: "N_GENE_EP",
             created: "2023-01-01T00:00:00Z", last_modified: "2023-01-01T00:00:00Z",
             names: [{ first: "Gene E.", last: "Webster", primary: true }],
             sex: "M", tags: [], relationships: { parents: [] }, events: [], assets: [], scrapbook_md: ""
@@ -355,7 +355,7 @@ describe('SearchService', () => {
         // Add 20 people with same first name
         for (let i = 0; i < 20; i++) {
             const person: Person = {
-                version: "5.0",
+                version: "5.1",
                 id: `N_PERF${i}`,
                 created: "2023-01-01T00:00:00Z",
                 last_modified: "2023-01-01T00:00:00Z",

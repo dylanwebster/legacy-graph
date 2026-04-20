@@ -18,6 +18,7 @@
 | TS6 | TypeScript 6 upgrade (typescript ^6.0.2, typescript-eslint ^8.58.0) |
 | 5.6 | Batch Geocoding: `searchWithMetadata()` with confidence scoring, `/api/geocoding/batch` + `/apply` endpoints, Settings review dialog with filter/search, site_name extraction from dropped parts, original location preservation in `_gedcom.original_locations` |
 | 5.6.1 | Async Batch Geocoding: Background job system (`JobManager` with EventEmitter), SSE progress streaming (`/batch/stream`), server-side result persistence (`_meta/.batch-geocode-results.json`), resumable review sessions (selections saved to server), Zustand store for cross-navigation state, non-blocking UI during scan |
+| 5.2.0 | Schema 5.1: event date ranges — `end_date`/`sort_end_date` added to `EventSchema`, `PersonSchema` version bumped with auto-migration from `"5.0"`, `parseDateRange()` utility, GEDCOM Import populates ranges from `BET … AND …` and `FROM … TO …`, EventEditorDialog range toggle, PersonTimeline displays spans |
 
 ---
 
@@ -25,14 +26,23 @@
 
 ### Phase 5.2 — Map View (`/map`)
 
-1. Install `react-leaflet` + `leaflet` in `client/`.
-2. Create `/map` route (`client/src/routes/map.lazy.tsx`) with OpenStreetMap tiles.
-3. Fetch geocoded Place objects from all people's events; render color-coded pins by event type.
-4. Marker clustering (`react-leaflet-markercluster`) for dense areas.
-5. Click pin popup: place name, event type, person link, date.
-6. Filters: event type, person (search selector), date range (year slider).
-7. Deep-link: `/map?place=...` centers map; `/map?person=N_xxx` filters to one person.
-8. Add Map (Globe) icon to sidebar nav.
+Plan: MapLibre GL + deck.gl overlay + Protomaps (PMTiles) basemap, with zoom-driven crossfade between a heatmap ("earth at night" glow), clustered pins, and jittered per-event pins. Bottom-docked time slider with dual handles drives playback via `requestAnimationFrame`; granularity (year/decade/century) and speed are user-controlled. Scope control (Everyone / Focal person / Focal lineage) shares `useFocalStore` with the Graph page.
+
+Sub-phases:
+- [x] **5.2.0** — Schema 5.1 (event date ranges) — `end_date` / `sort_end_date`, auto-migrate from `"5.0"`, GEDCOM `BET…AND` / `FROM…TO` preserved as ranges, EventEditor range toggle.
+- [x] **5.2.1** — Shared focal person Zustand store (`useFocalStore`; `rootPersonId` lifted out of `dashboardState`; one-time migration from legacy localStorage blob).
+- [x] **5.2.2** — `GraphLogic.getLineage()` (ancestors + descendants + spouses) + `GET /api/map/events` with `?person=` / `?lineage=` filters.
+- [x] **5.2.3** — PMTiles basemap pipeline: `npm run map:build` downloads world tiles to `~/.legacy-graph/basemap.pmtiles`; `/api/basemap/tiles` serves HTTP Range requests (200/206/416); `/api/system/basemap` reports availability; OSM raster fallback + banner when missing.
+- [x] **5.2.4** — `/map` route scaffolding: MapLibre + deck.gl `MapboxOverlay` + Sidebar Globe icon; day/night styles keyed to `useUIStore.theme`; pmtiles protocol registered with MapLibre.
+- [x] **5.2.5** — Zoom-crossfaded render layers: `HeatmapLayer` (tanh-shaped warm-amber ramp, type-weighted intensity) → type-colored `ScatterplotLayer` pins with deterministic hash-based jitter. Opacity crossfade on `zoom` thresholds.
+- [x] **5.2.6** — Time window slider + playback: dual-handle window, granularity (year/decade/century), speed (0.5×–4×), loop toggle, RAF playback, pause-on-scrub (no auto-resume), keyboard shortcuts (Space / ← / → / Shift+), "Show undated" mode. Date-range overlap drives visibility.
+- [x] **5.2.7** — Scope filter + focal integration: `Everyone` / `Focal person` / `Focal lineage`, persisted in `useMapPrefsStore`. `map.fitBounds` to the filtered bbox on every scope/focal change.
+- [x] **5.2.8** — Connected-path single-person view: deck.gl `PathLayer` birth → residences → death when scope is `focal`.
+- [x] **5.2.9** — Event drawer (side drawer on desktop, half-height bottom sheet on mobile) with event card, person chip, "Set as focal" + "Open on Graph" actions.
+- [x] **5.2.10** — Deep-link contract: `/map?scope=&person=&t=&t_end=&g=&speed=&play=&loop=&event=` fully round-trips (boot from URL on mount, debounced write-back on store change via `navigate({ replace: true })`).
+- [x] **5.2.11** — Mobile: toolbar horizontally scrollable with compact labels; drawer becomes a half-height bottom sheet; slider remains bottom-docked at narrow widths.
+- [x] **5.2.12** — Command palette: "View Map" and "Show focal lineage on Map" actions (the latter shown only when a focal is set).
+- [x] **5.2.13** — Docs updated (SPEC §6.11 rewritten; PROGRESS updated). E2E tests deferred to follow-up.
 
 ### Phase 5.6 — Private Mode & Guest Mode
 

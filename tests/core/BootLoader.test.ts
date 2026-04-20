@@ -12,7 +12,7 @@ describe('BootLoader Integration', () => {
         if (!fs.existsSync(TEST_DIR)) fs.mkdirSync(TEST_DIR);
         for (let i = 0; i < 10; i++) {
             const content = `
-version: "5.0"
+version: "5.1"
 id: "N_${i}xxxxx"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"

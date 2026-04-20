@@ -684,7 +684,7 @@ describe('Fastify API Server', () => {
         const testDataDir = './tests/fixtures/data';
         const peopleDir = path.join(testDataDir, 'people');
         const FIXTURE_PERSON_ID = 'N_test-import-2000-fixture';
-        const FIXTURE_PERSON_YAML = `version: '5.0'
+        const FIXTURE_PERSON_YAML = `version: "5.1"
 id: ${FIXTURE_PERSON_ID}
 created: '2026-01-01T00:00:00.000Z'
 last_modified: '2026-01-01T00:00:00.000Z'

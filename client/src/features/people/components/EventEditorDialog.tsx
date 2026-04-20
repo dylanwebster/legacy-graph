@@ -267,12 +267,16 @@ export function EventEditorDialog({
     const [branch, setBranch] = useState((existingEvent?.branch as string) ?? '');
     const [rank, setRank] = useState((existingEvent?.rank as string) ?? '');
     const [siteName, setSiteName] = useState((existingEvent?.site_name as string) ?? '');
+    const [endDate, setEndDate] = useState((existingEvent?.end_date as string) ?? '');
+    const [isRange, setIsRange] = useState(Boolean(existingEvent?.end_date || existingEvent?.sort_end_date));
 
     // Reset when dialog opens with new event data
     useEffect(() => {
         if (isOpen) {
             setEventType((existingEvent?.type as EventType) ?? initialEventType ?? 'birth');
             setDate((existingEvent?.date as string) ?? '');
+            setEndDate((existingEvent?.end_date as string) ?? '');
+            setIsRange(Boolean(existingEvent?.end_date || existingEvent?.sort_end_date));
             const loc = existingEvent?.location;
             if (loc && typeof loc === 'object' && 'name' in loc) {
                 setLocationQuery(formatPlaceDisplay(loc as Place));
@@ -309,6 +313,11 @@ export function EventEditorDialog({
             base.date = date;
             const iso = parseToISO(date);
             if (iso) base.sort_date = iso;
+        }
+        if (isRange && endDate) {
+            base.end_date = endDate;
+            const isoEnd = parseToISO(endDate);
+            if (isoEnd) base.sort_end_date = isoEnd;
         }
         if (locationPlace) {
             base.location = locationPlace;
@@ -351,7 +360,7 @@ export function EventEditorDialog({
         }
         return base;
     }, [
-        eventType, date, locationPlace, locationQuery, siteName, description,
+        eventType, date, endDate, isRange, locationPlace, locationQuery, siteName, description,
         partnerId, marriageStatus, cause, title, organization,
         institution, degree, householdId, branch, rank, eventAssets, existingEvent,
     ]);
@@ -433,13 +442,37 @@ export function EventEditorDialog({
 
                     {/* Date */}
                     <div className="space-y-1">
-                        <label className="text-xs font-medium">Date</label>
+                        <div className="flex items-center justify-between">
+                            <label className="text-xs font-medium">{isRange ? 'Start date' : 'Date'}</label>
+                            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    className="h-3 w-3"
+                                    checked={isRange}
+                                    onChange={(e) => {
+                                        setIsRange(e.target.checked);
+                                        if (!e.target.checked) setEndDate('');
+                                    }}
+                                />
+                                Date range
+                            </label>
+                        </div>
                         <SmartDateInput
                             value={date}
                             onChange={(val) => setDate(val)}
                             placeholder="e.g. 15 Jun 1920 or 1920 or abt 1920"
                         />
                     </div>
+                    {isRange && (
+                        <div className="space-y-1">
+                            <label className="text-xs font-medium">End date</label>
+                            <SmartDateInput
+                                value={endDate}
+                                onChange={(val) => setEndDate(val)}
+                                placeholder="e.g. 1925 or 15 Jun 1925"
+                            />
+                        </div>
+                    )}
 
                     <div className="space-y-1">
                         <label className="text-xs font-medium">Place</label>

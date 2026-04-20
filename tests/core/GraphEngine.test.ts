@@ -16,7 +16,7 @@ describe('GraphEngine Topology', () => {
 
         // 1. Create Parent (N_DAD)
         fs.writeFileSync(path.join(PEOPLE_DIR, 'dad.yaml'), `
-version: "5.0"
+version: "5.1"
 id: "N_DAD"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"
@@ -29,7 +29,7 @@ assets: []
 
         // 2. Create Child (N_SON) linked to Parent
         fs.writeFileSync(path.join(PEOPLE_DIR, 'son.yaml'), `
-version: "5.0"
+version: "5.1"
 id: "N_SON"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"

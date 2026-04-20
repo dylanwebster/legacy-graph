@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { Network, Users, BookOpen, Image, Settings, Search } from 'lucide-react';
+import { Network, Users, BookOpen, Image, Settings, Search, Globe } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/ui/tooltip';
 import { useUIStore } from '@/shared/store/uiStore';
 import { cn } from '@/shared/lib/cn';
@@ -9,6 +9,7 @@ const navItems = [
     { icon: Users, label: 'People', to: '/people' },
     { icon: BookOpen, label: 'Stories', to: '/stories' },
     { icon: Image, label: 'Assets', to: '/assets' },
+    { icon: Globe, label: 'Map', to: '/map' },
 ];
 
 const bottomItems = [

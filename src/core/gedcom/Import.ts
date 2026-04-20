@@ -1,12 +1,32 @@
 import { Person } from '../../schemas/PersonSchema';
 import type { Place } from '../../schemas/PlaceSchema';
 import * as crypto from 'crypto';
-import { parseDate } from '../../utils/dateParser';
+import { parseDateRange } from '../../utils/dateParser';
 import { generatePersonId } from '../../utils/idGenerator';
 
 /** Convert a GEDCOM PLAC string to a Place object, or undefined if empty. */
 function placeFromString(s: string): Place | undefined {
     return s ? { name: s } : undefined;
+}
+
+/** Build the date fields for an event from a single GEDCOM DATE string.
+ *  Ranges (BET … AND …, FROM … TO …) populate end_date + sort_end_date;
+ *  single points omit them entirely. */
+function dateFields(raw: string): {
+    date: string;
+    sort_date: string | null;
+    end_date?: string;
+    sort_end_date?: string;
+} {
+    const { sort_date, sort_end_date } = parseDateRange(raw);
+    if (!sort_end_date) return { date: raw, sort_date };
+    const m = raw.match(/^(?:BET\s+.+?\s+AND|FROM\s+.+?\s+TO)\s+(.+)$/i);
+    return {
+        date: raw,
+        sort_date,
+        sort_end_date,
+        ...(m?.[1]?.trim() ? { end_date: m[1].trim() } : {}),
+    };
 }
 
 // --- Custom GEDCOM Parser Types ---
@@ -112,7 +132,7 @@ export class GedcomReader {
             if (!node.xref_id) return;
 
             const p: Person = {
-                version: "5.0",
+                version: "5.1",
                 id: '', // filled after mapIndi so we have name + events
                 created: new Date().toISOString(),
                 last_modified: new Date().toISOString(),
@@ -145,16 +165,17 @@ export class GedcomReader {
             // 2a. Marriage Event — create even when no MARR record exists (use empty date)
             const marrNode = node.children.find(c => c.tag === 'MARR');
             if (fatherId && motherId) {
-                const date = marrNode ? (this.getChildValue(marrNode, 'DATE') || "") : "";
+                const rawDate = marrNode ? (this.getChildValue(marrNode, 'DATE') || "") : "";
                 const place = marrNode ? (this.getChildValue(marrNode, 'PLAC') || "") : "";
                 const addr = marrNode ? (this.getChildValue(marrNode, 'ADDR') || "") : "";
-                const sortDate = parseDate(date);
+                const dates = dateFields(rawDate);
 
                 // Add to Husband
                 const h = people.find(x => x.id === fatherId);
                 if (h) {
                     h.events.push({
-                        id: crypto.randomUUID(), type: 'marriage', date, sort_date: sortDate, location: placeFromString(place), assets: [],
+                        id: crypto.randomUUID(), type: 'marriage', ...dates,
+                        location: placeFromString(place), assets: [],
                         partner_id: motherId, status: 'married',
                         ...(addr ? { site_name: addr } : {})
                     });
@@ -164,7 +185,8 @@ export class GedcomReader {
                 const w = people.find(x => x.id === motherId);
                 if (w) {
                     w.events.push({
-                        id: crypto.randomUUID(), type: 'marriage', date, sort_date: sortDate, location: placeFromString(place), assets: [],
+                        id: crypto.randomUUID(), type: 'marriage', ...dates,
+                        location: placeFromString(place), assets: [],
                         partner_id: fatherId, status: 'married',
                         ...(addr ? { site_name: addr } : {})
                     });
@@ -174,15 +196,15 @@ export class GedcomReader {
             // 2a2. Divorce Event
             const divNode = node.children.find(c => c.tag === 'DIV');
             if (divNode && fatherId && motherId) {
-                const date = this.getChildValue(divNode, 'DATE') || "";
+                const rawDate = this.getChildValue(divNode, 'DATE') || "";
                 const place = this.getChildValue(divNode, 'PLAC') || "";
                 const addr = this.getChildValue(divNode, 'ADDR') || "";
-                const sortDate = parseDate(date);
+                const dates = dateFields(rawDate);
 
                 const h = people.find(x => x.id === fatherId);
                 if (h) {
                     h.events.push({
-                        id: crypto.randomUUID(), type: 'divorce', date, sort_date: sortDate,
+                        id: crypto.randomUUID(), type: 'divorce', ...dates,
                         location: placeFromString(place), assets: [], partner_id: motherId,
                         ...(addr ? { site_name: addr } : {})
                     });
@@ -191,7 +213,7 @@ export class GedcomReader {
                 const w = people.find(x => x.id === motherId);
                 if (w) {
                     w.events.push({
-                        id: crypto.randomUUID(), type: 'divorce', date, sort_date: sortDate,
+                        id: crypto.randomUUID(), type: 'divorce', ...dates,
                         location: placeFromString(place), assets: [], partner_id: fatherId,
                         ...(addr ? { site_name: addr } : {})
                     });
@@ -251,15 +273,14 @@ export class GedcomReader {
 
         node.children.forEach(child => {
             if (simpleEventTags[child.tag]) {
-                const date = this.getChildValue(child, 'DATE') || "";
+                const rawDate = this.getChildValue(child, 'DATE') || "";
                 const place = this.getChildValue(child, 'PLAC') || "";
                 const addr = this.getChildValue(child, 'ADDR') || "";
                 p.events.push({
                     id: crypto.randomUUID(),
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- discriminated union type from runtime GEDCOM tag map
                     type: simpleEventTags[child.tag] as any,
-                    date: date,
-                    sort_date: parseDate(date),
+                    ...dateFields(rawDate),
                     location: placeFromString(place),
                     assets: [],
                     ...(addr ? { site_name: addr } : {})
@@ -267,15 +288,14 @@ export class GedcomReader {
             } else if (child.tag === 'OCCU') {
                 // Occupation: value is the job title
                 const title = child.value || this.getChildValue(child, 'TYPE') || "Unknown";
-                const date = this.getChildValue(child, 'DATE') || "";
+                const rawDate = this.getChildValue(child, 'DATE') || "";
                 const place = this.getChildValue(child, 'PLAC') || "";
                 const addr = this.getChildValue(child, 'ADDR') || "";
                 p.events.push({
                     id: crypto.randomUUID(),
                     type: 'occupation',
                     title,
-                    date,
-                    sort_date: parseDate(date),
+                    ...dateFields(rawDate),
                     location: placeFromString(place),
                     assets: [],
                     ...(addr ? { site_name: addr } : {})
@@ -283,15 +303,14 @@ export class GedcomReader {
             } else if (child.tag === 'EVEN') {
                 // Generic event: TYPE subtag gives the title
                 const title = this.getChildValue(child, 'TYPE') || child.value || "";
-                const date = this.getChildValue(child, 'DATE') || "";
+                const rawDate = this.getChildValue(child, 'DATE') || "";
                 const place = this.getChildValue(child, 'PLAC') || "";
                 const addr = this.getChildValue(child, 'ADDR') || "";
                 p.events.push({
                     id: crypto.randomUUID(),
                     type: 'generic',
                     title,
-                    date,
-                    sort_date: parseDate(date),
+                    ...dateFields(rawDate),
                     location: placeFromString(place),
                     assets: [],
                     ...(addr ? { site_name: addr } : {})

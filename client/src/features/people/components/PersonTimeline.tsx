@@ -103,6 +103,8 @@ function EventRow({ item, onEdit }: { item: TimelineEventItem; onEdit: () => voi
     const IconComp = EVENT_ICONS[eventType] ?? Calendar;
     const label = EVENT_LABELS[eventType] ?? eventType;
     const date = typeof details.date === 'string' ? details.date : undefined;
+    const endDate = typeof details.end_date === 'string' && details.end_date ? details.end_date : undefined;
+    const displayDate = endDate && date ? `${date} – ${endDate}` : date;
     const location = details.location;
     const siteName = typeof details.site_name === 'string' ? details.site_name : undefined;
     const description = typeof details.description === 'string' ? details.description : undefined;
@@ -118,7 +120,7 @@ function EventRow({ item, onEdit }: { item: TimelineEventItem; onEdit: () => voi
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                     <span className="font-medium text-sm">{label}</span>
-                    {date && <span className="text-xs text-muted-foreground font-mono">{date}</span>}
+                    {displayDate && <span className="text-xs text-muted-foreground font-mono">{displayDate}</span>}
                 </div>
                 {!!location && (
                     <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">

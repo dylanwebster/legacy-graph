@@ -119,7 +119,7 @@ All data ingestion must pass strict Zod schemas. This ensures data integrity bef
 
 | Field           | Type          | Description                                          |
 | :-------------- | :------------ | :--------------------------------------------------- |
-| `version`       | Literal "5.0" | Schema version for migration safety.                 |
+| `version`       | Literal "5.1" | Schema version for migration safety. Legacy `"5.0"` files are auto-upgraded on read; new fields (`end_date`, `sort_end_date`) default to empty/null. |
 | `id`            | String        | Human-readable unique ID. Format: `N_[first]-[last]-[birthyear]-[place]-[nanoid8]`. |
 | `created`       | ISO-8601      | Timestamp of creation.                               |
 | `last_modified` | ISO-8601      | Timestamp of last edit.                              |
@@ -161,6 +161,8 @@ Events are typed objects acting as state reducers. They determine the "current s
 - `id`: String (NanoID).
 - `date`: String (Fuzzy, e.g., "Bet. 1900 and 1910").
 - `sort_date`: String (ISO-8601 strict: `YYYY-MM-DD`). Used for chronological ordering.
+- `end_date`: String (Fuzzy, e.g., "1920"). Empty when the event is a point in time. Populated for spans like residence, occupation, military service.
+- `sort_end_date`: String (ISO-8601) | null. End of range for span events. Must be ≥ `sort_date`. GEDCOM `BET … AND …` and `FROM … TO …` populate this on import; otherwise null.
 - `location`: Place Object (Optional). See Section 3.4. Backward-compatible: bare strings are auto-coerced to `{ name: string }` at parse time.
 - `description`: String (Markdown supported, Optional).
 - `assets`: Array<String> (Filenames).
@@ -802,22 +804,39 @@ Universal gallery of all files in the `/assets` directory.
 
 ---
 
-### **6.11 Map View (`/map`)** *(not yet implemented — Phase 5.2)*
+### **6.11 Map View (`/map`)**
 
-Interactive world map of all geocoded event locations.
+Interactive world map of geocoded event locations, with a time slider driving a playback "fly through history" experience and a zoom-driven crossfade between a heatmap ("earth at night" glow), clustered markers, and jittered individual pins.
 
-- **Library**: `react-leaflet` with OpenStreetMap tiles (free, no API key).
-- **Pins**: Each geocoded Place object (lat/lng populated) becomes a map marker.
-  - Marker color by event type (birth=green, death=grey, marriage=gold, residence=blue, etc.).
-  - Click marker → popup showing: place name, event type, person name (linked to `/people/:id`), date.
-  - Marker clustering for dense areas (`react-leaflet-markercluster`).
-- **Filters** (sidebar or toolbar):
-  - Filter by event type
-  - Filter by person (search selector)
-  - Filter by date range (year slider)
-- **Deep-link support**: `/map?place=London%2C+UK` centers and highlights matching pins. `/map?person=N_xxx` shows only that person's event locations.
-- **Map snippet integration**: The small map snippets on EventCards in the Person Detail Timeline link here with `?place=` param.
-- **No backend changes required**: Uses already-geocoded `lat`/`lng` from Place objects (populated by GeocodingService, Phase 3.15).
+- **Libraries**:
+  - `maplibre-gl` (WebGL basemap, globe-capable, open-source).
+  - `@deck.gl/core` + `@deck.gl/layers` + `@deck.gl/aggregation-layers` + `@deck.gl/mapbox` (WebGL overlay: heatmap, scatterplot, paths).
+  - `pmtiles` (single-file vector basemap served from `/api/basemap/tiles` with HTTP range requests).
+  - `supercluster` (mid-zoom clustering).
+- **Basemap**: `PMTiles` world build downloaded via `npm run map:build` into `~/.legacy-graph/basemap.pmtiles`. When missing, the map falls back to OSM raster tiles with a banner prompting the build. Served by the Fastify `/api/basemap/tiles` endpoint with proper `Accept-Ranges`/`206` support so the client can fetch only the directory and tile slices it needs.
+- **Rendering modes (zoom-driven crossfade)**:
+  - `zoom < 6`: `HeatmapLayer` with type-weighted intensity and a tanh-curved warm-amber color ramp so dense clusters glow without blowing out to white.
+  - `6 ≤ zoom < 12`: clustered icons + pin layer both fading in.
+  - `zoom ≥ 12`: per-event pins colored by event type, jittered deterministically by event id so stacked events at city centroids are individually clickable. Click → side drawer (bottom sheet on mobile) with event card + person chip + "Open on Graph" action.
+- **Time slider** (bottom-docked, mobile-collapsible):
+  - Dual-handle window over `[extentStart, extentEnd]` (auto-fit from the loaded events, user-adjustable).
+  - Granularity: `year` / `decade` / `century` — changes the playback step size and the default window width.
+  - Speed: `0.5×` / `1×` / `2×` / `4×`.
+  - Loop toggle.
+  - Playback = `requestAnimationFrame` loop advancing the window forward. Scrubbing with the mouse pauses playback; playback does *not* auto-resume.
+  - Keyboard: `Space` toggles play, `←` / `→` step the window by one granularity unit, `Shift+` jumps 10 units.
+  - "Show undated" toggle: when enabled, events with `sort_date == null` become visible and the window is ignored.
+  - Date-range events (residence, occupation, military_service, …) are visible whenever `[sort_date, sort_end_date]` overlaps the window.
+- **Scope control**: `Everyone` / `Focal person` / `Focal lineage` — shares `useFocalStore` with the Graph page so the focal person is always in sync. `Focal lineage` = direct ancestors + direct descendants + spouses of every lineage member (siblings/cousins excluded).
+- **Fly-to**: `MapLibre#fitBounds` on every scope or focal change, using the bounding box of the filtered data.
+- **Connected path**: when scope is `Focal person`, draws a `PathLayer` polyline through that person's events in chronological order (birth → residences → death) on top of the pins.
+- **Day/night themes**: map style follows the UI theme (`useUIStore.theme`). Both a Protomaps-style dark style and a light Positron-style are defined in `client/src/features/map/styles/`.
+- **Backend endpoint**: `GET /api/map/events` returns a lean event list (`{ id, person_id, person_name, type, lat, lng, sort_date, sort_end_date, has_assets, place_name }`) plus `extent` (`minDate`, `maxDate`, `bbox`). Query params `?person=N_xxx` and `?lineage=N_xxx` are mutually exclusive; `?lineage` uses `GraphLogic.getLineage()` (ancestors + descendants + spouses). Events with a `location` that lacks `lat`/`lng` are skipped.
+- **Deep-link contract**: `/map?scope=focal&person=N_xxx&t=1880&t_end=1900&g=decade&speed=2&loop=1&play=1&event=<eventId>` — full state round-trips. The URL is updated via `navigate({ replace: true })` when stores change.
+- **Mobile (< 768 px)**: toolbar collapses into a scroll strip; time slider remains bottom-docked; event drawer becomes a half-height bottom sheet.
+- **Nav + palette**: Sidebar Globe icon links to `/map`. Command palette (`/` hotkey) includes "View Map" and "Show focal lineage on Map" actions.
+
+**No persisted data changes** — the map reads from already-geocoded `lat`/`lng` on Place objects (populated by GeocodingService, Phase 3.15) plus `end_date`/`sort_end_date` (added in Schema 5.1).
 
 ---
 

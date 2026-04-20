@@ -15,7 +15,8 @@ import {
     CommandItem,
     CommandSeparator,
 } from '@/shared/ui/command';
-import { Users, BookOpen, MapPin, ArrowRight } from 'lucide-react';
+import { Users, BookOpen, MapPin, ArrowRight, Globe } from 'lucide-react';
+import { useFocalStore } from '@/shared/store/focalStore';
 
 function useDebounce<T>(value: T, delay: number): T {
     const [debouncedValue, setDebouncedValue] = useState(value);
@@ -31,6 +32,7 @@ export function CommandPalette() {
     const [query, setQuery] = useState('');
     const debouncedQuery = useDebounce(query, 300);
     const navigate = useNavigate();
+    const focalPersonId = useFocalStore((s) => s.focalPersonId);
 
     const { data, isLoading } = useSearch(debouncedQuery, { limit: 20 });
 
@@ -92,7 +94,35 @@ export function CommandPalette() {
             />
             <CommandList>
                 {!debouncedQuery && (
-                    <CommandEmpty>Start typing to search...</CommandEmpty>
+                    <>
+                        <CommandGroup heading="Actions">
+                            <CommandItem
+                                value="action-view-map"
+                                onSelect={() => {
+                                    setSearchOpen(false);
+                                    navigate({ to: '/map' });
+                                }}
+                                className="flex items-center gap-3 py-2"
+                            >
+                                <Globe className="h-5 w-5 text-muted-foreground shrink-0" />
+                                <span>View Map</span>
+                            </CommandItem>
+                            {focalPersonId && (
+                                <CommandItem
+                                    value="action-focal-on-map"
+                                    onSelect={() => {
+                                        setSearchOpen(false);
+                                        navigate({ to: '/map', search: { scope: 'lineage', person: focalPersonId } });
+                                    }}
+                                    className="flex items-center gap-3 py-2"
+                                >
+                                    <Globe className="h-5 w-5 text-muted-foreground shrink-0" />
+                                    <span>Show focal lineage on Map</span>
+                                </CommandItem>
+                            )}
+                        </CommandGroup>
+                        <CommandEmpty>Start typing to search…</CommandEmpty>
+                    </>
                 )}
                 {debouncedQuery && !isLoading && people.length === 0 && stories.length === 0 && places.length === 0 && (
                     <CommandEmpty>No results found for "{debouncedQuery}"</CommandEmpty>

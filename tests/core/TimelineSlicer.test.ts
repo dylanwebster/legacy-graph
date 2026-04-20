@@ -5,7 +5,7 @@ import { Person } from '../../src/schemas/PersonSchema';
 
 function makePerson(id: string, overrides: Partial<Person> = {}): Person {
     return {
-        version: "5.0",
+        version: "5.1",
         id,
         names: [{ first: id, last: 'Test', primary: true }],
         sex: "U",
