@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useUpdatePerson, useSearch, useUploadEventMedia, useAssets, useDeleteGalleryAsset } from '@/shared/api/hooks';
 import type { Place } from '@/shared/api/people';
 import { CustomAvatar } from '@/shared/components/CustomAvatar';
-import { SmartDateInput, parseToISO } from '@/features/editor/SmartDateInput';
+import { SmartDateInput, parseToISO } from '@/shared/components/SmartDateInput';
 import { AssetPickerDialog } from '@/features/assets/components/AssetPickerDialog';
 import type { PersonChipData } from '@/features/assets/components/AssetSearchBar';
 import { AssetLightbox } from '@/features/assets/components/AssetLightbox';

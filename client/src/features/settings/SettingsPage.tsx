@@ -13,7 +13,7 @@ import {
     DialogTitle,
     DialogDescription,
 } from '@/shared/ui/dialog';
-import { BatchGeocodePanel } from '@/features/assets/components/BatchGeocodePanel';
+import { BatchGeocodePanel } from '@/features/settings/BatchGeocodePanel';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
     RefreshCw, Camera, Loader2, Server, Database, Clock, Activity,

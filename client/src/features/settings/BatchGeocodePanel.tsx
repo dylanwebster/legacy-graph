@@ -1,6 +1,6 @@
 import type { BatchGeocodeResult } from '@/shared/api/client';
 import type { Place } from '@/shared/api/people';
-import { useGeocodeStore, type SortBy, type SortOrder } from '@/shared/store/geocodeStore';
+import { useGeocodeStore, type SortBy, type SortOrder } from '@/features/settings/geocodeStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Button } from '@/shared/ui/button';
