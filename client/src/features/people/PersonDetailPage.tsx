@@ -1,8 +1,8 @@
 import { useNavigate } from '@tanstack/react-router';
 import { usePerson, useUpdatePerson, useDeleteAsset, useDeleteAssetPermanently, useAssets, useLinkAsset } from '@/shared/api/hooks';
 import type { AssetListItem } from '@/shared/api/client';
-import { AssetLightbox } from '@/components/AssetLightbox';
-import { AssetPickerDialog } from '@/components/AssetPickerDialog';
+import { AssetLightbox } from '@/features/assets/components/AssetLightbox';
+import { AssetPickerDialog } from '@/features/assets/components/AssetPickerDialog';
 import { CustomAvatar } from '@/shared/components/CustomAvatar';
 import { loadAvatarCrop, saveAvatarCrop, clearAvatarCrop } from '@/shared/lib/avatarCrop';
 import { assetType, primaryImageAsset } from '@/shared/lib/assets';

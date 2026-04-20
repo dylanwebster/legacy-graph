@@ -4,9 +4,9 @@ import { useUpdatePerson, useSearch, useUploadEventMedia, useAssets, useDeleteGa
 import type { Place } from '@/shared/api/people';
 import { CustomAvatar } from '@/shared/components/CustomAvatar';
 import { SmartDateInput, parseToISO } from '@/features/editor/SmartDateInput';
-import { AssetPickerDialog } from '@/components/AssetPickerDialog';
-import type { PersonChipData } from '@/components/AssetSearchBar';
-import { AssetLightbox } from '@/components/AssetLightbox';
+import { AssetPickerDialog } from '@/features/assets/components/AssetPickerDialog';
+import type { PersonChipData } from '@/features/assets/components/AssetSearchBar';
+import { AssetLightbox } from '@/features/assets/components/AssetLightbox';
 import { PlaceSearchCombobox } from '@/shared/components/PlaceSearchCombobox';
 import {
     Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,

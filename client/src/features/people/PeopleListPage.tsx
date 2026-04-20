@@ -6,7 +6,7 @@ import { CustomAvatar } from '@/shared/components/CustomAvatar';
 import { loadAvatarCrop } from '@/shared/lib/avatarCrop';
 import { CreatePersonDialog } from '@/features/people/components/CreatePersonDialog';
 import { TopBarActions } from '@/shared/components/layout/TopBarSlotContext';
-import { SearchBar } from '@/components/SearchBar';
+import { SearchBar } from '@/shared/components/SearchBar';
 import { Badge } from '@/shared/ui/badge';
 import { Skeleton } from '@/shared/ui/skeleton';
 import { Button } from '@/shared/ui/button';

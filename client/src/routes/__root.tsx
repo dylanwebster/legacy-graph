@@ -5,7 +5,7 @@ import { ErrorFallback } from '@/shared/components/ErrorFallback';
 import { GlobalNotFound } from '@/shared/components/GlobalNotFound';
 import { Sidebar } from '@/shared/components/layout/Sidebar';
 import { TopBar } from '@/shared/components/layout/TopBar';
-import { CommandPalette } from '@/components/CommandPalette';
+import { CommandPalette } from '@/features/search/CommandPalette';
 import { TopBarSlotProvider } from '@/shared/components/layout/TopBarSlotContext';
 
 export const Route = createRootRoute({

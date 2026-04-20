@@ -5,8 +5,8 @@ import type { AssetListItem, AssetsQueryParams } from '@/shared/api/client';
 import { assetType } from '@/shared/lib/assets';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/shared/ui/dialog';
 import { Button } from '@/shared/ui/button';
-import { AssetSearchBar } from '@/components/AssetSearchBar';
-import type { PersonChipData } from '@/components/AssetSearchBar';
+import { AssetSearchBar } from '@/features/assets/components/AssetSearchBar';
+import type { PersonChipData } from '@/features/assets/components/AssetSearchBar';
 import { FileText, Check, SortAsc, SortDesc, ArrowUpDown } from 'lucide-react';
 
 interface AssetPickerDialogProps {
