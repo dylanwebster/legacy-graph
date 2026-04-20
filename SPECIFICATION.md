@@ -749,7 +749,7 @@ Clean reading experience for a single story.
 
 - **Layout**: Centered column (max 720px), wide margins. Typography: `Merriweather` serif.
 - **Header**: Title, date range, tagged places, tagged people as `PersonChip` row (from `people` frontmatter, auto-populated from @mentions on save).
-- **Body**: Rendered Markdown via `react-markdown` + `remark-gfm`. `@N_xxx` and `[[N_xxx]]` mentions rendered as `InlinePersonMention` — inline-flex chips with person's display name and HoverCard preview.
+- **Body**: Rendered by `MilkdownEditor` in `readOnly` mode (same component used for edit mode — keeps view/edit parity). `@N_xxx` mentions are decorated as inline chips with person's display name and HoverCard preview, via ProseMirror `Decoration.inline` + CSS `::before`.
 - **Filmstrip**: Horizontal scrollable strip of all story assets at the bottom. Each image: square thumbnail, `object-cover`. Click → lightbox (full `object-contain`).
 - **Edit Button**: "Edit Story" in top-right → switches to editor mode (same URL, `?mode=edit`).
 - **Breadcrumb**: `← Stories / [Title]` — "Stories" link navigates back to feed (restoring persisted filter/sort). The top-bar static "Home > Current Page" breadcrumb has been removed from `TopBar.tsx`.
@@ -861,7 +861,7 @@ Backed by `useSnapshots()` → `GET /api/system/snapshots`.
   - **"Restore"** button → opens `RestoreDialog` in `scope: 'full'` mode with `ref: snapshot.name`.
   - **"Delete"** button (destructive icon) → `DELETE /api/system/snapshots/:name` with confirmation toast.
 
-#### **`RestoreDialog` component** (`client/src/components/RestoreDialog.tsx`)
+#### **`RestoreDialog` component** (`client/src/shared/components/RestoreDialog.tsx`)
 Shared by both the History Log and Snapshots sections, and by the Person Detail History tab:
 
 - **`scope: 'full'`** — full-repo restore:
@@ -877,7 +877,7 @@ Shared by both the History Log and Snapshots sections, and by the Person Detail 
 
   Post-restore: `queryClient.invalidateQueries(['person', personId])` — no full rebuild.
 
-#### **Person Detail — History Tab** (`client/src/routes/people/$id.lazy.tsx`)
+#### **Person Detail — History Tab** (`client/src/features/people/PersonDetailPage.tsx`)
 A 4th tab added to the right Context Panel alongside Assets / Notebook / Raw YAML:
 
 - Backed by `usePersonHistory(personId, { limit: 10, offset })` → `GET /api/people/:id/history`.
@@ -939,7 +939,7 @@ These constraints are non-negotiable for any data-dense genealogy UI:
 1.  **Virtualization is Mandatory**: The Timeline Feed, Search Results, and People Browse table must use virtual scrolling (`@tanstack/react-virtual`). DOM nodes are only rendered for visible items. This is critical for datasets with thousands of events or search results.
 2.  **Optimistic UI with TanStack Query**: Because the backend uses a debounced Git queue (Section 7.1), writes have slight latency. The React UI must use optimistic updates: update local React Query cache immediately on user action, send the `PUT`/`POST`, and only roll back if the API returns an error. Toast notifications (Sonner) confirm success or show rollback errors.
 3.  **Hydration-Aware Shell**: The app shell must handle the 503 loading gate gracefully. On boot, connect to `GET /system/hydration/stream` (SSE) and display `HydrationProgress` overlay. Do not render data-dependent views until `hydrationState === "ready"`.
-4.  **Typed API Client**: A shared `client/src/api/` layer with typed fetch wrappers for every backend endpoint. Types shared or mirrored from the backend Zod schemas to ensure compile-time safety.
+4.  **Typed API Client**: A shared `client/src/shared/api/` layer with typed fetch wrappers for every backend endpoint. Types shared or mirrored from the backend Zod schemas to ensure compile-time safety.
 5.  **Responsive Design**: All pages must function on desktop (≥1280px), tablet (768px–1279px), and mobile (<768px) viewports. The sidebar, Holy Grail panels, and tables adapt as specified in 6.2.2 and 6.5.1.
 
 ### **6.17 API Additions Required for Frontend (Original)**

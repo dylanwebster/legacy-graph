@@ -93,15 +93,35 @@ tests/
   e2e/           Playwright CUJ tests
 
 client/src/
-  api/           client.ts, hooks.ts, people.ts (types), stories.ts (types)
-  components/    Sidebar, TopBar, CommandPalette, EventEditorDialog,
-                 RelationshipEditorDialog, MilkdownEditor, PersonChip,
-                 PersonSearchCombobox, PlaceSearchCombobox, AssetPickerDialog,
-                 viz/ (FanChartPanel, PedigreePanel, PersonPreviewCard)
-  routes/        TanStack file-based: index, people/, stories/, assets,
-                 search, import, settings
-  store/         uiStore.ts (Zustand)
-  utils/         genealogyLayout.ts (fan chart + pedigree tree layout)
+  routes/        TanStack file-based. Thin route files that re-export
+                 from features/: index, people/, stories/, assets,
+                 search, import, settings. Route-level data loading
+                 and layout composition only.
+  features/      Feature-scoped pages, components, and state. Pages
+                 render into shared PageShell for consistent layout.
+    assets/      AssetsPage + components/ (AssetLightbox,
+                 AssetPickerDialog, AssetSearchBar, BulkUploadDialog)
+    dashboard/   FamilyGraphPanel/ (force graph), FanChartPanel,
+                 PedigreePanel, pedigreeLayout, dashboardState,
+                 useDashboardState
+    people/      PeopleListPage, PersonDetailPage, eventTypeConfig,
+                 components/ (CreatePersonDialog, EventEditorDialog,
+                 RelationshipEditorDialog, RelationshipSection,
+                 AvatarCropDialog, PersonTimeline)
+    search/      SearchPage, CommandPalette
+    settings/    SettingsPage, BatchGeocodePanel, geocodeStore
+    stories/     StoriesListPage, StoryDetailPage
+  shared/        Cross-feature primitives (no feature dependencies).
+    api/         client, hooks, people/stories type modules
+    components/  Reusable components: PersonChip, PersonHoverCard,
+                 PersonPreviewCard, PersonSearchCombobox,
+                 PlaceSearchCombobox, SearchBar, CustomAvatar,
+                 HydrationProgress, ErrorFallback, GlobalNotFound,
+                 StatusDot, MilkdownEditor/, SmartDateInput, and
+                 layout/ (Sidebar, TopBar, PageShell, TopBarSlotContext)
+    lib/         assets, avatarCrop, cn, names, places, sexColors
+    store/       uiStore (Zustand, app-wide UI state)
+    ui/          shadcn/ui primitives (button, dialog, input, …)
 ```
 
 ---
