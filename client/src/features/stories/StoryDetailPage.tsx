@@ -24,6 +24,7 @@ import type { UpdateStoryInput, FullStory } from '@/shared/api/stories';
 import type { Place } from '@/shared/api/people';
 import { formatPlaceDisplay, formatCoordinates } from '@/shared/lib/places';
 import { PlaceSearchCombobox as PlaceSearchComboboxBase } from '@/shared/components/PlaceSearchCombobox';
+import { PageShell } from '@/shared/components/layout/PageShell';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -623,142 +624,8 @@ export function StoryDetailPage({ id }: { id: string }) {
 
     // ── Unified render (view + edit) ──────────────────────────────────────────
 
-    return (
-        <div className="flex flex-col h-full overflow-hidden">
-            {header}
-
-            <div className="flex-1 overflow-y-auto">
-                <div className="max-w-[720px] mx-auto px-6 py-8">
-                    {/* Title — same visual styles in both modes */}
-                    {isEditMode ? (
-                        <input
-                            type="text"
-                            placeholder="Story title…"
-                            value={fm.title}
-                            onChange={(e) => { setFm((p) => ({ ...p, title: e.target.value })); setIsDirty(true); }}
-                            className="w-full mb-3 bg-transparent border-none outline-none text-3xl font-bold text-foreground placeholder:text-muted-foreground/50"
-                            style={{ fontFamily: 'Merriweather, Georgia, serif', lineHeight: '1.3', fontSize: '1.875rem' }}
-                        />
-                    ) : (
-                        <h1
-                            className="font-serif text-3xl font-bold mb-3"
-                            style={{ fontFamily: 'Merriweather, Georgia, serif', lineHeight: '1.3' }}
-                        >
-                            {fm.title || story?.metadata.title}
-                        </h1>
-                    )}
-
-                    {/* Meta row */}
-                    <div className="flex flex-wrap items-start gap-x-4 gap-y-2 mb-4">
-                        {isEditMode ? (
-                            <>
-                                {/* Date */}
-                                <div className="flex items-center gap-1.5">
-                                    <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                    <SmartDateInput
-                                        value={fm.date}
-                                        onChange={(display) => { setFm((p) => ({ ...p, date: display })); setIsDirty(true); }}
-                                        placeholder="Date (e.g. 15 Jun 1944)"
-                                        className="h-7 text-sm w-52 border-muted"
-                                    />
-                                </div>
-
-                                {/* Place */}
-                                <PlaceSearchCombobox
-                                    value={formatPlaceDisplay(fm.place)}
-                                    onChange={(text) => { setFm((p) => ({ ...p, place: text ? { name: text } : undefined })); setIsDirty(true); }}
-                                    onSelect={(place) => { setFm((p) => ({ ...p, place })); setIsDirty(true); }}
-                                    initialPlace={fm.place}
-                                />
-
-                                {/* Private toggle */}
-                                <button
-                                    onClick={() => { setFm((p) => ({ ...p, isPrivate: !p.isPrivate })); setIsDirty(true); }}
-                                    className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors ${
-                                        fm.isPrivate
-                                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                                            : 'text-muted-foreground hover:bg-muted'
-                                    }`}
-                                >
-                                    {fm.isPrivate ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
-                                    {fm.isPrivate ? 'Private' : 'Public'}
-                                </button>
-                            </>
-                        ) : (
-                            <>
-                                {!!fm.date && (
-                                    <span
-                                        className="h-7 flex items-center gap-1 text-sm text-muted-foreground"
-                                        title="When this story occurred"
-                                    >
-                                        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                        {fm.date}
-                                    </span>
-                                )}
-                                {!!fm.place && (
-                                    <span className="flex items-center gap-1 text-sm text-muted-foreground">
-                                        <MapPin className="h-3.5 w-3.5 shrink-0" />
-                                        <span>
-                                            {formatPlaceDisplay(fm.place)}
-                                            {!!formatCoordinates(fm.place) && (
-                                                <span className="ml-1.5 text-xs text-green-600 dark:text-green-400">{formatCoordinates(fm.place)}</span>
-                                            )}
-                                        </span>
-                                    </span>
-                                )}
-                                {!!fm.isPrivate && (
-                                    <span className="h-7 flex items-center">
-                                        <Badge variant="secondary" className="text-xs">
-                                            <Lock className="h-3 w-3 mr-1" />
-                                            Private
-                                        </Badge>
-                                    </span>
-                                )}
-                            </>
-                        )}
-                    </div>
-
-                    {/* People chips — always shown */}
-                    {mentionedPeople.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-1.5 mb-3">
-                            {mentionedPeople.map((pid) => (
-                                <PersonChip key={pid} id={pid} />
-                            ))}
-                        </div>
-                    )}
-
-                    {/* Body — bordered section marks where prose begins and ends */}
-                    <div className="border-t border-b border-border py-6">
-                        {(isEditMode || content) && (
-                            <MilkdownEditor
-                                key={`editor-${id}-${story ? 'loaded' : 'unloaded'}-${editorResetKey}`}
-                                content={content}
-                                onChange={(md) => { setContent(md); setIsDirty(true); }}
-                                onImageUpload={handleImageUpload}
-                                enableMentions={true}
-                                readOnly={!isEditMode}
-                                onMentionClick={!isEditMode ? handleMentionClick : undefined}
-                            />
-                        )}
-
-                        {/* Tip — below editor, inside content boundary */}
-                        {isEditMode && (
-                            <p className="text-[10px] text-muted-foreground/50 mt-3">
-                                Tip: type <kbd className="font-mono bg-muted px-0.5 rounded">@</kbd> to mention a person, <kbd className="font-mono bg-muted px-0.5 rounded">/</kbd> for block commands, or write raw Markdown.
-                            </p>
-                        )}
-                    </div>
-
-                    {filmstrip}
-
-                    {!isEditMode && story?.metadata.modified_at && (
-                        <p className="text-[10px] text-muted-foreground/50 mt-4 text-right">
-                            Last edited {new Date(story.metadata.modified_at).toLocaleDateString()}
-                        </p>
-                    )}
-                </div>
-            </div>
-
+    const overlays = (
+        <>
             {/* Asset delete confirmation */}
             <Dialog open={!!deleteAssetTarget} onOpenChange={(open) => !open && setDeleteAssetTarget(null)}>
                 <DialogContent className="max-w-sm">
@@ -902,6 +769,140 @@ export function StoryDetailPage({ id }: { id: string }) {
                     </div>
                 );
             })()}
-        </div>
+        </>
+    );
+
+    return (
+        <PageShell header={header} bodyClassName="overflow-y-auto" overlays={overlays}>
+            <div className="max-w-[720px] mx-auto px-6 py-8">
+                    {/* Title — same visual styles in both modes */}
+                    {isEditMode ? (
+                        <input
+                            type="text"
+                            placeholder="Story title…"
+                            value={fm.title}
+                            onChange={(e) => { setFm((p) => ({ ...p, title: e.target.value })); setIsDirty(true); }}
+                            className="w-full mb-3 bg-transparent border-none outline-none text-3xl font-bold text-foreground placeholder:text-muted-foreground/50"
+                            style={{ fontFamily: 'Merriweather, Georgia, serif', lineHeight: '1.3', fontSize: '1.875rem' }}
+                        />
+                    ) : (
+                        <h1
+                            className="font-serif text-3xl font-bold mb-3"
+                            style={{ fontFamily: 'Merriweather, Georgia, serif', lineHeight: '1.3' }}
+                        >
+                            {fm.title || story?.metadata.title}
+                        </h1>
+                    )}
+
+                    {/* Meta row */}
+                    <div className="flex flex-wrap items-start gap-x-4 gap-y-2 mb-4">
+                        {isEditMode ? (
+                            <>
+                                {/* Date */}
+                                <div className="flex items-center gap-1.5">
+                                    <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                    <SmartDateInput
+                                        value={fm.date}
+                                        onChange={(display) => { setFm((p) => ({ ...p, date: display })); setIsDirty(true); }}
+                                        placeholder="Date (e.g. 15 Jun 1944)"
+                                        className="h-7 text-sm w-52 border-muted"
+                                    />
+                                </div>
+
+                                {/* Place */}
+                                <PlaceSearchCombobox
+                                    value={formatPlaceDisplay(fm.place)}
+                                    onChange={(text) => { setFm((p) => ({ ...p, place: text ? { name: text } : undefined })); setIsDirty(true); }}
+                                    onSelect={(place) => { setFm((p) => ({ ...p, place })); setIsDirty(true); }}
+                                    initialPlace={fm.place}
+                                />
+
+                                {/* Private toggle */}
+                                <button
+                                    onClick={() => { setFm((p) => ({ ...p, isPrivate: !p.isPrivate })); setIsDirty(true); }}
+                                    className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors ${
+                                        fm.isPrivate
+                                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                                            : 'text-muted-foreground hover:bg-muted'
+                                    }`}
+                                >
+                                    {fm.isPrivate ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+                                    {fm.isPrivate ? 'Private' : 'Public'}
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                {!!fm.date && (
+                                    <span
+                                        className="h-7 flex items-center gap-1 text-sm text-muted-foreground"
+                                        title="When this story occurred"
+                                    >
+                                        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                        {fm.date}
+                                    </span>
+                                )}
+                                {!!fm.place && (
+                                    <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                                        <MapPin className="h-3.5 w-3.5 shrink-0" />
+                                        <span>
+                                            {formatPlaceDisplay(fm.place)}
+                                            {!!formatCoordinates(fm.place) && (
+                                                <span className="ml-1.5 text-xs text-green-600 dark:text-green-400">{formatCoordinates(fm.place)}</span>
+                                            )}
+                                        </span>
+                                    </span>
+                                )}
+                                {!!fm.isPrivate && (
+                                    <span className="h-7 flex items-center">
+                                        <Badge variant="secondary" className="text-xs">
+                                            <Lock className="h-3 w-3 mr-1" />
+                                            Private
+                                        </Badge>
+                                    </span>
+                                )}
+                            </>
+                        )}
+                    </div>
+
+                    {/* People chips — always shown */}
+                    {mentionedPeople.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                            {mentionedPeople.map((pid) => (
+                                <PersonChip key={pid} id={pid} />
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Body — bordered section marks where prose begins and ends */}
+                    <div className="border-t border-b border-border py-6">
+                        {(isEditMode || content) && (
+                            <MilkdownEditor
+                                key={`editor-${id}-${story ? 'loaded' : 'unloaded'}-${editorResetKey}`}
+                                content={content}
+                                onChange={(md) => { setContent(md); setIsDirty(true); }}
+                                onImageUpload={handleImageUpload}
+                                enableMentions={true}
+                                readOnly={!isEditMode}
+                                onMentionClick={!isEditMode ? handleMentionClick : undefined}
+                            />
+                        )}
+
+                        {/* Tip — below editor, inside content boundary */}
+                        {isEditMode && (
+                            <p className="text-[10px] text-muted-foreground/50 mt-3">
+                                Tip: type <kbd className="font-mono bg-muted px-0.5 rounded">@</kbd> to mention a person, <kbd className="font-mono bg-muted px-0.5 rounded">/</kbd> for block commands, or write raw Markdown.
+                            </p>
+                        )}
+                    </div>
+
+                    {filmstrip}
+
+                    {!isEditMode && story?.metadata.modified_at && (
+                        <p className="text-[10px] text-muted-foreground/50 mt-4 text-right">
+                            Last edited {new Date(story.metadata.modified_at).toLocaleDateString()}
+                        </p>
+                    )}
+            </div>
+        </PageShell>
     );
 }

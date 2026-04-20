@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { cn } from '@/shared/lib/cn';
 import { TopBarActions } from './TopBarSlotContext';
 
@@ -9,6 +9,8 @@ interface PageShellProps {
     header?: ReactNode;
     /** Applied to the scrollable body region. Defaults to "flex-1 overflow-auto". */
     bodyClassName?: string;
+    /** Forwarded to the body div — e.g. when a virtualizer needs the scroll container. */
+    bodyRef?: Ref<HTMLDivElement>;
     children: ReactNode;
     /** Modal layer — dialogs, lightboxes, etc. Rendered as siblings after the body. */
     overlays?: ReactNode;
@@ -19,12 +21,12 @@ interface PageShellProps {
  * scrollable body, and an overlay layer for modals. Keeps the boilerplate
  * wrapper div + flex/overflow classes out of individual page components.
  */
-export function PageShell({ topbar, header, bodyClassName, children, overlays }: PageShellProps) {
+export function PageShell({ topbar, header, bodyClassName, bodyRef, children, overlays }: PageShellProps) {
     return (
         <div className="flex flex-col h-full overflow-hidden">
             {topbar && <TopBarActions>{topbar}</TopBarActions>}
             {header}
-            <div className={cn('flex-1 overflow-auto', bodyClassName)}>
+            <div ref={bodyRef} className={cn('flex-1 overflow-auto', bodyClassName)}>
                 {children}
             </div>
             {overlays}

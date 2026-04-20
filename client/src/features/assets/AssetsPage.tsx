@@ -12,7 +12,7 @@ import { formatPlaceDisplay } from '@/shared/lib/places';
 import { AssetLightbox } from '@/features/assets/components/AssetLightbox';
 import { AssetSearchBar } from '@/features/assets/components/AssetSearchBar';
 import type { PersonChipData } from '@/features/assets/components/AssetSearchBar';
-import { TopBarActions } from '@/shared/components/layout/TopBarSlotContext';
+import { PageShell } from '@/shared/components/layout/PageShell';
 import { BulkUploadDialog } from '@/features/assets/components/BulkUploadDialog';
 import { Badge } from '@/shared/ui/badge';
 import {
@@ -236,10 +236,9 @@ export function AssetsPage() {
     const deleteTargetAsset = deleteTarget ? allAssets.find(a => a.filename === deleteTarget) ?? null : null;
     const isOrphanDelete = deleteTargetAsset?.isOrphan ?? true;
 
-    return (
-        <div className="flex flex-col h-full">
-            <TopBarActions>
-                <div className="w-px h-5 bg-border shrink-0 mx-1" />
+    const topbar = (
+        <>
+            <div className="w-px h-5 bg-border shrink-0 mx-1" />
                 {/* Search */}
                 <AssetSearchBar
                     textValue={query}
@@ -319,49 +318,11 @@ export function AssetsPage() {
                     <Upload className="h-3.5 w-3.5" />
                     Upload
                 </Button>
-            </TopBarActions>
+        </>
+    );
 
-            {/* Gallery */}
-            <div ref={parentRef} className="flex-1 overflow-auto p-4">
-                {isLoading ? (
-                    <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
-                        Loading assets…
-                    </div>
-                ) : filtered.length === 0 ? (
-                    <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
-                        {(data?.totalCount ?? 0) === 0 ? 'No assets found.' : 'No assets match the current filter.'}
-                    </div>
-                ) : (
-                    <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>
-                        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                            const rowItems = rows[virtualRow.index];
-                            return (
-                                <div
-                                    key={virtualRow.key}
-                                    style={{
-                                        position: 'absolute',
-                                        top: virtualRow.start,
-                                        left: 0,
-                                        right: 0,
-                                        height: virtualRow.size,
-                                    }}
-                                    className="grid grid-cols-3 gap-3 pb-3"
-                                >
-                                    {rowItems.map((asset) => (
-                                        <AssetCard
-                                            key={asset.filename}
-                                            asset={asset}
-                                            onOpen={setDetailFile}
-                                            onDeleteRequest={setDeleteTarget}
-                                        />
-                                    ))}
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
-
+    const overlays = (
+        <>
             {/* Bulk Upload Dialog */}
             <BulkUploadDialog
                 open={uploadOpen}
@@ -424,6 +385,48 @@ export function AssetsPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div>
+        </>
+    );
+
+    return (
+        <PageShell topbar={topbar} bodyClassName="p-4" bodyRef={parentRef} overlays={overlays}>
+            {isLoading ? (
+                <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
+                    Loading assets…
+                </div>
+            ) : filtered.length === 0 ? (
+                <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
+                    {(data?.totalCount ?? 0) === 0 ? 'No assets found.' : 'No assets match the current filter.'}
+                </div>
+            ) : (
+                <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>
+                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                        const rowItems = rows[virtualRow.index];
+                        return (
+                            <div
+                                key={virtualRow.key}
+                                style={{
+                                    position: 'absolute',
+                                    top: virtualRow.start,
+                                    left: 0,
+                                    right: 0,
+                                    height: virtualRow.size,
+                                }}
+                                className="grid grid-cols-3 gap-3 pb-3"
+                            >
+                                {rowItems.map((asset) => (
+                                    <AssetCard
+                                        key={asset.filename}
+                                        asset={asset}
+                                        onOpen={setDetailFile}
+                                        onDeleteRequest={setDeleteTarget}
+                                    />
+                                ))}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </PageShell>
     );
 }
