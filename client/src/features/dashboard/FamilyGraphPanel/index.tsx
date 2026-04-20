@@ -7,7 +7,7 @@ import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useGraphData } from '@/shared/api/hooks';
 import type { GraphNodeData } from '@/shared/api/hooks';
 import { PersonHoverCard } from '@/shared/components/PersonHoverCard';
-import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from '@/features/dashboard/PersonPreviewCard';
+import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from '@/shared/components/PersonPreviewCard';
 import { Skeleton } from '@/shared/ui/skeleton';
 import { GitBranch, RefreshCw, Scan, Maximize2, Minimize2, Network, Search, X, CircleDot } from 'lucide-react';
 import { useUIStore } from '@/shared/store/uiStore';
@@ -17,8 +17,7 @@ import FanChartPanel from '@/features/dashboard/FanChartPanel';
 import type { FanChartPanelHandle } from '@/features/dashboard/FanChartPanel';
 import PedigreePanel from '@/features/dashboard/PedigreePanel';
 import type { PedigreePanelHandle } from '@/features/dashboard/PedigreePanel';
-import { loadDashboardState, saveDashboardState } from '../dashboardState';
-import type { DashboardState } from '../dashboardState';
+import { useDashboardState } from '../useDashboardState';
 import type { SimNode, SimLink } from './types';
 import {
     NODE_R,
@@ -38,21 +37,7 @@ import {
 import { GraphLegend } from './GraphLegend';
 
 export function FamilyGraphPanel() {
-    const [dsState, setDsState] = useState<DashboardState>(() => loadDashboardState());
-    const setVizModeStore = useUIStore((s) => s.setDashboardVizMode);
-
-    const updateDs = useCallback((updates: Partial<DashboardState>) => {
-        setDsState((prev) => {
-            const next = { ...prev, ...updates };
-            saveDashboardState(next);
-            return next;
-        });
-    }, []);
-
-    // Keep Zustand store in sync so external components can read the current mode
-    useEffect(() => {
-        setVizModeStore(dsState.vizMode);
-    }, [dsState.vizMode, setVizModeStore]);
+    const [dsState, updateDs] = useDashboardState();
 
     const { data: graphData, isLoading, isError, refetch } = useGraphData();
     const navigate = useNavigate();

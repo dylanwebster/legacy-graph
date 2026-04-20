@@ -9,7 +9,7 @@ import {
 } from '@/features/dashboard/pedigreeLayout';
 import { sexColor } from '@/shared/lib/sexColors';
 import { CircleDot } from 'lucide-react';
-import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from './PersonPreviewCard';
+import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from '@/shared/components/PersonPreviewCard';
 import { abbreviateName } from '@/shared/lib/names';
 
 // ─── Handle ───────────────────────────────────────────────────────────────────

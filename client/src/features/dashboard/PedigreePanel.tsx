@@ -8,7 +8,7 @@ import {
 } from '@/features/dashboard/pedigreeLayout';
 import { sexColor as sexStroke } from '@/shared/lib/sexColors';
 import { abbreviateName } from '@/shared/lib/names';
-import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from './PersonPreviewCard';
+import { PersonPreviewCard, lifeLine, resolveSpouseLabel } from '@/shared/components/PersonPreviewCard';
 import { useUIStore } from '@/shared/store/uiStore';
 
 // ─── Handle ───────────────────────────────────────────────────────────────────
