@@ -17,6 +17,7 @@ import FanChartPanel from '@/features/dashboard/FanChartPanel';
 import type { FanChartPanelHandle } from '@/features/dashboard/FanChartPanel';
 import PedigreePanel from '@/features/dashboard/PedigreePanel';
 import type { PedigreePanelHandle } from '@/features/dashboard/PedigreePanel';
+import { loadDashboardState, saveDashboardState } from '../dashboardState';
 import type { DashboardState } from '../dashboardState';
 import type { SimNode, SimLink } from './types';
 import {
@@ -36,13 +37,23 @@ import {
 } from './layout';
 import { GraphLegend } from './GraphLegend';
 
-export function FamilyGraphPanel({
-    dsState,
-    updateDs,
-}: {
-    dsState: DashboardState;
-    updateDs: (updates: Partial<DashboardState>) => void;
-}) {
+export function FamilyGraphPanel() {
+    const [dsState, setDsState] = useState<DashboardState>(() => loadDashboardState());
+    const setVizModeStore = useUIStore((s) => s.setDashboardVizMode);
+
+    const updateDs = useCallback((updates: Partial<DashboardState>) => {
+        setDsState((prev) => {
+            const next = { ...prev, ...updates };
+            saveDashboardState(next);
+            return next;
+        });
+    }, []);
+
+    // Keep Zustand store in sync so external components can read the current mode
+    useEffect(() => {
+        setVizModeStore(dsState.vizMode);
+    }, [dsState.vizMode, setVizModeStore]);
+
     const { data: graphData, isLoading, isError, refetch } = useGraphData();
     const navigate = useNavigate();
     const theme = useUIStore((s) => s.theme);
