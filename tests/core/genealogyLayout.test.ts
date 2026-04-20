@@ -8,7 +8,7 @@ import {
     normalizeFanAngle,
     type AncestorSlot,
     type FamilyTreeNode,
-} from '../../client/src/utils/genealogyLayout';
+} from '../../client/src/features/dashboard/pedigreeLayout';
 
 // ─── Test Data ───────────────────────────────────────────────────────────────
 // A 3-generation family:
