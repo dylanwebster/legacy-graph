@@ -33,20 +33,24 @@ describe('Basemap (PMTiles) routes', () => {
     });
 
     describe('GET /api/system/basemap', () => {
-        it('reports unavailable when the file is missing', async () => {
+        it('reports a remote fallback when the local file is missing', async () => {
             const res = await server.inject({ method: 'GET', url: '/api/system/basemap' });
             expect(res.statusCode).toBe(200);
-            expect(res.json()).toMatchObject({ available: false });
+            const body = res.json() as { available: boolean; source: string; remoteUrl?: string };
+            expect(body.available).toBe(true);
+            expect(body.source).toBe('remote');
+            expect(typeof body.remoteUrl).toBe('string');
         });
 
-        it('reports available with size when the file exists', async () => {
+        it('reports local source with size when the file exists', async () => {
             // Fake PMTiles: "PMTiles" header + some bytes
             const content = Buffer.concat([Buffer.from('PMTiles', 'utf8'), Buffer.alloc(200, 0)]);
             await fs.writeFile(tilesFile, content);
             const res = await server.inject({ method: 'GET', url: '/api/system/basemap' });
             expect(res.statusCode).toBe(200);
-            const body = res.json() as { available: boolean; sizeBytes: number };
+            const body = res.json() as { available: boolean; source: string; sizeBytes: number };
             expect(body.available).toBe(true);
+            expect(body.source).toBe('local');
             expect(body.sizeBytes).toBe(content.length);
         });
     });

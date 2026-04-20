@@ -57,7 +57,11 @@ export function MapView() {
     const basemap = useBasemapStatus();
     const events = useMapEvents({ scope, focalPersonId });
     const basemapAvailable = basemap.data?.available ?? false;
-    const pmtilesUrl = basemapAvailable ? `${window.location.origin}${BASEMAP_TILES_URL}` : null;
+    const pmtilesUrl = (() => {
+        if (!basemap.data?.available) return null;
+        if (basemap.data.source === 'local') return `${window.location.origin}${BASEMAP_TILES_URL}`;
+        return basemap.data.remoteUrl;
+    })();
 
     // Register pmtiles protocol once, before any map initialization uses it.
     useEffect(() => { registerPmtilesProtocol(); }, []);
@@ -166,18 +170,8 @@ export function MapView() {
         return (
             <div className="flex h-full w-full items-center justify-center bg-muted/20 p-6">
                 <div className="max-w-md rounded-lg border border-border bg-card p-6 shadow-sm text-center">
-                    <h2 className="text-lg font-semibold mb-2">Basemap not built</h2>
-                    <p className="text-sm text-muted-foreground mb-4">
-                        The Map View needs an offline PMTiles basemap to render. Build it once and the map will light up.
-                    </p>
-                    <pre className="bg-muted rounded px-3 py-2 text-left text-xs font-mono mb-4 overflow-x-auto">
-npm run map:build -- --url &lt;world.pmtiles&gt;
-                    </pre>
-                    <p className="text-xs text-muted-foreground">
-                        Point <code className="font-mono">--url</code> at a PMTiles world build (e.g. from{' '}
-                        <a href="https://maps.protomaps.com" className="underline" target="_blank" rel="noreferrer">maps.protomaps.com</a>).
-                        The file is saved to <code className="font-mono">~/.legacy-graph/basemap.pmtiles</code>. Reload this page when done.
-                    </p>
+                    <h2 className="text-lg font-semibold mb-2">Basemap unavailable</h2>
+                    <p className="text-sm text-muted-foreground">The remote Protomaps basemap could not be reached, and no local basemap was found.</p>
                 </div>
             </div>
         );

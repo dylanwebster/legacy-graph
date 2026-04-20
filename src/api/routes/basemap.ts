@@ -4,9 +4,15 @@ import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 
+const DEFAULT_REMOTE_PMTILES = 'https://demo-bucket.protomaps.com/v4.pmtiles';
+
 function resolveBasemapPath(): string {
     return process.env.PMTILES_PATH
         ?? path.join(os.homedir(), '.legacy-graph', 'basemap.pmtiles');
+}
+
+function resolveRemotePmtiles(): string {
+    return process.env.PMTILES_REMOTE_URL ?? DEFAULT_REMOTE_PMTILES;
 }
 
 async function statOrNull(p: string): Promise<fs.Stats | null> {
@@ -17,14 +23,20 @@ export async function basemapRoutes(server: FastifyInstance) {
     server.get('/api/system/basemap', async () => {
         const file = resolveBasemapPath();
         const stat = await statOrNull(file);
-        if (!stat) {
-            return { available: false, path: file };
+        if (stat) {
+            return {
+                available: true,
+                source: 'local' as const,
+                path: file,
+                sizeBytes: stat.size,
+                builtAt: stat.mtime.toISOString(),
+            };
         }
+        // Fall back to a remote PMTiles URL read via HTTP range requests.
         return {
             available: true,
-            path: file,
-            sizeBytes: stat.size,
-            builtAt: stat.mtime.toISOString(),
+            source: 'remote' as const,
+            remoteUrl: resolveRemotePmtiles(),
         };
     });
 
