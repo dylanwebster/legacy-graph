@@ -806,37 +806,159 @@ Universal gallery of all files in the `/assets` directory.
 
 ### **6.11 Map View (`/map`)**
 
-Interactive world map of geocoded event locations, with a time slider driving a playback "fly through history" experience and a zoom-driven crossfade between a heatmap ("earth at night" glow), clustered markers, and jittered individual pins.
+A global-overview map that treats the world as a stage for your family's events. Country and state/province polygons anchor the eye; major cities label the major orienting landmarks; events appear as a warm-amber heatmap glow when zoomed out and as type-colored pins when zoomed in. A bottom-docked time window lets the user "fly through history" — step-wise playback across the extent of the data.
 
-- **Libraries**:
-  - `maplibre-gl` (WebGL basemap, globe-capable, open-source).
-  - `@deck.gl/core` + `@deck.gl/layers` + `@deck.gl/aggregation-layers` + `@deck.gl/mapbox` (WebGL overlay: heatmap, scatterplot, paths).
-  - `pmtiles` (single-file vector basemap served from `/api/basemap/tiles` with HTTP range requests).
-  - `supercluster` (mid-zoom clustering).
-- **Basemap**: `PMTiles` world build downloaded via `npm run map:build` into `~/.legacy-graph/basemap.pmtiles`. When missing, the map falls back to OSM raster tiles with a banner prompting the build. Served by the Fastify `/api/basemap/tiles` endpoint with proper `Accept-Ranges`/`206` support so the client can fetch only the directory and tile slices it needs.
+#### Design intent
+
+- **Self-hosted and offline-first by default.** The Map View must work on a laptop with no network connection. The basemap, fonts, and event data all live inside the LegacyGraph install. There are **no third-party CDN dependencies at runtime** — no Carto, MapTiler, Stadia, Protomaps API, or `demotiles.maplibre.org`.
+- **Global overview, not street atlas.** The map answers "where has my family been across time?" not "which street did they live on?". Country, admin-1 (state/province), and major-city granularity is the goal; streets, POIs, and buildings are explicitly out of scope.
+- **One-time bundle, no build step for the user.** Basemap data ships with the SPA build. There must be no `npm run basemap:build` requirement for end users.
+
+#### Basemap
+
+- **Source**: Natural Earth (1:50m scale) — public-domain, redistributable. Four GeoJSON layers shipped under `client/public/basemap/`:
+  - `countries.json` — `ne_50m_admin_0_countries`, kept properties: `NAME`, `ISO_A2`.
+  - `states.json` — `ne_50m_admin_1_states_provinces`, kept properties: `name`, `iso_a2`, `admin`.
+  - `places.json` — `ne_50m_populated_places_simple`, kept properties: `name`, `adm0name`, `pop_max`, `rank_max`.
+  - `graticules.json` — `ne_50m_graticules_15` (equator, tropics; pre-decimated to 15° lines).
+- **Pipeline**: a build-time script (`scripts/buildBasemap.ts`) downloads the Natural Earth shapefiles, runs each through `mapshaper`'s programmatic API (`-simplify 5% keep-shapes` for polygons; property-prune via `-filter-fields`), and emits **plain GeoJSON only** (one `.json` per layer) into `client/public/basemap/`. The emitted files are committed to git (≤ ~30 MB raw, served as ~6 MB gzipped by `@fastify/compress` on the wire) so end users do not need to run the script. The script runs `mapshaper` and `shapefile` via `npx` and **does not add them to `package.json`** — keeps the dev install lean. The script exists only for upgrades to a newer Natural Earth release.
+- **HTTP transport**: `@fastify/compress` (already registered server-side) gzips JSON responses on the fly. **No pre-compressed `.json.gz` siblings** — Vite dev would not honor them and the duplicate-on-disk story is not worth the moving parts.
+- **Glyph stack**: a single open-licensed font is shipped at `client/public/fonts/{fontstack}/{range}.pbf` (Open Sans Regular, ~5 MB across all glyph ranges, fetched on demand by MapLibre — only ranges containing rendered text load per session). Source: install `@openmaptiles/fonts` from npm and copy `node_modules/@openmaptiles/fonts/Open Sans Regular/*.pbf` into the public directory; the npm dep is dev-only. MapLibre's `style.glyphs` points at the relative path `/fonts/{fontstack}/{range}.pbf`. No external glyph URL.
+- **Rendering**: MapLibre v5 reads the GeoJSON files via four `geojson` sources (no tile server required). Day and night styles share layer structure and differ only in paint:
+  - Country fill + boundary, always visible.
+  - Admin-1 boundary, visible at `zoom ≥ 3`.
+  - Graticules, always visible (faint dashed line).
+  - Country labels (`NAME`), visible at `zoom ≥ 2`, sized via zoom interpolation.
+  - City labels, visible at `zoom ≥ 4`, filtered by `rank_max` so the densest cities (rank 0–3) appear first and lower-rank cities reveal at higher zoom. Capped to ~7,000 places worldwide by Natural Earth's set, so label clutter is bounded.
+- **Style application**: theme toggling uses `map.setStyle(style, { diff: true })`. Because day/night styles share layer structure and differ only in paint properties, MapLibre patches paint without re-fetching the GeoJSON sources or re-tessellating geometry — delivering an instantaneous re-style with no relayout flash.
+- **Zoom range**: `minZoom: 0`, `maxZoom: 8`. Beyond zoom 8 the Natural Earth geometry is unhelpful; the basemap explicitly stops there. `fitBounds` also caps at `maxZoom: 8`. The deck.gl event overlay still renders at any zoom.
+- **No raster tiles, no PMTiles, no MBTiles**. The previous PMTiles direction was prototyped and rejected (135 GB planet build is wildly out of scale for our zoom range, and a self-hosted runtime tile reader is more moving parts than the data set warrants).
+
+#### Event overlay (deck.gl)
+
+- **Libraries**: `@deck.gl/core`, `@deck.gl/layers`, `@deck.gl/aggregation-layers`, `@deck.gl/mapbox`. Mounted via `MapboxOverlay` so deck.gl layers composite with the MapLibre basemap.
 - **Rendering modes (zoom-driven crossfade)**:
-  - `zoom < 6`: `HeatmapLayer` with type-weighted intensity and a tanh-curved warm-amber color ramp so dense clusters glow without blowing out to white.
-  - `6 ≤ zoom < 12`: clustered icons + pin layer both fading in.
-  - `zoom ≥ 12`: per-event pins colored by event type, jittered deterministically by event id so stacked events at city centroids are individually clickable. Click → side drawer (bottom sheet on mobile) with event card + person chip + "Open on Graph" action.
-- **Time slider** (bottom-docked, mobile-collapsible):
-  - Dual-handle window over `[extentStart, extentEnd]` (auto-fit from the loaded events, user-adjustable).
-  - Granularity: `year` / `decade` / `century` — changes the playback step size and the default window width.
-  - Speed: `0.5×` / `1×` / `2×` / `4×`.
-  - Loop toggle.
-  - Playback = `requestAnimationFrame` loop advancing the window forward. Scrubbing with the mouse pauses playback; playback does *not* auto-resume.
-  - Keyboard: `Space` toggles play, `←` / `→` step the window by one granularity unit, `Shift+` jumps 10 units.
-  - "Show undated" toggle: when enabled, events with `sort_date == null` become visible and the window is ignored.
-  - Date-range events (residence, occupation, military_service, …) are visible whenever `[sort_date, sort_end_date]` overlaps the window.
-- **Scope control**: `Everyone` / `Focal person` / `Focal lineage` — shares `useFocalStore` with the Graph page so the focal person is always in sync. `Focal lineage` = direct ancestors + direct descendants + spouses of every lineage member (siblings/cousins excluded).
-- **Fly-to**: `MapLibre#fitBounds` on every scope or focal change, using the bounding box of the filtered data.
-- **Connected path**: when scope is `Focal person`, draws a `PathLayer` polyline through that person's events in chronological order (birth → residences → death) on top of the pins.
-- **Day/night themes**: map style follows the UI theme (`useUIStore.theme`). Both a Protomaps-style dark style and a light Positron-style are defined in `client/src/features/map/styles/`.
-- **Backend endpoint**: `GET /api/map/events` returns a lean event list (`{ id, person_id, person_name, type, lat, lng, sort_date, sort_end_date, has_assets, place_name }`) plus `extent` (`minDate`, `maxDate`, `bbox`). Query params `?person=N_xxx` and `?lineage=N_xxx` are mutually exclusive; `?lineage` uses `GraphLogic.getLineage()` (ancestors + descendants + spouses). Events with a `location` that lacks `lat`/`lng` are skipped.
-- **Deep-link contract**: `/map?scope=focal&person=N_xxx&t=1880&t_end=1900&g=decade&speed=2&loop=1&play=1&event=<eventId>` — full state round-trips. The URL is updated via `navigate({ replace: true })` when stores change.
-- **Mobile (< 768 px)**: toolbar collapses into a scroll strip; time slider remains bottom-docked; event drawer becomes a half-height bottom sheet.
-- **Nav + palette**: Sidebar Globe icon links to `/map`. Command palette (`/` hotkey) includes "View Map" and "Show focal lineage on Map" actions.
+  - `zoom < 3`: pure `HeatmapLayer`, warm-amber ramp tuned so dense clusters (NYC, London) glow but don't blow out to white.
+  - `3 ≤ zoom < 5`: heatmap fades out, individual pins fade in (`opacity` is a uniform — no GPU re-tessellation per fade frame).
+  - `zoom ≥ 5`: `ScatterplotLayer` pins only — type-colored, jittered deterministically by hashed event id (~25 m offset) so events stacked on a city centroid remain individually clickable. Click → side drawer (bottom sheet on mobile) with event card, person chip, "Set as focal", "Open on Graph".
+- **Heatmap weighting**: event type drives intensity. Birth/death/marriage = 1.0, engagement/occupation/residence/military_service/immigration/emigration/adoption ≈ 0.6–0.7, education/baptism/burial ≈ 0.5, census = 0.3, generic = 0.4. Keeps decadal census spikes from dominating real life events.
+- **Heatmap radius**: `radiusPixels` is zoom-interpolated (`zoom 0 → 30 px, zoom 5 → 60 px`) so the glow does not look anemic on 4K/retina displays at low zoom.
+- **Connected path**: when scope is `Focal person`, draws two stacked `PathLayer`s — a 5 px halo (background-toned, contrast-flipped per theme) and a 3 px stroke on top — through the focal's events in chronological order (birth → residences → death) above the pins. The focal's events are pre-computed once per `(events, focalPersonId)` change and reused across window/zoom updates.
+- **Stable accessors**: `getFillColor`, `getRadius`, `getPosition`, `getWeight` are module-scope constants. The deck.gl `data` array uses pre-jittered event objects (`jitteredLng`/`jitteredLat` computed once per data load) so window/zoom/theme changes do not force GPU vertex re-uploads. `updateTriggers` is set only on layers whose accessors genuinely close over reactive state (e.g. nothing in v1 — all reactive concerns are encoded into the `data` reference or `opacity` uniform).
+- **Window-visibility filter**: per render, the visible event set is computed via a single linear `events.filter(...)` pass over the full event array (sized at ~10K in realistic data). Pre-bucketing by year was rejected as overengineering at this scale — the filter is sub-millisecond and trades simplicity for a marginal win that's invisible next to the GPU upload cost. Should the dataset grow past ~50K events, a sorted-by-`sort_date` array with a binary-search bracket is the next step (range events would need a separate IntervalTree-style index).
 
-**No persisted data changes** — the map reads from already-geocoded `lat`/`lng` on Place objects (populated by GeocodingService, Phase 3.15) plus `end_date`/`sort_end_date` (added in Schema 5.1).
+#### Time window + playback
+
+Bottom-docked, mobile-expandable.
+
+- **Dual-handle range slider** over `[extentStart, extentEnd]` (auto-fit from the loaded events). Implemented with `@radix-ui/react-slider` in range mode (Radix is already a dep). The user moves either handle to widen, narrow, or shift the window.
+- **Step playback advances both handles by one granularity unit per tick, preserving the *current* width** (i.e. whatever the user has just dragged the handles to). The width is read fresh from `useTimeStore.getState()` inside the interval, so a user dragging a handle mid-playback immediately changes step behavior on the next tick.
+- **Granularity**: `year` / `decade` / `century`. Drives the playback step size and the default window width (year → 5-year window, decade → 20-year, century → 100-year).
+- **Default window seeding**: when `initWindowForExtent(min, max)` runs (gated by `extentSeeded`, see below), the initial window is `[min, min + GRANULARITY_WIDTH[granularity]]`, **not** the full extent. This guarantees there is something to "fly through" — a 200-year-wide window over a 200-year extent would render a static heatmap and defeat the time-travel UX.
+- **Speed**: `0.5×` / `1×` / `2×` / `4×`.
+- **Loop toggle**: when on, playback wraps to `extentStart` after passing `extentEnd`; when off, playback stops at the end.
+- **Step-wise playback** (not continuous): `setInterval` advances the window by one granularity unit per tick (year ≈ 2 s/tick at 1×, decade ≈ 1 s, century ≈ 0.8 s). Keeps React/deck.gl rebuilds to a few per second even with tens of thousands of events.
+- **Scrub** pauses playback; no auto-resume. Slider `onValueChange` is rAF-batched: at most one `setWindow` per frame regardless of pointer move rate.
+- **Scrub end**: a `window.addEventListener('pointerup', …)` listener on scrub start fires `onScrubEnd` even if the user releases the pointer outside the slider element (the native `onMouseUp` does not).
+- **Keyboard**: `Space` toggles play, `←` / `→` step the window by one granularity unit, `Shift+←/→` jumps 10 units.
+- **"Show undated" toggle**: events with `sort_date == null` become visible and the window is ignored for them.
+- **Range events** (residence, occupation, military_service, …) are visible whenever `[sort_date, sort_end_date]` overlaps the window.
+
+#### Filters and scope
+
+- **Scope control**: `Everyone` / `Focal person` / `Focal lineage`. Shares `useFocalStore` with the Graph page so focal state round-trips bidirectionally. `Focal lineage` = direct ancestors + direct descendants + spouses of every lineage member (siblings/cousins excluded). Lineage walks the `child_of` edge regardless of the relationship's `type` — so adopted-in / adopted-out chains and step-relations *are* included if the underlying `child_of` edge exists. (Granular filtering by relationship subtype is out of scope for v1.)
+- **Scope persists across focal changes.** Switching the focal person on the Graph page does not wrench the user's selected scope on the Map page out from under them — `useMapPrefsStore.scope` is independent of `useFocalStore.focalPersonId`.
+- **Event-type filter**: a `MapToolbar` overflow menu exposes a checkbox per event type, backed by `useMapPrefsStore.eventTypes` (`null` = all types, non-empty array = filter set). Applied at the same point as the time-window filter inside `buildMapLayers`. Toggle semantics:
+  - Clicking a type when `eventTypes === null` switches to "all types except clicked" (i.e. `[…allTypes].filter(t => t !== clicked)`).
+  - Clicking a type when it's the only one in the array clears the filter back to `null`.
+  - Otherwise toggles set membership.
+  - An "All types" entry at the top resets to `null`.
+- **Legend**: bottom-left collapsible swatch list, keyed by `TYPE_COLORS`. Swatches double as event-type filter toggles using the same semantics as the toolbar menu — one-click muting.
+- **Fly-to**: `map.fitBounds` on every scope or focal change, using the bounding box of the filtered data. Does **not** re-fire on React Query refetches; gated by a ref keyed on `${scope}:${focalPersonId}`. `maxZoom` for fitBounds is 8 to match the basemap cap.
+
+#### Day/night themes
+
+Map style follows `useUIStore.theme`. Both styles live in `client/src/features/map/styles/` and differ only in paint colors; layer structure is identical so `setStyle({ diff: true })` patches paint properties without re-fetching sources.
+
+#### State stores
+
+Map state is split across three Zustand stores by lifetime, with the URL as a fourth weaker persistence surface. Each store has a single, well-bounded responsibility:
+
+- **`useFocalStore`** (`client/src/shared/store/focalStore.ts`, persisted to `legacy-graph-focal-v1`) — the shared focal person, read and written by both the Graph and the Map. Cross-feature state, not map-specific.
+- **`useMapPrefsStore`** (persisted to `legacy-graph-map-prefs-v1`) — `scope`, `granularity`, `speed`, `loop`, `eventTypes`. User preferences that should survive reloads and follow the user across sessions.
+- **`useTimeStore`** (in-memory only, seeded from the API extent on first data load) — `windowStart`, `windowEnd`, `extentStart`, `extentEnd`, `extentSeeded` (boolean — `false` until the first successful seed, `true` thereafter; replaces the brittle "is extent still at defaults?" heuristic), `showUndated`, `isPlaying`. Per-session view state; deliberately not persisted so reloading does not strand the user mid-playback at a stale window.
+- **URL search params** (fourth, weakest layer) — On mount, `MapView` boots store values from `?scope=&person=&t=&t_end=&g=&speed=&play=&loop=&event=`. A debounced effect (200 ms) writes store changes back via `navigate({ replace: true })`. **`?event=` is written and cleared synchronously** (not via the debounced effect) on drawer open/close to avoid a race where the URL still says `?event=X` after the user has just closed the drawer. **`t` and `t_end` are omitted from the URL when the window equals the extent**, keeping a clean URL for users who haven't scrubbed. The URL is the share/restore surface; the stores are the runtime source of truth.
+
+#### Backend
+
+- **Endpoint**: `GET /api/map/events` returns `{ events: MapEvent[], extent: { minDate, maxDate, bbox } }`.
+  `MapEvent` = `{ id, person_id, person_name, type, lat, lng, sort_date, sort_end_date, has_assets, place_name }`.
+- **Query params**: `?person=N_xxx` and `?lineage=N_xxx` are mutually exclusive (400 if both given); `?lineage` uses `GraphLogic.getLineage()` (ancestors + descendants + spouses). Events whose `location` lacks `lat`/`lng` are skipped.
+- **No persisted data changes** — reads from already-geocoded `lat`/`lng` on Place objects (populated by GeocodingService, Phase 3.15) plus `end_date`/`sort_end_date` (added in Schema 5.1).
+- **Response cache**: a 32-entry in-memory LRU keyed by scope (`'all:_'`, `'person:N_xxx'`, or `'lineage:N_xxx'` — derived from the route's mutually-exclusive `?person` xor `?lineage` querystring) short-circuits repeated `forEachNode` walks. The cache is invalidated wholesale by subscribing to `GraphEngine`'s `'graph-updated'` event, which fires after every hydration completion and every successful hot-patch. A monotonic generation counter guards against an in-flight request memoizing a stale response after a mid-computation invalidation: `myGen = gen` at request start; `cache.set(...)` only if `myGen === gen` at request end. Worst-case freshness is bounded by hot-patch latency (≤ a few hundred ms); LRU bound prevents unbounded growth across many distinct focal ids.
+- **Tests**: `tests/api/MapEvents.test.ts` covers — (a) `200` with no params returns all geocoded events, (b) `400` when `person` and `lineage` are both passed, (c) `404` when an unknown id is passed, (d) bbox math is correct over a fixture, (e) undated events are included in `events` but excluded from `extent.minDate`/`maxDate`, (f) cache invalidation fires when a hot-patch updates a person's events.
+
+#### Deep-link contract
+
+`/map?scope=focal&person=N_xxx&t=1880&t_end=1900&g=decade&speed=2&loop=1&play=1&event=<eventId>` — full state round-trips. The URL is updated via `navigate({ replace: true })` when stores change (debounced 200 ms), with `?event=` written/cleared synchronously on drawer open/close. When `?event=<id>` is present and the events query has resolved, the matching event opens in the EventDrawer **once on mount** (not on every `search.event` change — closing the drawer would otherwise cause the effect to re-open it).
+
+#### Empty-state and loading-state
+
+- **Loading**: while the events query is pending, a translucent overlay reads "Loading events…" centered on the map.
+- **Empty**: when `events.data.events.length === 0`, an inline card overlays the map with "No events with coordinates yet" and a link to `/settings` → Geocoding.
+
+#### Mobile (< 768 px)
+
+- Toolbar becomes a horizontally scrollable pill strip with compact labels.
+- Time slider stays bottom-docked.
+- **Event drawer is a 40 vh bottom sheet (`h-[40vh]`) with a swipe-down handle** — a 36 px horizontal pill at the top of the drawer, draggable; pointer-down + drag-down ≥ 80 px or a downward velocity threshold dismisses the drawer. Implementation uses `@radix-ui/react-dialog` `<Dialog>` with custom drag handlers; falls back gracefully on browsers without pointer events.
+
+#### Nav + palette
+
+Sidebar Globe icon links to `/map`. Command palette (`/` hotkey) includes "View Map" and (when a focal is set) "Show focal lineage on Map".
+
+#### File layout
+
+```
+client/src/features/map/
+  MapView.tsx          Top-level component
+  MapToolbar.tsx       Scope + event-type filter
+  MapLegend.tsx        Bottom-left collapsible swatch list (Phase C)
+  TimeSlider.tsx       Dual-handle Radix slider + playback controls
+  EventDrawer.tsx      Side drawer (desktop) / 40 vh bottom sheet (mobile)
+  api.ts               useMapEvents React Query hook
+  prefsStore.ts        Persisted Zustand store (scope, g, speed, loop, eventTypes)
+  timeStore.ts         In-memory Zustand store (window, extent, extentSeeded, …)
+  types.ts             MapEvent, MapEventsResponse, Granularity, Scope, Speed
+  layers/
+    buildMapLayers.ts  Pure builder (renamed from useMapLayers — not a hook)
+  styles/
+    day.ts             dayStyle(): StyleSpecification
+    night.ts           nightStyle(): StyleSpecification
+client/public/
+  basemap/             countries.json, states.json, places.json, graticules.json
+  fonts/Open Sans Regular/  256 PBF glyph ranges
+scripts/
+  buildBasemap.ts      One-shot build script (devs only)
+src/api/routes/
+  map.ts               GET /api/map/events with cache
+tests/
+  api/MapEvents.test.ts
+  features/map/styles.test.ts                  (under client vitest)
+  features/map/buildMapLayers.test.ts
+  features/map/timeStore.test.ts
+```
+
+#### Explicit non-goals
+
+The Map View is deliberately bounded. The following are **not** part of v1 and proposals to add them should be weighed against the "global overview, not street atlas" framing:
+
+- **Street-level rendering.** The basemap stops at country/admin-1/major-city detail by design. Streets, buildings, and POIs add visual noise that competes with the event data.
+- **3D globe projection.** MapLibre v5 supports it; we chose flat Mercator for clarity and rendering performance.
+- **Historical basemaps** (e.g., 1800-era political boundaries that follow the time slider). Genuinely valuable but out of scope; would require a per-decade tile pipeline.
+- **Collateral lineage** (siblings, cousins, in-laws beyond direct spouses). The "Focal lineage" scope is intentionally narrow — direct ancestors + direct descendants + spouses only — to keep the migration story readable.
+- **Shareable playback recordings** (GIF/MP4 export of a playback session). Worth considering later; not v1.
+- **User-uploaded basemap layers** (custom polygons, historical map overlays). Out of scope for v1.
 
 ---
 
