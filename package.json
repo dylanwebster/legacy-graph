@@ -8,6 +8,7 @@
     "lint": "eslint .",
     "start": "tsx --env-file=.env src/index.ts",
     "test:e2e": "tsx tests/e2e/setup.ts && playwright test",
+    "test:visual": "playwright test --config=playwright.config.snapshots.ts",
     "generate:synthetic-data": "tsx scripts/generateSyntheticData.ts",
     "geonames:build": "tsx scripts/buildGeonamesDb.ts",
     "basemap:build": "tsx scripts/buildBasemap.ts",

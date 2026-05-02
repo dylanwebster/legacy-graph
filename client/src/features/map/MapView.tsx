@@ -84,8 +84,13 @@ export function MapView() {
         map.addControl(overlay as unknown as maplibregl.IControl);
         mapRef.current = map;
         overlayRef.current = overlay;
+        // Visual-regression test harness hook (tests/e2e/map-snapshots.spec.ts).
+        // Exposed unconditionally — harmless in production, avoids env-dependent
+        // diverging behaviour between dev and CI snapshot runs.
+        (window as unknown as { __map?: maplibregl.Map }).__map = map;
 
         return () => {
+            (window as unknown as { __map?: maplibregl.Map }).__map = undefined;
             map.remove();
             mapRef.current = null;
             overlayRef.current = null;
