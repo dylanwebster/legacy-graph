@@ -1,19 +1,20 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Granularity, MapScope, Speed } from './types';
+import type { EventType } from './eventTypes';
 
 interface MapPrefs {
     scope: MapScope;
     granularity: Granularity;
     speed: Speed;
     loop: boolean;
-    eventTypes: string[] | null; // null = all types, non-empty array = filter
+    eventTypes: EventType[] | null; // null = all types, non-empty array = filter
 
     setScope: (s: MapScope) => void;
     setGranularity: (g: Granularity) => void;
     setSpeed: (s: Speed) => void;
     setLoop: (b: boolean) => void;
-    setEventTypes: (t: string[] | null) => void;
+    setEventTypes: (t: EventType[] | null) => void;
 }
 
 export const useMapPrefsStore = create<MapPrefs>()(

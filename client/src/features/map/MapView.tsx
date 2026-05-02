@@ -10,7 +10,8 @@ import { useMapEvents } from './api';
 import { dayStyle } from './styles/day';
 import { nightStyle } from './styles/night';
 import { useMapPrefsStore } from './prefsStore';
-import { buildMapLayers } from './layers/useMapLayers';
+import { buildMapLayers } from './layers/buildMapLayers';
+import { BASEMAP_MAX_ZOOM } from './constants';
 import { useTimeStore, initWindowForExtent } from './timeStore';
 import { TimeSlider } from './TimeSlider';
 import { MapToolbar } from './MapToolbar';
@@ -32,6 +33,9 @@ export function MapView() {
     const search = useSearch({ from: '/map' });
 
     // On mount: apply URL params to stores. Runs once — further URL changes come from us.
+    // ?event=<id>: opens the drawer once when events.data first becomes truthy AND the URL
+    // value differs from the last-opened id (Phase C6). MapView stays mounted across in-app
+    // nav, so the gate must key on the URL value, not a one-shot flag.
     const didBootFromUrl = useRef(false);
     useEffect(() => {
         if (didBootFromUrl.current) return;
@@ -63,7 +67,7 @@ export function MapView() {
             center: [0, 30],
             zoom: 2,
             minZoom: 0,
-            maxZoom: 6,
+            maxZoom: BASEMAP_MAX_ZOOM,
             attributionControl: { compact: true },
         });
         // Throttle zoom updates: the layer crossfade only has thresholds at a few
@@ -93,7 +97,7 @@ export function MapView() {
     useEffect(() => {
         if (!mapRef.current) return;
         const style = theme === 'dark' ? nightStyle() : dayStyle();
-        mapRef.current.setStyle(style, { diff: false });
+        mapRef.current.setStyle(style, { diff: true });
     }, [theme]);
 
     // Seed time window from event extent on first successful load.
@@ -108,7 +112,7 @@ export function MapView() {
         const bbox = events.data.extent.bbox;
         if (!bbox) return;
         const [w, s, e, n] = bbox;
-        mapRef.current.fitBounds([[w, s], [e, n]], { padding: 60, duration: 400, maxZoom: 10 });
+        mapRef.current.fitBounds([[w, s], [e, n]], { padding: 60, duration: 400, maxZoom: BASEMAP_MAX_ZOOM });
     }, [scope, focalPersonId, events.data]);
 
     // Rebuild deck.gl layers whenever events / zoom / time window / scope change.

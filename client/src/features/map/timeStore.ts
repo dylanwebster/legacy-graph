@@ -1,4 +1,12 @@
 import { create } from 'zustand';
+import { useMapPrefsStore } from './prefsStore';
+import type { Granularity } from './types';
+
+export const GRANULARITY_WIDTH: Record<Granularity, number> = {
+    year: 5,
+    decade: 20,
+    century: 100,
+};
 
 interface TimeState {
     /** Epoch-year start of the visible window (e.g. 1900). */
@@ -11,6 +19,8 @@ interface TimeState {
     extentStart: number;
     extentEnd: number;
     isPlaying: boolean;
+    /** True once initWindowForExtent has seeded a window. Prevents reseeding on refetch. */
+    extentSeeded: boolean;
 
     setWindow: (start: number, end: number) => void;
     setShowUndated: (v: boolean) => void;
@@ -25,6 +35,7 @@ export const useTimeStore = create<TimeState>((set) => ({
     extentStart: 1800,
     extentEnd: new Date().getFullYear(),
     isPlaying: false,
+    extentSeeded: false,
     setWindow: (windowStart, windowEnd) => set({ windowStart, windowEnd }),
     setShowUndated: (showUndated) => set({ showUndated }),
     setPlaying: (isPlaying) => set({ isPlaying }),
@@ -39,10 +50,13 @@ export function initWindowForExtent(minDate: string | null, maxDate: string | nu
     const max = parseInt(maxDate.slice(0, 4), 10);
     if (Number.isNaN(min) || Number.isNaN(max)) return;
     const current = useTimeStore.getState();
-    useTimeStore.getState().setExtent(min, max);
-    // Only reset the window on first load (when extent hasn't been set before).
-    if (current.extentStart === 1800 && current.extentEnd === new Date().getFullYear()) {
-        useTimeStore.getState().setWindow(min, max);
+    current.setExtent(min, max);
+    if (!current.extentSeeded) {
+        const g = useMapPrefsStore.getState().granularity;
+        const width = GRANULARITY_WIDTH[g];
+        const start = min;
+        const end = Math.min(max, min + width);
+        useTimeStore.setState({ windowStart: start, windowEnd: end, extentSeeded: true });
     }
 }
 
