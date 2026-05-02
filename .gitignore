@@ -14,3 +14,4 @@ test-results/
 .search-index.json
 .claude
 .playwright-cli
+.tmp/
