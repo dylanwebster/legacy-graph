@@ -816,23 +816,30 @@ A global-overview map that treats the world as a stage for your family's events.
 
 #### Basemap
 
-- **Source**: Natural Earth (1:50m scale) — public-domain, redistributable. Four GeoJSON layers shipped under `client/public/basemap/`:
-  - `countries.json` — `ne_50m_admin_0_countries`, kept properties: `NAME`, `ISO_A2`.
-  - `states.json` — `ne_50m_admin_1_states_provinces`, kept properties: `name`, `iso_a2`, `admin`.
-  - `places.json` — `ne_50m_populated_places_simple`, kept properties: `name`, `adm0name`, `pop_max`, `rank_max`.
-  - `graticules.json` — `ne_50m_graticules_15` (equator, tropics; pre-decimated to 15° lines).
-- **Pipeline**: a build-time script (`scripts/buildBasemap.ts`) downloads the Natural Earth shapefiles, runs each through `mapshaper`'s programmatic API (`-simplify 5% keep-shapes` for polygons; property-prune via `-filter-fields`), and emits **plain GeoJSON only** (one `.json` per layer) into `client/public/basemap/`. The emitted files are committed to git (≤ ~30 MB raw, served as ~6 MB gzipped by `@fastify/compress` on the wire) so end users do not need to run the script. The script runs `mapshaper` and `shapefile` via `npx` and **does not add them to `package.json`** — keeps the dev install lean. The script exists only for upgrades to a newer Natural Earth release.
-- **HTTP transport**: `@fastify/compress` (already registered server-side) gzips JSON responses on the fly. **No pre-compressed `.json.gz` siblings** — Vite dev would not honor them and the duplicate-on-disk story is not worth the moving parts.
-- **Glyph stack**: a single open-licensed font is shipped at `client/public/fonts/{fontstack}/{range}.pbf` (Open Sans Regular, ~5 MB across all glyph ranges, fetched on demand by MapLibre — only ranges containing rendered text load per session). Source: install `@openmaptiles/fonts` from npm and copy `node_modules/@openmaptiles/fonts/Open Sans Regular/*.pbf` into the public directory; the npm dep is dev-only. MapLibre's `style.glyphs` points at the relative path `/fonts/{fontstack}/{range}.pbf`. No external glyph URL.
-- **Rendering**: MapLibre v5 reads the GeoJSON files via four `geojson` sources (no tile server required). Day and night styles share layer structure and differ only in paint:
-  - Country fill + boundary, always visible.
-  - Admin-1 boundary, visible at `zoom ≥ 3`.
-  - Graticules, always visible (faint dashed line).
-  - Country labels (`NAME`), visible at `zoom ≥ 2`, sized via zoom interpolation.
-  - City labels, visible at `zoom ≥ 4`, filtered by `rank_max` so the densest cities (rank 0–3) appear first and lower-rank cities reveal at higher zoom. Capped to ~7,000 places worldwide by Natural Earth's set, so label clutter is bounded.
-- **Style application**: theme toggling uses `map.setStyle(style, { diff: true })`. Because day/night styles share layer structure and differ only in paint properties, MapLibre patches paint without re-fetching the GeoJSON sources or re-tessellating geometry — delivering an instantaneous re-style with no relayout flash.
-- **Zoom range**: `minZoom: 0`, `maxZoom: 8`. Beyond zoom 8 the Natural Earth geometry is unhelpful; the basemap explicitly stops there. `fitBounds` also caps at `maxZoom: 8`. The deck.gl event overlay still renders at any zoom.
-- **No raster tiles, no PMTiles, no MBTiles**. The previous PMTiles direction was prototyped and rejected (135 GB planet build is wildly out of scale for our zoom range, and a self-hosted runtime tile reader is more moving parts than the data set warrants).
+- **Source**: Natural Earth — public-domain, redistributable. Mixed 1:10m and 1:50m scales chosen per layer to balance fidelity against bundle size. Seven GeoJSON files shipped under `client/public/basemap/`:
+  - `countries.json` — NE **1:10m** `ne_10m_admin_0_countries`, simplified to 30% retention. Kept properties: `NAME`, `ISO_A2`. *1:10m is required so fjord coastlines (Vancouver Island, Norway) and small island archipelagos (Hawaii, Canadian Arctic) read as their actual shapes; 1:50m collapses these to 5-vertex polygons.*
+  - `country-labels.json` — derived from the same 1:10m admin_0 source via mapshaper's `-points inner` (pole-of-inaccessibility — guaranteed inside polygon, visually centered). Kept properties: `NAME`, `MIN_LABEL`. *Separate point source because rendering one symbol per polygon produces ~20 "Canada" labels for the Arctic Archipelago.*
+  - `states.json` — NE **1:50m** `ne_50m_admin_1_states_provinces_lines` (interior boundaries only — no coastlines), simplified to 15% retention. No kept properties (the layer paints uniformly). *Lines variant is critical to avoid the "double-trace ghost" effect where state-polygon perimeters retrace the same coast as `countries` at a different scale, producing two visibly offset coastlines.*
+  - `state-labels.json` — derived from NE **1:10m** `ne_10m_admin_1_states_provinces` polygons via `-points inner`. Kept properties: `name`, `min_zoom`. *Polygon source is the 10m variant so label points align with country geometry.*
+  - `lakes.json` — NE 1:50m `ne_50m_lakes`, simplified to 50% retention. Kept properties: `name`. Rendered with the basemap `background` color so lakes appear as cutouts in the country fill — Great Lakes, Lake Victoria, Caspian, etc.
+  - `places.json` — NE **1:10m** `ne_10m_populated_places_simple` (~7,300 cities). Kept properties: `name`, `adm0name`, `pop_max`, `rank_max`. *1:10m is required so major U.S. metros (San Francisco, Phoenix, Las Vegas, Reno) appear at all — the 1:50m `_simple` variant ships only ~243 places worldwide and excludes most state capitals.*
+  - `graticules.json` — NE 1:50m `ne_50m_graticules_15` (15° lines).
+- **Pipeline**: a build-time script (`scripts/buildBasemap.ts`) downloads the Natural Earth shapefiles into `.tmp/basemap/`, then drives mapshaper via `npx --yes mapshaper@<pinned>` to produce each output (`-simplify <pct>% keep-shapes`, optionally `-points inner` for label sources, then `-filter-fields` and `-o format=geojson`). The script emits **plain GeoJSON only** — gzip happens at HTTP transport time via `@fastify/compress`, no pre-compressed `.json.gz` siblings. Output files are committed to git (~6 MB raw / ~1.5 MB gz total — well under the 30 MB raw / 6 MB gz budget) so end users do not need to run the script. mapshaper and shapefile are invoked via `npx --yes` and **not added to `package.json`** — keeps the dev install lean. The script runs only for upgrades to a newer Natural Earth release.
+- **HTTP transport**: `@fastify/compress` is registered globally (`{ encodings: ['br', 'gzip'] }`) and gzips JSON responses on the fly. Vite dev gzips automatically.
+- **Glyph stack**: Open Sans Regular is shipped at `client/public/fonts/Open Sans Regular/{range}.pbf` (256 PBF ranges, ~1.4 MB on disk; ~75 KB fetched per Latin-locale session). MapLibre lazy-loads only ranges that contain rendered glyphs. Source: a one-shot script (`scripts/buildBasemapFonts.ts`) shallow-clones the upstream `openmaptiles/fonts` repo's `gh-pages` branch (which carries pre-built PBFs) and copies the `Open Sans Regular/` directory. **No npm dependency** — the upstream `@openmaptiles/fonts` npm package ships TTF source + a fontnik build pipeline (heavy native deps), not the rendered PBFs. MapLibre's `style.glyphs` is the relative URL `/fonts/{fontstack}/{range}.pbf`.
+- **Rendering**: MapLibre v5 reads the seven GeoJSON files via separate `geojson` sources (no tile server required). Day and night styles share identical layer structure (id + type + order) and differ only in paint colors — required for `setStyle({ diff: true })` patching. Layer order (drawn back-to-front):
+  1. `background` — flat fill (palette: light `#e6eef5` / dark `#05090f`).
+  2. `country-fill` — light `#f8f7f2` / dark `#0f1626`.
+  3. `lake-fill` — same color as `background`, so lakes appear as water cutouts in the land.
+  4. `country-boundary` — line, always visible.
+  5. `state-boundary` — line, `minzoom: 3`.
+  6. `graticules` — dashed line.
+  7. `country-label` — `maxzoom: 5`. Per-feature filter `MIN_LABEL <= zoom + 2` so major countries clear at zoom 0 (USA `MIN_LABEL ≈ 1.7`) while tiny territories (Clipperton, San Marino, Andorra at `MIN_LABEL ≈ 7-8`) never clear inside the `maxzoom: 5` cap.
+  8. `state-label` — `minzoom: 4`. Per-feature filter `min_zoom <= zoom` so large admin_1s (California, Quebec, NSW) appear early and tiny ones (Samoan villages, Caribbean parishes) only appear at higher zooms. Styled as atlas-watermark: `text-transform: uppercase`, `text-letter-spacing: 0.18`, muted color (`#9b937f` light / `#6b7891` dark), `text-opacity: 0.7`, plus `text-allow-overlap: true` + `text-ignore-placement: true` so state names always render and never push city labels aside.
+  9. `city-label` — `minzoom: 4`. Per-zoom filter `rank_max >= interpolate(zoom, 4→11, 6→8, 8→4)` (NE's `rank_max` is *higher = more important*: NYC=14, SF=12, Elko=5). Collision priority: `symbol-sort-key: ['-', 0, ['to-number', ['get', 'pop_max'], 0]]` — MapLibre draws lowest sort-key first, so subtracting `pop_max` from 0 makes the most populous city render first and win automatic collision dedup over smaller neighbours (SF beats Oakland, etc.).
+- **Style application**: theme toggling uses `map.setStyle(style, { diff: true })`. Because day/night styles share layer structure exactly (one `themedStyle(theme)` factory, no hand-maintained pair), MapLibre patches paint without re-fetching the GeoJSON sources or re-tessellating geometry — instantaneous re-style with no relayout flash.
+- **Zoom range**: `minZoom: 0`, `maxZoom: 8` (hoisted as `BASEMAP_MAX_ZOOM` so the ctor cap and `fitBounds` cap can never drift). Beyond zoom 8 the Natural Earth geometry is unhelpful; the basemap explicitly stops there. The deck.gl event overlay still renders at any zoom.
+- **No raster tiles, no PMTiles, no MBTiles**. The previous PMTiles direction was prototyped and rejected (135 GB planet build is wildly out of scale for our zoom range, and a self-hosted runtime tile reader is more moving parts than the dataset warrants).
 
 #### Event overlay (deck.gl)
 
@@ -924,29 +931,45 @@ client/src/features/map/
   MapView.tsx          Top-level component
   MapToolbar.tsx       Scope + event-type filter
   MapLegend.tsx        Bottom-left collapsible swatch list (Phase C)
-  TimeSlider.tsx       Dual-handle Radix slider + playback controls
+  TimeSlider.tsx       Dual-handle Radix slider + playback controls (Phase C)
   EventDrawer.tsx      Side drawer (desktop) / 40 vh bottom sheet (mobile)
   api.ts               useMapEvents React Query hook
+  constants.ts         BASEMAP_MAX_ZOOM (single source of truth for ctor + fitBounds caps)
+  eventTypes.ts        EVENT_TYPES, EventType, TYPE_COLORS, TYPE_WEIGHTS registry
   prefsStore.ts        Persisted Zustand store (scope, g, speed, loop, eventTypes)
   timeStore.ts         In-memory Zustand store (window, extent, extentSeeded, …)
   types.ts             MapEvent, MapEventsResponse, Granularity, Scope, Speed
   layers/
     buildMapLayers.ts  Pure builder (renamed from useMapLayers — not a hook)
   styles/
-    day.ts             dayStyle(): StyleSpecification
-    night.ts           nightStyle(): StyleSpecification
+    themedStyle.ts     themedStyle(theme): StyleSpecification — single source
+                       of truth for layer structure; day.ts and night.ts
+                       are one-line wrappers calling themedStyle('light'|'dark').
+    day.ts             dayStyle = () => themedStyle('light')
+    night.ts           nightStyle = () => themedStyle('dark')
 client/public/
-  basemap/             countries.json, states.json, places.json, graticules.json
+  basemap/             countries.json, country-labels.json, states.json,
+                       state-labels.json, lakes.json, places.json,
+                       graticules.json
   fonts/Open Sans Regular/  256 PBF glyph ranges
 scripts/
-  buildBasemap.ts      One-shot build script (devs only)
+  buildBasemap.ts      One-shot build script for basemap GeoJSON (devs only)
+  buildBasemapFonts.ts One-shot script that vendors Open Sans Regular PBFs
+                       from openmaptiles/fonts gh-pages (devs only)
 src/api/routes/
-  map.ts               GET /api/map/events with cache
+  map.ts               GET /api/map/events with LRU cache
 tests/
-  api/MapEvents.test.ts
-  features/map/styles.test.ts                  (under client vitest)
-  features/map/buildMapLayers.test.ts
-  features/map/timeStore.test.ts
+  api/MapEvents.test.ts                                        (Phase B)
+  features/map/styles/styles.test.ts                           (under client vitest)
+  features/map/layers/buildMapLayers.test.ts                   (Phase C)
+  features/map/timeStore.test.ts                               (Phase B)
+  e2e/map.spec.ts                                              (Phase D — user-flow E2E)
+  e2e/map-snapshots.spec.ts                                    (visual regression harness,
+                                                                10 baselines under
+                                                                map-snapshots.spec.ts-snapshots/)
+playwright.config.snapshots.ts                                 (separate config for
+                                                                visual harness — assumes
+                                                                running dev servers)
 ```
 
 #### Explicit non-goals

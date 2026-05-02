@@ -46,14 +46,14 @@ Plan: MapLibre GL + deck.gl overlay + **bundled offline Natural Earth GeoJSON ba
 
 #### Sub-phase 5.2.3 — Basemap (REVISED — offline-first Natural Earth GeoJSON)
 
-The previous PMTiles direction (`5.2.3-old`) and the demotiles fallback were both rejected. PMTiles is overkill for the country/state/city zoom range we want, and `demotiles.maplibre.org` violates the "self-hosted, offline by default" hard constraint. The new plan ships Natural Earth (1:50m) GeoJSON inside the SPA bundle, rendered directly by MapLibre — no tile server, no third-party CDN, no end-user build step.
+The previous PMTiles direction (`5.2.3-old`) and the demotiles fallback were both rejected. PMTiles is overkill for the country/state/city zoom range we want, and `demotiles.maplibre.org` violates the "self-hosted, offline by default" hard constraint. The shipped basemap uses Natural Earth GeoJSON inside the SPA bundle, rendered directly by MapLibre — no tile server, no third-party CDN, no end-user build step.
 
-- [ ] **5.2.3** — Bundled offline Natural Earth basemap (Phase A).
+- [x] **5.2.3** — Bundled offline Natural Earth basemap (Phase A). *Shipped in commit `3058715`.* See "Phase A — what actually shipped" below for the divergence from the original Phase A spec (1:10m countries instead of 1:50m, lakes added, per-feature visibility gating, etc.).
 
 #### Remaining work
 
-- [ ] **5.2.13** — Phase A0 fast-fixes: rename `useMapLayers.ts` → `buildMapLayers.ts`, switch `setStyle` to `diff: true`, granularity-aware `initWindowForExtent` seed, `?event=` opens-once-on-mount semantics.
-- [ ] **5.2.14** — Performance: stable layer accessors + `updateTriggers`, `fitBounds` re-trigger fix, `extentSeeded` flag, slider scrub rAF batching, `pointerup` window listener, server-side `forEachNode` cache + invalidation. (Phase B; **B1 pre-bucketing dropped — overengineered for current scale**.)
+- [x] **5.2.13** — Phase A0 fast-fixes: rename `useMapLayers.ts` → `buildMapLayers.ts`, `setStyle({diff:true})`, granularity-aware `initWindowForExtent` + `extentSeeded`, `?event=` opens-once-on-mount semantics, `themedStyle` factory, `eventTypes.ts` registry, `BASEMAP_MAX_ZOOM` constant. *Shipped in commit `c1d406f`.*
+- [ ] **5.2.14** — Performance: stable layer accessors + `updateTriggers`, `fitBounds` re-trigger fix, `extentSeeded` flag, slider scrub rAF batching, `pointerup` window listener, server-side `forEachNode` cache + invalidation. (Phase B; **B1 pre-bucketing dropped — overengineered for current scale**. `extentSeeded` already shipped in A0.3.)
 - [ ] **5.2.15** — Event-type filter UI (wire `prefsStore.eventTypes`) + collapsible `MapLegend` keyed by `TYPE_COLORS`. (Phase C)
 - [ ] **5.2.16** — Dual-handle range slider via `@radix-ui/react-slider` range mode. (Phase C)
 - [ ] **5.2.17** — Empty-state and loading-state overlays; PathLayer 3 px stroke + 5 px halo. (Phase C)
@@ -62,8 +62,43 @@ The previous PMTiles direction (`5.2.3-old`) and the demotiles fallback were bot
 - [ ] **5.2.20** — Heatmap zoom-interpolated `radiusPixels` (30 → 60 px). (Phase C)
 - [ ] **5.2.21** — URL hygiene: omit `t`/`t_end` when window equals extent; write `?event=` synchronously on drawer open/close. (Phase C)
 - [ ] **5.2.22** — Branch hygiene: squash three abandoned PMTiles commits, fold `MAP_VIEW.md` into `SPECIFICATION.md §6.11`. (Phase D)
-- [ ] **5.2.23** — Test coverage: `tests/api/MapEvents.test.ts`, `client/src/features/map/styles/styles.test.ts`, `client/src/features/map/layers/buildMapLayers.test.ts`, `client/src/features/map/timeStore.test.ts`. (Phases A–C, ahead of each implementation step.)
-- [ ] **5.2.24** — E2E test for the Map View (Phase D).
+- [ ] **5.2.23** — Test coverage: `tests/api/MapEvents.test.ts`, `client/src/features/map/layers/buildMapLayers.test.ts`, `client/src/features/map/timeStore.test.ts`. (Phases B–C, ahead of each implementation step.) *`styles.test.ts` shipped in A6 with 9 contract tests.*
+- [ ] **5.2.24** — E2E test for the Map View (Phase D). *Visual-regression harness already shipped in commit `27835ad` (5 locations × light/dark = 10 baselines via `npm run test:visual`); Phase D adds Playwright user-flow E2E for pin click, drawer open/close, scope switch, etc.*
+
+---
+
+### Phase A — what actually shipped (vs. original spec)
+
+The shipped Phase A diverges from the original A1–A9 plan in several material ways. Future maintainers should read this section before re-running the build script or modifying the style.
+
+**Data sources (`scripts/buildBasemap.ts`):**
+
+| Layer | Original plan | Shipped |
+|---|---|---|
+| `countries` | NE 1:50m, simplify 5%, fields `NAME, ISO_A2` | NE **1:10m**, simplify 30%, fields `NAME, ISO_A2`. *Reason: 1:50m at 5% retention rendered Hawaii as 6-vertex polygons and the Canadian Arctic as cartoon shapes. 30% retention preserves fjord coastlines.* |
+| `country-labels` | (didn't exist — country labels read from polygon source via `LABEL_X`/`LABEL_Y`) | NEW separate point source; derived from `admin0` via mapshaper `-points inner` (pole-of-inaccessibility). Keeps `NAME` + `MIN_LABEL`. *Reason: rendering one symbol per polygon produced ~20 "Canada" labels for the Arctic Archipelago. Pole of inaccessibility is visually centered, guaranteed inside the polygon.* |
+| `states` | NE 1:50m polygons, simplify 5% | NE **1:50m** lines (`ne_50m_admin_1_states_provinces_lines.zip`), simplify 15%, no fields. *Reason: polygon perimeters traced the same coastline as `countries`, producing visible double-trace ghost borders at every coast (Vancouver Island, Hawaii). The lines variant contains interior borders only.* |
+| `state-labels` | (didn't exist — state labels read from polygon source) | NEW separate point source; derived from NE **1:10m** `admin1_polys` via `-points inner`. Keeps `name` + `min_zoom`. *Reason: same as country-labels.* |
+| `lakes` | (not in original plan) | NEW. NE 1:50m lakes, simplify 50%. Rendered with `background` color so they appear as cutouts in the country fill. *Reason: Canada/US border without Great Lakes looked wrong.* |
+| `places` | NE 1:50m **simple** (~243 cities) | NE **1:10m** simple (~7,300 cities). *Reason: 1:50m didn't include any major US metro outside the largest few; San Francisco, Phoenix, Las Vegas etc. weren't there.* |
+| `graticules` | NE 1:50m | unchanged. |
+
+**Style factory (`client/src/features/map/styles/themedStyle.ts`):**
+
+- **9 layers** (not the original spec's 7): `background`, `country-fill`, `lake-fill` (added), `country-boundary`, `state-boundary`, `graticules`, `country-label`, `state-label` (added), `city-label`.
+- **`country-label` filter**: `MIN_LABEL <= zoom + 2` — major countries clear at zoom 0; tiny territories like Clipperton (`MIN_LABEL ≈ 7-8`) never clear inside our `maxzoom: 5` cap.
+- **`state-label` filter**: `min_zoom <= zoom` per feature — large admin_1s (California, Quebec) appear early; tiny ones (Samoan villages, Caribbean parishes) only appear at higher zooms. Combined with `text-allow-overlap: true` + `text-ignore-placement: true` so state names act as watermarks behind cities.
+- **`city-label` collision sort**: `symbol-sort-key: ['-', 0, ['to-number', ['get', 'pop_max'], 0]]` — highest population renders first and wins MapLibre's auto-collision dedup. *Reason: `rank_max` ties (SF and Oakland both rank 12) caused the larger city to lose to source order.*
+- **State labels** styled as atlas-watermark: uppercase, `text-letter-spacing: 0.18`, muted color, `text-opacity: 0.7`.
+
+**Bundle size**: 6.11 MB raw / 1.53 MB gz (vs. original 30 MB raw / 6 MB gz budget). 256 Open Sans Regular PBFs shipped at 1.4 MB on disk; ~75 KB fetched per Latin-locale session.
+
+**Infrastructure additions:**
+
+- `@fastify/compress` registered globally for transport-time gzip.
+- `scripts/buildBasemap.ts` and `scripts/buildBasemapFonts.ts` for one-shot data refresh per NE release.
+- `client/public/basemap/*.json` and `client/public/fonts/Open Sans Regular/*.pbf` committed to the repo.
+- **Multi-zoom snapshot harness**: `tests/e2e/map-snapshots.spec.ts` + `playwright.config.snapshots.ts`. 10 baselines (5 locations × light/dark). Run via `npm run test:visual`. *macOS-only baselines; Linux-CI baseline generation deferred until a CI workflow exists.*
 
 ---
 
@@ -488,6 +523,14 @@ Phase A acceptance: `npm test`, `npm run lint`, `cd client && npm run lint`, `np
 **Goal**: eliminate per-window-tick GPU vertex rebuilds, eliminate redundant array passes, stop fly-to from yanking the user back on data refetches, and avoid re-walking the entire graph on every request.
 
 > **Note on B1 (pre-bucketing).** The previous version of this plan called for indexing events into per-year buckets. Dropped — at the realistic scale (≤ 10K events) `events.filter(...)` is sub-millisecond, and pre-bucketing duplicates range events across years requiring downstream dedupe. The real perf wins are stable accessors, `updateTriggers`, and the backend cache (B7).
+
+> **Recommended execution order (decided post-Phase-A):** Land B7+B8 first (backend cache + tests, fully independent of frontend). Then B5 (`timeStore` test — implementation already shipped in A0.3, only the test remains). Then B1+B2+B3 together as one frontend commit (they all touch `buildMapLayers.ts` + `MapView.tsx`). Then B4 standalone. Defer B6 to land alongside C5's Radix dual-handle replacement to avoid double-work; if Phase B happens to ship before C5, do the rAF batching against the native `<input type="range">` and rewire in C5.
+
+> **Commit shape:** Single commit per step group (e.g. one commit for B7+B8). Avoid splitting `graph-updated` event emission from its consumer — a state where the event exists with no consumer harms `git bisect` clarity.
+
+> **`graph-updated` consumer scope:** Only `/api/map/events`'s LRU cache. Search index and hydration progress already have working invalidation via existing events; adding speculative consumers risks behavior changes outside Phase B's design intent.
+
+> **Visual regression coverage:** B1–B4 are internal refactors with no intended visual change. The `npm run test:visual` harness (committed in `27835ad`) will fail on any unintended drift. **Caveat for B4**: the harness stubs `/api/map/events` to empty, which short-circuits the `fitBounds` effect — so the harness does NOT cover the corrected fly-to behavior. Add a non-snapshot Playwright test (or a unit test on the ref-keyed guard logic) explicitly for the "events count change → refit" case.
 
 **Step B1 — Pre-jitter event positions on data arrival** *([frontend])*
 
@@ -1083,28 +1126,12 @@ Remove `search.event` from the effect's dep list.
 
 **Step D1 — Squash the PMTiles cycle** *(branch hygiene)*
 
-**Branch-state decision check first.** Run:
+**Status (2026-05-02):** The PMTiles surface was deleted in `bbf0225` ("Remove PMTiles basemap surface"). The working-tree deletions referenced in earlier drafts of this plan are no longer pending. The three abandoned PMTiles commits (`40cc5f6`, `1b7a9d3`, `033519f`) are followed in history by `bbf0225` (deletion) and the current Phase A0/A/harness commits. Decide before Phase D PR:
 
-```bash
-git fetch origin
-git log @{u}..              # commits ahead of upstream — safe to rebase
-git log ..@{u}              # commits behind upstream — must pull first
-```
+- **If the branch has not been pushed**: `git rebase -i main` and squash `40cc5f6 → 1b7a9d3 → 033519f → bbf0225` into one "Add bundled Natural Earth basemap" commit. Rewrite the message to reflect the final shipped design.
+- **If the branch is already shared** (typical for a long-lived feature branch): leave history as-is. The PMTiles excursion is a public artifact at this point and rewriting it costs more than it saves.
 
-- If the three PMTiles commits (`40cc5f6`, `1b7a9d3`, `033519f`) all show in `git log @{u}..` (i.e. unpushed): **rebase is safe**, follow path A.
-- If any of them are already pushed (do **not** appear in `@{u}..`): **do not rebase**, follow path B.
-
-**Path A — unpushed, rebase safely:**
-
-```bash
-git rebase -i main
-```
-
-Mark `1b7a9d3` and `033519f` as `squash` into `40cc5f6`. Update the squashed commit message to reflect the final design (offline Natural Earth basemap). Commit the working-tree PMTiles deletions as part of the same coherent first commit, *or* leave them as a small follow-up commit.
-
-**Path B — already pushed, append a coherent commit:**
-
-Make one new commit on top: `git commit -m "Refactor: switch basemap to bundled Natural Earth"`. The history will keep the abandoned PMTiles excursion visible — acceptable, since the `git log` of a shared branch is a public artifact.
+Either way, `git grep -i pmtiles` should return zero results outside `PROGRESS.md`/`SPECIFICATION.md` historical sections.
 
 **Step D2 — Fold `MAP_VIEW.md` into `SPECIFICATION.md`** *(docs)*
 
@@ -1112,11 +1139,13 @@ Make one new commit on top: `git commit -m "Refactor: switch basemap to bundled 
 
 **Step D3 — E2E test** *([tests])*
 
+> The visual-regression harness (`tests/e2e/map-snapshots.spec.ts`, run via `npm run test:visual`) already covers the basemap rendering across 5 locations × 2 themes — committed in `27835ad`. This step adds a *user-flow* E2E that complements the visual harness; do **not** duplicate basemap rendering checks here.
+
 Create `tests/e2e/map.spec.ts` using the existing Playwright pattern (`tests/e2e/people.spec.ts` for reference). **Seed the test workspace via the existing isolation helper** — reuse the `setupTestDataDir()` pattern from `tests/e2e/helpers/` (or whichever helper `people.spec.ts` uses) and import a fixture with at least three geocoded events before the first test (`tests/fixtures/geocoded-3-people.ged`, creating it from a real `.ged` snippet if one doesn't yet exist).
 
 Cover:
 
-1. Navigate to `/map`; the basemap and at least one heatmap glow render within 5 s.
+1. Navigate to `/map`; at least one heatmap glow renders within 5 s.
 2. Drag the time slider's right handle; the heatmap visibly changes.
 3. Click `Filter` → uncheck `census`; pin count drops.
 4. Set focal via Graph; navigate `/map`; click "Focal lineage"; URL contains `scope=lineage&person=N_…`.
@@ -1130,12 +1159,13 @@ Skip the offline-Network test in E2E (Playwright's offline mode is brittle acros
 ```bash
 npm test
 npm run test:e2e
+npm run test:visual         # visual-regression harness (10 baselines)
 npm run lint
 cd client && npm run lint
 npm run build
 ```
 
-All must pass with zero errors per `CLAUDE.md` rule 5.
+All must pass with zero errors per `CLAUDE.md` rule 5. `npm run test:visual` requires the dev backend (`:3000`) and Vite (`:5173`) to be running — boot them in two separate terminals first, or use `npm run test:e2e` which manages its own servers (but does not run the visual harness).
 
 **Step D5 — Final screenshots** *(docs)*
 
