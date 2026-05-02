@@ -57,10 +57,11 @@ function jitterOffset(id: string): [number, number] {
 }
 
 /** Produce the deck.gl layer array for a given (zoom, data) combo.
- *  Crossfade logic:
- *    zoom <  6   → pure heatmap
- *    6 ≤ zoom <  12 → heatmap fading out, scatterplot fading in
- *    zoom ≥ 12   → scatterplot only (jittered, type-colored) */
+ *  Basemap only covers zoom 0–8 (country/state level), so thresholds are tuned
+ *  for that range:
+ *    zoom <  3   → pure heatmap
+ *    3 ≤ zoom <  5 → heatmap fades out, scatterplot fades in
+ *    zoom ≥ 5    → scatterplot only (jittered, type-colored) */
 export function buildMapLayers(args: BuildLayersArgs): Layer[] {
     const { events, zoom, windowStart, windowEnd, showUndated, onEventClick } = args;
 
@@ -68,8 +69,8 @@ export function buildMapLayers(args: BuildLayersArgs): Layer[] {
         isEventInWindow(e.sort_date, e.sort_end_date, windowStart, windowEnd, showUndated),
     );
 
-    const heatmapOpacity = zoom < 6 ? 1 : zoom < 9 ? (9 - zoom) / 3 : 0;
-    const pinOpacity = zoom > 12 ? 1 : zoom > 6 ? (zoom - 6) / 6 : 0;
+    const heatmapOpacity = zoom < 3 ? 1 : zoom < 5 ? (5 - zoom) / 2 : 0;
+    const pinOpacity = zoom >= 5 ? 1 : zoom > 3 ? (zoom - 3) / 2 : 0;
 
     const layers: Layer[] = [];
 

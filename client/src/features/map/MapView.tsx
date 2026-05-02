@@ -6,8 +6,7 @@ import type { Layer } from '@deck.gl/core';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useUIStore } from '@/shared/store/uiStore';
 import { useFocalStore } from '@/shared/store/focalStore';
-import { useMapEvents, useBasemapStatus } from './api';
-import { registerPmtilesProtocol } from './pmtiles';
+import { useMapEvents } from './api';
 import { dayStyle } from './styles/day';
 import { nightStyle } from './styles/night';
 import { useMapPrefsStore } from './prefsStore';
@@ -17,8 +16,6 @@ import { TimeSlider } from './TimeSlider';
 import { MapToolbar } from './MapToolbar';
 import { EventDrawer } from './EventDrawer';
 import type { MapEvent } from './types';
-
-const BASEMAP_TILES_URL = '/api/basemap/tiles';
 
 export function MapView() {
     const theme = useUIStore((s) => s.theme);
@@ -54,33 +51,31 @@ export function MapView() {
     const [zoom, setZoom] = useState(2);
     const [openEvent, setOpenEvent] = useState<MapEvent | null>(null);
 
-    const basemap = useBasemapStatus();
     const events = useMapEvents({ scope, focalPersonId });
-    const basemapAvailable = basemap.data?.available ?? false;
-    const pmtilesUrl = (() => {
-        if (!basemap.data?.available) return null;
-        if (basemap.data.source === 'local') return `${window.location.origin}${BASEMAP_TILES_URL}`;
-        return basemap.data.remoteUrl;
-    })();
 
-    // Register pmtiles protocol once, before any map initialization uses it.
-    useEffect(() => { registerPmtilesProtocol(); }, []);
-
-    // Initialize MapLibre + deck.gl overlay on mount — only once the basemap is available.
+    // Initialize MapLibre + deck.gl overlay on mount.
     useEffect(() => {
-        if (!basemapAvailable || !pmtilesUrl) return;
         if (!containerRef.current || mapRef.current) return;
-        const style = theme === 'dark' ? nightStyle(pmtilesUrl) : dayStyle(pmtilesUrl);
+        const style = theme === 'dark' ? nightStyle() : dayStyle();
         const map = new maplibregl.Map({
             container: containerRef.current,
             style,
             center: [0, 30],
             zoom: 2,
-            minZoom: 1,
-            maxZoom: 16,
+            minZoom: 0,
+            maxZoom: 6,
             attributionControl: { compact: true },
         });
-        map.on('zoom', () => setZoom(map.getZoom()));
+        // Throttle zoom updates: the layer crossfade only has thresholds at a few
+        // discrete zoom levels, so we don't need per-frame resolution. Round to 0.25
+        // and only setState when the bucketed value changes — prevents per-frame
+        // layer rebuilds during a pinch/wheel gesture.
+        const onZoom = () => {
+            const z = Math.round(map.getZoom() * 4) / 4;
+            setZoom((prev) => (prev === z ? prev : z));
+        };
+        map.on('zoom', onZoom);
+        map.on('zoomend', onZoom);
         const overlay = new MapboxOverlay({ interleaved: false, layers: [] });
         map.addControl(overlay as unknown as maplibregl.IControl);
         mapRef.current = map;
@@ -92,14 +87,14 @@ export function MapView() {
             overlayRef.current = null;
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [basemapAvailable, pmtilesUrl]);
+    }, []);
 
     // Swap style when theme toggles.
     useEffect(() => {
-        if (!mapRef.current || !pmtilesUrl) return;
-        const style = theme === 'dark' ? nightStyle(pmtilesUrl) : dayStyle(pmtilesUrl);
+        if (!mapRef.current) return;
+        const style = theme === 'dark' ? nightStyle() : dayStyle();
         mapRef.current.setStyle(style, { diff: false });
-    }, [theme, pmtilesUrl]);
+    }, [theme]);
 
     // Seed time window from event extent on first successful load.
     useEffect(() => {
@@ -166,20 +161,9 @@ export function MapView() {
         return () => clearTimeout(t);
     }, [scope, focalPersonId, granularity, speed, loop, isPlaying, windowStart, windowEnd, navigate, search.event]);
 
-    if (basemap.isFetched && !basemapAvailable) {
-        return (
-            <div className="flex h-full w-full items-center justify-center bg-muted/20 p-6">
-                <div className="max-w-md rounded-lg border border-border bg-card p-6 shadow-sm text-center">
-                    <h2 className="text-lg font-semibold mb-2">Basemap unavailable</h2>
-                    <p className="text-sm text-muted-foreground">The remote Protomaps basemap could not be reached, and no local basemap was found.</p>
-                </div>
-            </div>
-        );
-    }
-
     return (
         <div className="relative h-full w-full">
-            <div ref={containerRef} className="absolute inset-0" />
+            <div ref={containerRef} className="h-full w-full" />
             <MapToolbar />
             <TimeSlider />
             <EventDrawer event={openEvent} onClose={() => setOpenEvent(null)} />

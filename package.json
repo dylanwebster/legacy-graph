@@ -9,8 +9,7 @@
     "start": "tsx --env-file=.env src/index.ts",
     "test:e2e": "tsx tests/e2e/setup.ts && playwright test",
     "generate:synthetic-data": "tsx scripts/generateSyntheticData.ts",
-    "geonames:build": "tsx scripts/buildGeonamesDb.ts",
-    "map:build": "tsx scripts/buildMapTiles.ts"
+    "geonames:build": "tsx scripts/buildGeonamesDb.ts"
   },
   "keywords": [],
   "author": "",

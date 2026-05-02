@@ -23,38 +23,31 @@ export function TimeSlider() {
     const { granularity, speed, loop, setGranularity, setSpeed, setLoop } = useMapPrefsStore();
     const scrubRef = useRef<{ wasPlayingBeforeScrub: boolean }>({ wasPlayingBeforeScrub: false });
 
-    // Playback RAF loop — advances the window forward while isPlaying is true.
+    // Step-wise playback — one `granularity` unit per interval. Keeps layer rebuilds
+    // down to a few per second (not 60/s) even with tens of thousands of events.
     useEffect(() => {
         if (!isPlaying) return;
-        let raf = 0;
-        let lastT = performance.now();
-        const step = (now: number) => {
-            const dt = now - lastT;
-            lastT = now;
-            const unitMs = MS_PER_UNIT[granularity] / speed;
-            const yearsPerMs = GRANULARITY_WIDTH[granularity] / unitMs;
-            const dYears = dt * yearsPerMs;
-            const width = windowEnd - windowStart;
-            let nextStart = windowStart + dYears;
+        const stepYears = GRANULARITY_WIDTH[granularity];
+        const stepMs = MS_PER_UNIT[granularity] / speed;
+        const id = setInterval(() => {
+            const { windowStart: ws, windowEnd: we, extentStart: es, extentEnd: ee } = useTimeStore.getState();
+            const width = we - ws;
+            let nextStart = ws + stepYears;
             let nextEnd = nextStart + width;
-            if (nextEnd > extentEnd) {
+            if (nextEnd > ee) {
                 if (loop) {
-                    nextStart = extentStart;
+                    nextStart = es;
                     nextEnd = nextStart + width;
                 } else {
-                    nextEnd = extentEnd;
-                    nextStart = nextEnd - width;
-                    setWindow(nextStart, nextEnd);
+                    setWindow(ee - width, ee);
                     setPlaying(false);
                     return;
                 }
             }
             setWindow(nextStart, nextEnd);
-            raf = requestAnimationFrame(step);
-        };
-        raf = requestAnimationFrame(step);
-        return () => cancelAnimationFrame(raf);
-    }, [isPlaying, granularity, speed, loop, extentStart, extentEnd, windowStart, windowEnd, setWindow, setPlaying]);
+        }, stepMs);
+        return () => clearInterval(id);
+    }, [isPlaying, granularity, speed, loop, setWindow, setPlaying]);
 
     // Keyboard: Space / ← → / Shift+← →
     useEffect(() => {

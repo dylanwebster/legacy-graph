@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/shared/api/client';
-import type { BasemapStatus, MapEventsResponse, MapScope } from './types';
+import type { MapEventsResponse, MapScope } from './types';
 
 export interface UseMapEventsArgs {
     scope: MapScope;
@@ -21,13 +21,5 @@ export function useMapEvents({ scope, focalPersonId }: UseMapEventsArgs) {
         },
         enabled,
         staleTime: 30_000,
-    });
-}
-
-export function useBasemapStatus() {
-    return useQuery({
-        queryKey: ['system/basemap'],
-        queryFn: () => apiFetch<BasemapStatus>('/system/basemap'),
-        staleTime: 5 * 60_000,
     });
 }

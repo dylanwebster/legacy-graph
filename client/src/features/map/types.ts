@@ -24,7 +24,3 @@ export interface MapEventsResponse {
     };
 }
 
-export type BasemapStatus =
-    | { available: true; source: 'local'; path: string; sizeBytes: number; builtAt: string }
-    | { available: true; source: 'remote'; remoteUrl: string }
-    | { available: false; path: string };
