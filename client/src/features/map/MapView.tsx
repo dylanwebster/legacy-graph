@@ -49,6 +49,16 @@ export function MapView() {
         if (search.play === 1) setPlaying(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Focal-dependent scopes are meaningless without a focal person. If the
+    // focal is cleared (here or on the Graph page) while focal/lineage is
+    // selected, fall back to 'all' so the map keeps showing something.
+    useEffect(() => {
+        if (!focalPersonId && (scope === 'focal' || scope === 'lineage')) {
+            setScope('all');
+        }
+    }, [focalPersonId, scope, setScope]);
+
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<MapLibreMap | null>(null);
     const overlayRef = useRef<MapboxOverlay | null>(null);
