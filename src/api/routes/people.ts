@@ -323,6 +323,7 @@ export async function peopleRoutes(server: FastifyInstance) {
                     invalidateComputed(graph, neighbor);
                 }
             }
+            graphEngine.emit('graph-updated');
         }
 
         // Stage the deletion in git

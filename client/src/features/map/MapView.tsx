@@ -10,9 +10,9 @@ import { useMapEvents } from './api';
 import { dayStyle } from './styles/day';
 import { nightStyle } from './styles/night';
 import { useMapPrefsStore } from './prefsStore';
-import { buildMapLayers } from './layers/buildMapLayers';
+import { buildMapLayers, jitterOffset, type JitteredEvent } from './layers/buildMapLayers';
 import { BASEMAP_MAX_ZOOM } from './constants';
-import { useTimeStore, initWindowForExtent } from './timeStore';
+import { useTimeStore, initWindowForExtent, isEventInWindow } from './timeStore';
 import { TimeSlider } from './TimeSlider';
 import { MapToolbar } from './MapToolbar';
 import { EventDrawer } from './EventDrawer';
@@ -110,14 +110,21 @@ export function MapView() {
         if (events.data) initWindowForExtent(events.data.extent.minDate, events.data.extent.maxDate);
     }, [events.data]);
 
-    // Fly to the extent of the current filtered data whenever scope or focal changes.
-    // Skip the initial render (events.isFetched flips from false → true once).
+    // Fly to the extent of the current filtered data whenever the bbox actually changes.
+    // Idempotent React Query refetches produce a new events.data reference but identical
+    // bytes — we don't want those to yank the user back. Key the guard on
+    // `${scope}:${focalPersonId}:${events.length}` so that a hot-patch with new geocoded
+    // events (count changes) does refit, but a refetch with identical results does not.
+    const lastFlownToKey = useRef<string | null>(null);
     useEffect(() => {
         if (!mapRef.current || !events.data) return;
+        const key = `${scope}:${focalPersonId ?? '_'}:${events.data.events.length}`;
+        if (lastFlownToKey.current === key) return;
         const bbox = events.data.extent.bbox;
         if (!bbox) return;
         const [w, s, e, n] = bbox;
         mapRef.current.fitBounds([[w, s], [e, n]], { padding: 60, duration: 400, maxZoom: BASEMAP_MAX_ZOOM });
+        lastFlownToKey.current = key;
     }, [scope, focalPersonId, events.data]);
 
     // Rebuild deck.gl layers whenever events / zoom / time window / scope change.
@@ -125,19 +132,46 @@ export function MapView() {
     const windowEnd = useTimeStore((s) => s.windowEnd);
     const showUndated = useTimeStore((s) => s.showUndated);
 
+    // Pre-jitter event positions once per data refresh. Keyed on dataUpdatedAt
+    // (not events.data) — React Query produces a new reference on every refetch
+    // even when bytes are identical, which would otherwise re-jitter unnecessarily.
+    const jitteredEvents = useMemo<JitteredEvent[]>(() => {
+        const all = events.data?.events ?? [];
+        return all.map((e) => {
+            const [dx, dy] = jitterOffset(e.id);
+            return { ...e, jitteredLng: e.lng + dx, jitteredLat: e.lat + dy };
+        });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [events.dataUpdatedAt]);
+
+    // Pre-filter focal-scope events once per data/scope/focal change.
+    const personEvents = useMemo<JitteredEvent[] | null>(() => {
+        if (scope !== 'focal' || !focalPersonId) return null;
+        return jitteredEvents
+            .filter((e) => e.person_id === focalPersonId && e.sort_date)
+            .sort((a, b) => (a.sort_date ?? '').localeCompare(b.sort_date ?? ''));
+    }, [jitteredEvents, scope, focalPersonId]);
+
+    // Time-window filter lifted out of buildMapLayers so the resulting array's
+    // reference is stable across zoom changes. With a stable `data` reference,
+    // deck.gl skips GPU attribute regen on layer re-build.
+    const visible = useMemo<JitteredEvent[]>(() => {
+        return jitteredEvents.filter((e) =>
+            isEventInWindow(e.sort_date, e.sort_end_date, windowStart, windowEnd, showUndated),
+        );
+    }, [jitteredEvents, windowStart, windowEnd, showUndated]);
+
     const layers = useMemo<Layer[]>(() => {
         return buildMapLayers({
-            events: events.data?.events ?? [],
+            visible,
+            personEvents,
             zoom,
-            windowStart,
-            windowEnd,
-            showUndated,
             scope,
             focalPersonId,
             theme,
             onEventClick: setOpenEvent,
         });
-    }, [events.data, zoom, windowStart, windowEnd, showUndated, scope, focalPersonId, theme]);
+    }, [visible, personEvents, zoom, scope, focalPersonId, theme]);
 
     useEffect(() => {
         overlayRef.current?.setProps({ layers });

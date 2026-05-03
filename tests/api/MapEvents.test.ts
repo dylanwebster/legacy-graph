@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { createServer } from '../../src/server';
+import type { AppInstance } from '../../src/api/types';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -170,5 +171,57 @@ describe('GET /api/map/events', () => {
         expect(residence).toBeDefined();
         expect(residence!.sort_date).toBe('1930-01-01');
         expect(residence!.sort_end_date).toBe('1940-01-01');
+    });
+
+    it('caches responses and invalidates on graph-updated emission', async () => {
+        const { graphEngine } = (server as AppInstance).appServices;
+        const graph = graphEngine.getGraph();
+
+        // Force a fresh cache state — earlier tests may have populated the same key.
+        graphEngine.emit('graph-updated');
+
+        const spy = vi.spyOn(graph, 'forEachNode');
+
+        // Prime: first call walks the graph.
+        const r1 = await server.inject({ method: 'GET', url: '/api/map/events' });
+        expect(r1.statusCode).toBe(200);
+        const callsAfterFirst = spy.mock.calls.length;
+        expect(callsAfterFirst).toBeGreaterThan(0);
+
+        // Second call within the cache window: must NOT walk the graph again.
+        await server.inject({ method: 'GET', url: '/api/map/events' });
+        expect(spy.mock.calls.length).toBe(callsAfterFirst);
+
+        // Emit graph-updated → cache clears → next call walks again.
+        graphEngine.emit('graph-updated');
+        await server.inject({ method: 'GET', url: '/api/map/events' });
+        expect(spy.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+
+        spy.mockRestore();
+    });
+
+    it('caches per-scope independently (all vs person vs lineage)', async () => {
+        const { graphEngine } = (server as AppInstance).appServices;
+        const graph = graphEngine.getGraph();
+
+        // Force a fresh cache state.
+        graphEngine.emit('graph-updated');
+
+        const spy = vi.spyOn(graph, 'forEachNode');
+
+        await server.inject({ method: 'GET', url: '/api/map/events' });
+        const after1 = spy.mock.calls.length;
+
+        await server.inject({ method: 'GET', url: '/api/map/events?person=N_focal-test-0000-london-aaaa1111' });
+        const after2 = spy.mock.calls.length;
+        expect(after2).toBeGreaterThan(after1); // distinct cache key — walk happens
+
+        await server.inject({ method: 'GET', url: '/api/map/events?person=N_focal-test-0000-london-aaaa1111' });
+        expect(spy.mock.calls.length).toBe(after2); // cached now
+
+        await server.inject({ method: 'GET', url: '/api/map/events?lineage=N_focal-test-0000-london-aaaa1111' });
+        expect(spy.mock.calls.length).toBeGreaterThan(after2); // lineage is its own key
+
+        spy.mockRestore();
     });
 });

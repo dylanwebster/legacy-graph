@@ -70,4 +70,17 @@ About @N_DAD.`);
         expect(graph.hasNode("story.md")).toBe(true);
         expect(graph.hasEdge("story.md", "N_DAD")).toBe(true);
     });
+
+    it('emits graph-updated on hydration and on applyWriteSideEffects', async () => {
+        const engine = new GraphEngine(DATA_DIR);
+        let count = 0;
+        engine.on('graph-updated', () => { count++; });
+        await engine.hydrate();
+        expect(count).toBeGreaterThanOrEqual(1);
+
+        const before = count;
+        const dad = engine.getGraph().getNodeAttributes('N_DAD').data;
+        engine.applyWriteSideEffects('N_DAD', dad, dad, '');
+        expect(count).toBe(before + 1);
+    });
 });
