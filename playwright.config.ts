@@ -4,9 +4,10 @@ import path from 'path';
 export default defineConfig({
     testDir: './tests/e2e',
     // Visual-snapshot harness runs under playwright.config.snapshots.ts, which
-    // strips the platform suffix from baseline filenames. Excluding it here
-    // keeps `npm run test:e2e` focused on functional CUJ tests.
-    testIgnore: /map-snapshots\.spec\.ts$/,
+    // strips the platform suffix from baseline filenames. The perf harness runs
+    // under playwright.config.perf.ts. Excluding both here keeps `npm run
+    // test:e2e` focused on functional CUJ tests.
+    testIgnore: /(map-snapshots|map-perf)\.spec\.ts$/,
     fullyParallel: false, // sequential — tests share backend state
     workers: 1,
     retries: 0,

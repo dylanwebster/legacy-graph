@@ -29,7 +29,6 @@ const baseArgs = {
     scope: 'all' as const,
     focalPersonId: null,
     theme: 'light' as const,
-    heatmapRadiusPixels: 40,
     onEventClick: () => {},
 };
 
@@ -65,10 +64,15 @@ describe('buildMapLayers', () => {
         expect(pins?.props.visible).toBe(true);
     });
 
-    it('passes heatmapRadiusPixels straight through to the HeatmapLayer', () => {
-        const layers = buildMapLayers({ ...baseArgs, zoom: 1, heatmapRadiusPixels: 55 });
-        const heat = layers.find((l) => l.id === 'events-heatmap');
-        expect((heat?.props as { radiusPixels?: number }).radiusPixels).toBe(55);
+    it('keeps heatmap radiusPixels constant (Phase B baseline)', () => {
+        // Heatmap radius is fixed at 40 — changing it on zoom forces the
+        // weight texture to regenerate, causing visible choppiness.
+        const a = buildMapLayers({ ...baseArgs, zoom: 1 });
+        const b = buildMapLayers({ ...baseArgs, zoom: 4 });
+        const ra = (a.find((l) => l.id === 'events-heatmap')?.props as { radiusPixels?: number }).radiusPixels;
+        const rb = (b.find((l) => l.id === 'events-heatmap')?.props as { radiusPixels?: number }).radiusPixels;
+        expect(ra).toBe(40);
+        expect(rb).toBe(40);
     });
 
     it('emits no focal-path layers when scope is not focal', () => {

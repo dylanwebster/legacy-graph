@@ -19,9 +19,6 @@ export interface BuildLayersArgs {
     scope: MapScope;
     focalPersonId: string | null;
     theme: 'dark' | 'light';
-    /** Zoom-interpolated radius in CSS pixels. Caller computes this so the value
-     *  changes only when the bucketed zoom state changes. */
-    heatmapRadiusPixels: number;
     onEventClick: (evt: MapEvent) => void;
 }
 
@@ -52,7 +49,7 @@ const getPath = (d: { path: [number, number][] }) => d.path;
  *  resources alive. This avoids the layer add/remove churn that previously
  *  tore down the HeatmapLayer framebuffer at the zoom-3 / zoom-5 thresholds. */
 export function buildMapLayers(args: BuildLayersArgs): Layer[] {
-    const { visible, personEvents, zoom, theme, heatmapRadiusPixels, onEventClick } = args;
+    const { visible, personEvents, zoom, theme, onEventClick } = args;
 
     const heatmapOpacity = zoom < 3 ? 1 : zoom < 5 ? (5 - zoom) / 2 : 0;
     const pinOpacity = zoom >= 5 ? 1 : zoom > 3 ? (zoom - 3) / 2 : 0;
@@ -65,7 +62,12 @@ export function buildMapLayers(args: BuildLayersArgs): Layer[] {
         visible: heatmapOpacity > 0.02,
         getPosition: getRawPosition,
         getWeight,
-        radiusPixels: heatmapRadiusPixels,
+        // Constant radiusPixels: changing this prop forces HeatmapLayer to
+        // regenerate its weight texture, which causes visible choppiness on
+        // zoom. Spec §6.11 calls for 30 → 60 px zoom interpolation; deferred
+        // until the perf hit can be addressed (or the layer cached across
+        // zoom levels). Phase C reverted this back to the Phase B baseline.
+        radiusPixels: 40,
         intensity: 1.2,
         threshold: 0.03,
         opacity: heatmapOpacity,
@@ -79,9 +81,6 @@ export function buildMapLayers(args: BuildLayersArgs): Layer[] {
             [255, 220, 140, 245],
             [255, 250, 220, 255],
         ],
-        updateTriggers: {
-            radiusPixels: heatmapRadiusPixels,
-        },
     }));
 
     // Connected-path view: only when scope is "focal" (a single person) and the

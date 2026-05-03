@@ -15,3 +15,4 @@ test-results/
 .claude
 .playwright-cli
 .tmp/
+tests/e2e/perf-traces/

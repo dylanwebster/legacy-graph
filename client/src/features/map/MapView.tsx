@@ -70,12 +70,13 @@ export function MapView() {
             maxZoom: BASEMAP_MAX_ZOOM,
             attributionControl: { compact: true },
         });
-        // Throttle zoom updates: the layer crossfade only has thresholds at a few
-        // discrete zoom levels, so we don't need per-frame resolution. Round to 0.25
-        // and only setState when the bucketed value changes — prevents per-frame
-        // layer rebuilds during a pinch/wheel gesture.
+        // Throttle zoom updates: the crossfade only has meaningful thresholds at
+        // zoom 3 and 5, so 0.5-step quantization (≈11 distinct values across the
+        // 0–8 basemap range) is plenty. Tighter buckets force a fresh layer
+        // rebuild for every fractional notch a wheel/pinch crosses, and each
+        // rebuild constructs new Heatmap/Scatter Layer instances.
         const onZoom = () => {
-            const z = Math.round(map.getZoom() * 4) / 4;
+            const z = Math.round(map.getZoom() * 2) / 2;
             setZoom((prev) => (prev === z ? prev : z));
         };
         map.on('zoom', onZoom);
@@ -162,13 +163,11 @@ export function MapView() {
         });
     }, [jitteredEvents, windowStart, windowEnd, showUndated, typeFilter]);
 
-    // Heatmap radius is zoom-interpolated: 30 px at zoom 0 → 60 px at zoom 5.
-    // Computed here (not inside buildMapLayers) so the layer prop changes only
-    // when the bucketed `zoom` state changes, not per draw frame.
-    const heatmapRadiusPixels = useMemo(() => {
-        const t = Math.max(0, Math.min(1, zoom / 5));
-        return 30 + (60 - 30) * t;
-    }, [zoom]);
+    // Above zoom 5 every layer-affecting value (heatmap visibility, pin
+    // visibility/opacity) is constant, so collapse to a single value there.
+    // This is what keeps the layers useMemo result stable while the user
+    // pans/zooms in the high-zoom range — no setProps, no deck.gl diff work.
+    const layerZoom = useMemo(() => Math.min(zoom, 5), [zoom]);
 
     // Defer `onOpenEvent` declaration: declared below as a useCallback. We
     // build layers off a stable click ref so the layer rebuild deps stay tight.
@@ -178,14 +177,13 @@ export function MapView() {
         return buildMapLayers({
             visible,
             personEvents,
-            zoom,
+            zoom: layerZoom,
             scope,
             focalPersonId,
             theme,
-            heatmapRadiusPixels,
             onEventClick: (evt) => clickRef.current(evt),
         });
-    }, [visible, personEvents, zoom, scope, focalPersonId, theme, heatmapRadiusPixels]);
+    }, [visible, personEvents, layerZoom, scope, focalPersonId, theme]);
 
     useEffect(() => {
         overlayRef.current?.setProps({ layers });
