@@ -13,6 +13,7 @@ import { GitBranch, RefreshCw, Scan, Maximize2, Minimize2, Network, Search, X, C
 import { useUIStore } from '@/shared/store/uiStore';
 import { sexColor } from '@/shared/lib/sexColors';
 import { TopBarActions } from '@/shared/components/layout/TopBarSlotContext';
+import { FocalPersonPicker, type FocalPickerNode } from '@/shared/components/FocalPersonPicker';
 import FanChartPanel from '@/features/dashboard/FanChartPanel';
 import type { FanChartPanelHandle } from '@/features/dashboard/FanChartPanel';
 import PedigreePanel from '@/features/dashboard/PedigreePanel';
@@ -56,12 +57,6 @@ export function FamilyGraphPanel() {
     const [searchFocused, setSearchFocused] = useState(false);
     const [searchActiveIndex, setSearchActiveIndex] = useState(-1);
     const searchRef = useRef<HTMLDivElement>(null);
-
-    // ── Root person picker state ───────────────────────────────────────────
-    const [rootSearch, setRootSearch] = useState('');
-    const [rootFocused, setRootFocused] = useState(false);
-    const [rootActiveIndex, setRootActiveIndex] = useState(-1);
-    const rootPickerRef = useRef<HTMLDivElement>(null);
 
     // ── Hover state ────────────────────────────────────────────────────────
     const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
@@ -377,9 +372,6 @@ export function FamilyGraphPanel() {
             if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
                 setSearchFocused(false);
             }
-            if (rootPickerRef.current && !rootPickerRef.current.contains(e.target as Node)) {
-                setRootFocused(false);
-            }
         }
         document.addEventListener('mousedown', handleClick);
         return () => document.removeEventListener('mousedown', handleClick);
@@ -405,8 +397,6 @@ export function FamilyGraphPanel() {
         // and just update the visual highlighting and camera focus.
         rootPersonIdRef.current = id;
         setRootPersonId(id);
-        setRootSearch('');
-        setRootFocused(false);
         saveForceState(id);
         // Clear fan/pedigree view+expand state so the fresh root starts at default zoom
         updateDs({ fanView: null, pedigreeView: null, pedigreeExpanded: null });
@@ -435,19 +425,15 @@ export function FamilyGraphPanel() {
         }
     }, [saveForceState, updateDs]);
 
-    const rootDropdownNodes = useMemo<SimNode[]>(() => {
-        if (!rootFocused || !stableGraphData) return [];
-        const q = rootSearch.trim().toLowerCase();
-        const all = stableGraphData.nodes as SimNode[];
-        if (!q) return all.slice(0, 8);
-        // Word-based matching: every query word must appear in the label.
-        // "gene webster" matches "Gene E Webster" because both "gene" and "webster" are substrings.
-        const words = q.split(/\s+/).filter(Boolean);
-        return all.filter(n => {
-            const label = (n as SimNode).label.toLowerCase();
-            return words.every(w => label.includes(w));
-        }).slice(0, 8);
-    }, [rootFocused, rootSearch, stableGraphData]);
+    const focalPickerNodes = useMemo<FocalPickerNode[]>(() => {
+        if (!stableGraphData) return [];
+        return (stableGraphData.nodes as SimNode[]).map((n) => ({
+            id: n.id as string,
+            label: n.label,
+            sex: n.sex,
+            birthYear: n.birthYear,
+        }));
+    }, [stableGraphData]);
 
     // ── Search derived state ───────────────────────────────────────────────
     const matchingIds = useMemo<Set<string> | null>(() => {
@@ -1114,11 +1100,6 @@ export function FamilyGraphPanel() {
     const linkCount = stableGraphData?.links.length ?? 0;
     const matchCount = matchingIds?.size ?? 0;
 
-    const rootNodeLabel = useMemo(() => {
-        if (!rootPersonId || !stableGraphData) return '';
-        return (stableGraphData.nodes as SimNode[]).find(n => n.id === rootPersonId)?.label ?? '';
-    }, [rootPersonId, stableGraphData]);
-
     return (
         <div ref={panelRef} className="flex flex-col h-full">
             <TopBarActions>
@@ -1150,46 +1131,11 @@ export function FamilyGraphPanel() {
 
                 {/* Focal person picker */}
                 {!isLoading && !isError && nodeCount > 0 && (
-                    <div ref={rootPickerRef} className="relative">
-                        <div className="flex items-center gap-1 h-8 rounded-md border border-input bg-background px-2 ring-offset-background focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
-                            <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            <input
-                                type="text"
-                                value={rootFocused ? rootSearch : (rootPersonId ? rootNodeLabel : '')}
-                                onChange={(e) => { setRootSearch(e.target.value); setRootActiveIndex(-1); }}
-                                onFocus={() => { setRootFocused(true); setRootSearch(''); setRootActiveIndex(-1); }}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'ArrowDown') { e.preventDefault(); setRootActiveIndex(i => Math.min(i + 1, rootDropdownNodes.length - 1)); }
-                                    else if (e.key === 'ArrowUp') { e.preventDefault(); setRootActiveIndex(i => Math.max(i - 1, 0)); }
-                                    else if (e.key === 'Enter' && rootActiveIndex >= 0) { e.preventDefault(); handleSetRoot(rootDropdownNodes[rootActiveIndex].id as string); }
-                                    else if (e.key === 'Escape') { setRootFocused(false); setRootActiveIndex(-1); }
-                                }}
-                                placeholder="Focal person…"
-                                className="w-36 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-                            />
-                            {rootPersonId && !rootFocused && (
-                                <button onClick={() => handleSetRoot(null)} className="text-muted-foreground hover:text-foreground">
-                                    <X className="h-3 w-3" />
-                                </button>
-                            )}
-                        </div>
-                        {rootFocused && rootDropdownNodes.length > 0 && (
-                            <div className="absolute left-0 top-full mt-1.5 w-56 z-50 rounded-lg border border-border bg-card shadow-xl overflow-hidden">
-                                {rootDropdownNodes.map((node, i) => (
-                                    <button
-                                        key={node.id as string}
-                                        onMouseDown={(e) => { e.preventDefault(); handleSetRoot(node.id as string); }}
-                                        onMouseEnter={() => setRootActiveIndex(i)}
-                                        className={`w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 transition-colors ${i === rootActiveIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-muted/40'}`}
-                                    >
-                                        <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: sexColor(node.sex) }} />
-                                        <span className="flex-1 min-w-0 truncate">{node.label}</span>
-                                        {node.birthYear && <span className="font-mono shrink-0 opacity-60">b.&nbsp;{node.birthYear}</span>}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
+                    <FocalPersonPicker
+                        nodes={focalPickerNodes}
+                        value={rootPersonId}
+                        onChange={handleSetRoot}
+                    />
                 )}
 
                 {/* Find person search — force mode only */}

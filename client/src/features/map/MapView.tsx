@@ -15,8 +15,8 @@ import { BASEMAP_MAX_ZOOM } from './constants';
 import { useTimeStore, initWindowForExtent, isEventInWindow } from './timeStore';
 import { TimeSlider } from './TimeSlider';
 import { MapToolbar } from './MapToolbar';
-import { MapLegend } from './MapLegend';
 import { EventDrawer } from './EventDrawer';
+import { TopBarActions } from '@/shared/components/layout/TopBarSlotContext';
 import type { MapEvent } from './types';
 import type { EventType } from './eventTypes';
 
@@ -270,9 +270,10 @@ export function MapView() {
 
     return (
         <div className="relative h-full w-full">
+            <TopBarActions>
+                <MapToolbar />
+            </TopBarActions>
             <div ref={containerRef} className="h-full w-full" />
-            <MapToolbar />
-            <MapLegend />
             <TimeSlider />
             {isLoading && (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
