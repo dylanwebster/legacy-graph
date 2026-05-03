@@ -6,10 +6,10 @@ import { cn } from '@/shared/lib/cn';
 
 const navItems = [
     { icon: Network, label: 'Graph', to: '/' },
+    { icon: Globe, label: 'Map', to: '/map' },
     { icon: Users, label: 'People', to: '/people' },
     { icon: BookOpen, label: 'Stories', to: '/stories' },
     { icon: Image, label: 'Assets', to: '/assets' },
-    { icon: Globe, label: 'Map', to: '/map' },
 ];
 
 const bottomItems = [

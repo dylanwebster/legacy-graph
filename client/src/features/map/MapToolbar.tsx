@@ -4,6 +4,7 @@ import { useFocalStore } from '@/shared/store/focalStore';
 import { useGraphData } from '@/shared/api/hooks';
 import { FocalPersonPicker, type FocalPickerNode } from '@/shared/components/FocalPersonPicker';
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/ui/popover';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/ui/tooltip';
 import { useMapPrefsStore } from './prefsStore';
 import { EVENT_TYPES, TYPE_COLORS, type EventType } from './eventTypes';
 import type { MapScope } from './types';
@@ -76,33 +77,40 @@ export function MapToolbar() {
             <div className="w-px h-5 bg-border shrink-0 mx-1" />
 
             {/* Scope toggle — matches the dashboard's viz-mode segmented buttons */}
-            <div className="flex gap-1 shrink-0">
-                {SCOPES.map(([value, Icon, label]) => {
-                    const active = scope === value;
-                    const disabled = (value === 'focal' || value === 'lineage') && !hasFocal;
-                    return (
-                        <button
-                            key={value}
-                            type="button"
-                            onClick={() => chooseScope(value)}
-                            disabled={disabled}
-                            title={
-                                disabled
-                                    ? 'Pick a focal person to enable this scope'
-                                    : label
-                            }
-                            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${
-                                active
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                            } ${disabled ? 'opacity-40 cursor-not-allowed hover:bg-muted' : ''}`}
-                        >
-                            <Icon className="h-3 w-3" />
-                            {label}
-                        </button>
-                    );
-                })}
-            </div>
+            <TooltipProvider delayDuration={150}>
+                <div className="flex gap-1 shrink-0">
+                    {SCOPES.map(([value, Icon, label]) => {
+                        const active = scope === value;
+                        const disabled = (value === 'focal' || value === 'lineage') && !hasFocal;
+                        const button = (
+                            <button
+                                type="button"
+                                onClick={() => chooseScope(value)}
+                                aria-disabled={disabled}
+                                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                                    active
+                                        ? 'bg-primary text-primary-foreground'
+                                        : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                                } ${disabled ? 'opacity-40 cursor-not-allowed hover:bg-muted' : ''}`}
+                            >
+                                <Icon className="h-3 w-3" />
+                                {label}
+                            </button>
+                        );
+                        if (!disabled) return <span key={value}>{button}</span>;
+                        return (
+                            <Tooltip key={value}>
+                                <TooltipTrigger asChild>{button}</TooltipTrigger>
+                                <TooltipContent side="bottom" sideOffset={6}>
+                                    {value === 'focal'
+                                        ? 'Pick a focal person to show only their events'
+                                        : "Pick a focal person to show their direct lineage"}
+                                </TooltipContent>
+                            </Tooltip>
+                        );
+                    })}
+                </div>
+            </TooltipProvider>
 
             {/* Focal person picker — shared store with the Graph page */}
             <FocalPersonPicker
@@ -124,7 +132,7 @@ export function MapToolbar() {
                         aria-label="Event type filter"
                     >
                         <Filter className="h-3.5 w-3.5" />
-                        <span>Types</span>
+                        <span>Event types</span>
                         {isFiltered && (
                             <span className="rounded-full bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 leading-none">
                                 {filterCount}/{EVENT_TYPES.length}
