@@ -19,6 +19,9 @@ export interface BuildLayersArgs {
     scope: MapScope;
     focalPersonId: string | null;
     theme: 'dark' | 'light';
+    /** Zoom-interpolated radius in CSS pixels. Caller computes this so the value
+     *  changes only when the bucketed zoom state changes. */
+    heatmapRadiusPixels: number;
     onEventClick: (evt: MapEvent) => void;
 }
 
@@ -40,21 +43,16 @@ const getFillColor = (e: MapEvent): [number, number, number, number] =>
     TYPE_COLORS[e.type as EventType] ?? [200, 200, 200, 220];
 const getRadius = (): number => 6;
 const getWeight = (e: MapEvent): number => TYPE_WEIGHTS[e.type as EventType] ?? 0.5;
+const getPath = (d: { path: [number, number][] }) => d.path;
 
 /** Produce the deck.gl layer array for a given (zoom, data) combo.
- *  Basemap only covers zoom 0–8 (country/state level), so thresholds are tuned
- *  for that range:
- *    zoom <  3   → pure heatmap
- *    3 ≤ zoom <  5 → heatmap fades out, scatterplot fades in
- *    zoom ≥ 5    → scatterplot only (jittered, type-colored)
- *
+ *  Layer order (back-to-front): heatmap → focal-path-halo → focal-path → pins.
  *  Both heatmap + scatter are emitted at every zoom — `visible: false` skips
  *  rendering when opacity would be ~0 but keeps the layer instance and its GPU
  *  resources alive. This avoids the layer add/remove churn that previously
- *  tore down the HeatmapLayer framebuffer at zoom 3 and rebuilt it on the way
- *  back. */
+ *  tore down the HeatmapLayer framebuffer at the zoom-3 / zoom-5 thresholds. */
 export function buildMapLayers(args: BuildLayersArgs): Layer[] {
-    const { visible, personEvents, zoom, onEventClick } = args;
+    const { visible, personEvents, zoom, theme, heatmapRadiusPixels, onEventClick } = args;
 
     const heatmapOpacity = zoom < 3 ? 1 : zoom < 5 ? (5 - zoom) / 2 : 0;
     const pinOpacity = zoom >= 5 ? 1 : zoom > 3 ? (zoom - 3) / 2 : 0;
@@ -67,7 +65,7 @@ export function buildMapLayers(args: BuildLayersArgs): Layer[] {
         visible: heatmapOpacity > 0.02,
         getPosition: getRawPosition,
         getWeight,
-        radiusPixels: 40,
+        radiusPixels: heatmapRadiusPixels,
         intensity: 1.2,
         threshold: 0.03,
         opacity: heatmapOpacity,
@@ -81,19 +79,40 @@ export function buildMapLayers(args: BuildLayersArgs): Layer[] {
             [255, 220, 140, 245],
             [255, 250, 220, 255],
         ],
+        updateTriggers: {
+            radiusPixels: heatmapRadiusPixels,
+        },
     }));
 
     // Connected-path view: only when scope is "focal" (a single person) and the
     // pre-filtered personEvents arg has at least 2 stops. Birth → residences (by
     // sort_date) → death, drawn as a glowing polyline.
+    //
+    // Two stacked PathLayers — a 5 px halo behind a 3 px stroke — give the line
+    // a glow/contrast against either basemap theme without requiring a shader.
     if (personEvents && personEvents.length >= 2) {
         const path = personEvents.map((e) => [e.jitteredLng, e.jitteredLat] as [number, number]);
+        const data = [{ path }];
+        const haloColor: [number, number, number, number] =
+            theme === 'dark' ? [0, 0, 0, 140] : [255, 255, 255, 180];
+        const strokeColor: [number, number, number, number] =
+            theme === 'dark' ? [236, 170, 70, 230] : [180, 95, 30, 230];
+        layers.push(new PathLayer({
+            id: 'focal-path-halo',
+            data,
+            getPath,
+            getColor: haloColor,
+            getWidth: 5,
+            widthUnits: 'pixels',
+            jointRounded: true,
+            capRounded: true,
+        }));
         layers.push(new PathLayer({
             id: 'focal-path',
-            data: [{ path }],
-            getPath: (d) => d.path,
-            getColor: args.theme === 'dark' ? [236, 170, 70, 220] : [180, 95, 30, 220],
-            getWidth: 2,
+            data,
+            getPath,
+            getColor: strokeColor,
+            getWidth: 3,
             widthUnits: 'pixels',
             jointRounded: true,
             capRounded: true,
