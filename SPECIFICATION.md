@@ -865,8 +865,7 @@ Bottom-docked, mobile-expandable.
 - **Speed**: `0.5×` / `1×` / `2×` / `4×`.
 - **Loop toggle**: when on, playback wraps to `extentStart` after passing `extentEnd`; when off, playback stops at the end.
 - **Step-wise playback** (not continuous): `setInterval` advances the window by one granularity unit per tick (year ≈ 2 s/tick at 1×, decade ≈ 1 s, century ≈ 0.8 s). Keeps React/deck.gl rebuilds to a few per second even with tens of thousands of events.
-- **Scrub** pauses playback; no auto-resume. Slider `onValueChange` is rAF-batched: at most one `setWindow` per frame regardless of pointer move rate.
-- **Scrub end**: a `window.addEventListener('pointerup', …)` listener on scrub start fires `onScrubEnd` even if the user releases the pointer outside the slider element (the native `onMouseUp` does not).
+- **Scrub** pauses playback; no auto-resume. During a drag, the `TimeSlider` holds the pending `[start, end]` in local React state and only commits to `useTimeStore` on `onValueCommit` (Radix's pointer-release event, which fires even if the pointer is released outside the thumb). This keeps every drag frame off the deck.gl rebuild path.
 - **Keyboard**: `Space` toggles play, `←` / `→` step the window by one granularity unit, `Shift+←/→` jumps 10 units.
 - **"Show undated" toggle**: events with `sort_date == null` become visible and the window is ignored for them.
 - **Range events** (residence, occupation, military_service, …) are visible whenever `[sort_date, sort_end_date]` overlaps the window.
@@ -875,13 +874,13 @@ Bottom-docked, mobile-expandable.
 
 - **Scope control**: `Everyone` / `Focal person` / `Focal lineage`. Shares `useFocalStore` with the Graph page so focal state round-trips bidirectionally. `Focal lineage` = direct ancestors + direct descendants + spouses of every lineage member (siblings/cousins excluded). Lineage walks the `child_of` edge regardless of the relationship's `type` — so adopted-in / adopted-out chains and step-relations *are* included if the underlying `child_of` edge exists. (Granular filtering by relationship subtype is out of scope for v1.)
 - **Scope persists across focal changes.** Switching the focal person on the Graph page does not wrench the user's selected scope on the Map page out from under them — `useMapPrefsStore.scope` is independent of `useFocalStore.focalPersonId`.
-- **Event-type filter**: a `MapToolbar` overflow menu exposes a checkbox per event type, backed by `useMapPrefsStore.eventTypes` (`null` = all types, non-empty array = filter set). Applied at the same point as the time-window filter inside `buildMapLayers`. Toggle semantics:
-  - Clicking a type when `eventTypes === null` switches to "all types except clicked" (i.e. `[…allTypes].filter(t => t !== clicked)`).
-  - Clicking a type when it's the only one in the array clears the filter back to `null`.
-  - Otherwise toggles set membership.
-  - An "All types" entry at the top resets to `null`.
-- **Legend**: bottom-left collapsible swatch list, keyed by `TYPE_COLORS`. Swatches double as event-type filter toggles using the same semantics as the toolbar menu — one-click muting.
-- **Fly-to**: `map.fitBounds` on every scope or focal change, using the bounding box of the filtered data. Does **not** re-fire on React Query refetches; gated by a ref keyed on `${scope}:${focalPersonId}`. `maxZoom` for fitBounds is 8 to match the basemap cap.
+- **Event-type filter**: lives in `MapLegend` (top-right collapsible panel, collapsed by default). One row per `EVENT_TYPES` member with a color swatch (from `TYPE_COLORS`) and a checkbox; `All` / `None` quick buttons at the top of the panel. Backed by `useMapPrefsStore.eventTypes` (`null` = all types visible, an array = explicit filter set; empty array = nothing visible). Toggle semantics:
+  - Clicking a type when `eventTypes === null` switches to "all types except clicked".
+  - Clicking otherwise toggles set membership.
+  - When toggling produces a set equal to all event types, `eventTypes` collapses back to `null` (keeps the URL/store shorter and means the heatmap is unfiltered).
+  - `All` resets to `null`; `None` sets to `[]`.
+- The filter is applied alongside the time-window filter inside `MapView`'s `visible` `useMemo` against a `Set<EventType>` for O(1) per-event cost. The focal `PathLayer` is intentionally unfiltered — the focal path is a structural feature, not a per-event view.
+- **Fly-to**: `map.fitBounds` on every scope or focal change, using the bounding box of the filtered data. Does **not** re-fire on React Query refetches; gated by a ref keyed on `${scope}:${focalPersonId}:${eventCount}`. `maxZoom` for fitBounds is 8 to match the basemap cap.
 
 #### Day/night themes
 
@@ -918,7 +917,7 @@ Map state is split across three Zustand stores by lifetime, with the URL as a fo
 
 - Toolbar becomes a horizontally scrollable pill strip with compact labels.
 - Time slider stays bottom-docked.
-- **Event drawer is a 40 vh bottom sheet (`h-[40vh]`) with a swipe-down handle** — a 36 px horizontal pill at the top of the drawer, draggable; pointer-down + drag-down ≥ 80 px or a downward velocity threshold dismisses the drawer. Implementation uses `@radix-ui/react-dialog` `<Dialog>` with custom drag handlers; falls back gracefully on browsers without pointer events.
+- **Event drawer is a 40 vh bottom sheet (`h-[40vh]`) with a swipe-down handle** — a small horizontal pill at the top of the drawer, draggable; pointer-down + drag-down ≥ 80 px dismisses the drawer (`DISMISS_THRESHOLD = 80` in `EventDrawer.tsx`). Implemented as a plain positioned `aside` (no Radix Dialog) using Pointer Events with `setPointerCapture` so the drag tracks past element boundaries.
 
 #### Nav + palette
 
@@ -929,9 +928,9 @@ Sidebar Globe icon links to `/map`. Command palette (`/` hotkey) includes "View 
 ```
 client/src/features/map/
   MapView.tsx          Top-level component
-  MapToolbar.tsx       Scope + event-type filter
-  MapLegend.tsx        Bottom-left collapsible swatch list (Phase C)
-  TimeSlider.tsx       Dual-handle Radix slider + playback controls (Phase C)
+  MapToolbar.tsx       Scope buttons (Everyone / Focal person / Focal lineage)
+  MapLegend.tsx        Top-right collapsible event-type filter panel
+  TimeSlider.tsx       Dual-handle Radix slider + playback controls
   EventDrawer.tsx      Side drawer (desktop) / 40 vh bottom sheet (mobile)
   api.ts               useMapEvents React Query hook
   constants.ts         BASEMAP_MAX_ZOOM (single source of truth for ctor + fitBounds caps)
@@ -958,18 +957,13 @@ scripts/
                        from openmaptiles/fonts gh-pages (devs only)
 src/api/routes/
   map.ts               GET /api/map/events with LRU cache
-tests/
-  api/MapEvents.test.ts                                        (Phase B)
-  features/map/styles/styles.test.ts                           (under client vitest)
-  features/map/layers/buildMapLayers.test.ts                   (Phase C)
-  features/map/timeStore.test.ts                               (Phase B)
-  e2e/map.spec.ts                                              (Phase D — user-flow E2E)
-  e2e/map-snapshots.spec.ts                                    (visual regression harness,
-                                                                10 baselines under
-                                                                map-snapshots.spec.ts-snapshots/)
-playwright.config.snapshots.ts                                 (separate config for
-                                                                visual harness — assumes
-                                                                running dev servers)
+tests/api/MapEvents.test.ts                                    backend route (LRU cache, validation, bbox math)
+tests/e2e/map-snapshots.spec.ts                                visual regression harness (10 baselines, run via `npm run test:visual`)
+client/src/features/map/styles/styles.test.ts                  light/dark layer-shape contract (required for setStyle({diff:true}))
+client/src/features/map/layers/buildMapLayers.test.ts          layer ids/visibility, crossfade band, focal-path halo+stroke ordering, jitter determinism
+client/src/features/map/timeStore.test.ts                      granularity-sized seed, no-reset on subsequent calls, isEventInWindow cases
+playwright.config.snapshots.ts                                 separate config for visual harness — assumes running dev servers
+tests/e2e/map.spec.ts                                          user-flow E2E (not yet written — deferred until UX polish settles)
 ```
 
 #### Explicit non-goals
