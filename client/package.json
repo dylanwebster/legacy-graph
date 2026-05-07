@@ -49,7 +49,7 @@
   },
   "overrides": {
     "hono": ">=4.12.5",
-    "express-rate-limit": ">=8.3.0",
+    "express-rate-limit": ">=8.5.1",
     "minimatch": ">=10.2.3"
   },
   "devDependencies": {
