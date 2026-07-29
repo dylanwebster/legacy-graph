@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildMapLayers, jitterOffset, type JitteredEvent } from './buildMapLayers';
+import { buildMapLayers, prepareEvents, type PreparedEvent } from './buildMapLayers';
 import type { MapEvent } from '../types';
 
 function makeEvent(overrides: Partial<MapEvent> = {}): MapEvent {
@@ -17,20 +17,38 @@ function makeEvent(overrides: Partial<MapEvent> = {}): MapEvent {
     };
 }
 
-function makeJittered(overrides: Partial<MapEvent> = {}): JitteredEvent {
-    const e = makeEvent(overrides);
-    const [dx, dy] = jitterOffset(e.id);
-    return { ...e, jitteredLng: e.lng + dx, jitteredLat: e.lat + dy };
+function makePrepared(overrides: Partial<MapEvent> = {}): PreparedEvent {
+    return prepareEvents([makeEvent(overrides)])[0];
 }
 
 const baseArgs = {
-    visible: [makeJittered({ id: 'a' }), makeJittered({ id: 'b', type: 'death' })],
+    visible: [makePrepared({ id: 'a' }), makePrepared({ id: 'b', type: 'death' })],
     personEvents: null,
     scope: 'all' as const,
     focalPersonId: null,
     theme: 'light' as const,
     onEventClick: () => {},
 };
+
+describe('prepareEvents', () => {
+    it('parses start and end years once per event', () => {
+        const [e] = prepareEvents([makeEvent({ sort_date: '1900-05-01', sort_end_date: '1910-02-03' })]);
+        expect(e.startYear).toBe(1900);
+        expect(e.endYear).toBe(1910);
+    });
+
+    it('falls back endYear to startYear for point-in-time events', () => {
+        const [e] = prepareEvents([makeEvent({ sort_date: '1950-04-01', sort_end_date: null })]);
+        expect(e.startYear).toBe(1950);
+        expect(e.endYear).toBe(1950);
+    });
+
+    it('leaves both years null for undated events', () => {
+        const [e] = prepareEvents([{ ...makeEvent(), sort_date: null, sort_end_date: null }]);
+        expect(e.startYear).toBeNull();
+        expect(e.endYear).toBeNull();
+    });
+});
 
 describe('buildMapLayers', () => {
     it('always emits both events-heatmap and events-pins layers', () => {
@@ -83,7 +101,7 @@ describe('buildMapLayers', () => {
     });
 
     it('emits no focal-path layers when personEvents has fewer than 2 stops', () => {
-        const personEvents = [makeJittered({ id: 'p1-e1' })];
+        const personEvents = [makePrepared({ id: 'p1-e1' })];
         const layers = buildMapLayers({
             ...baseArgs,
             zoom: 5,
@@ -98,9 +116,9 @@ describe('buildMapLayers', () => {
 
     it('emits a halo + stroke pair (in that order, behind the pins) when focal scope has ≥2 stops', () => {
         const personEvents = [
-            makeJittered({ id: 'p1-e1', sort_date: '1900-01-01' }),
-            makeJittered({ id: 'p1-e2', sort_date: '1920-01-01', lng: -75 }),
-            makeJittered({ id: 'p1-e3', sort_date: '1980-01-01', lng: -76 }),
+            makePrepared({ id: 'p1-e1', sort_date: '1900-01-01' }),
+            makePrepared({ id: 'p1-e2', sort_date: '1920-01-01', lng: -75 }),
+            makePrepared({ id: 'p1-e3', sort_date: '1980-01-01', lng: -76 }),
         ];
         const layers = buildMapLayers({
             ...baseArgs,
@@ -119,7 +137,7 @@ describe('buildMapLayers', () => {
     });
 
     it('halo is wider than the stroke (5 px vs 3 px)', () => {
-        const personEvents = [makeJittered({ id: 'a' }), makeJittered({ id: 'b', lng: -75 })];
+        const personEvents = [makePrepared({ id: 'a' }), makePrepared({ id: 'b', lng: -75 })];
         const layers = buildMapLayers({
             ...baseArgs,
             zoom: 5,
@@ -139,11 +157,4 @@ describe('buildMapLayers', () => {
         expect(a).toEqual(b);
     });
 
-    it('jitterOffset is deterministic per id and tiny in magnitude', () => {
-        const [dx1, dy1] = jitterOffset('xyz');
-        const [dx2, dy2] = jitterOffset('xyz');
-        expect(dx1).toBe(dx2);
-        expect(dy1).toBe(dy2);
-        expect(Math.hypot(dx1, dy1)).toBeLessThan(0.001);
-    });
 });

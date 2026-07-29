@@ -3,21 +3,21 @@ import maplibregl, { Map as MapLibreMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MapboxOverlay } from '@deck.gl/mapbox';
 import type { Layer } from '@deck.gl/core';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import { useUIStore } from '@/shared/store/uiStore';
 import { useFocalStore } from '@/shared/store/focalStore';
 import { useMapEvents } from './api';
 import { dayStyle } from './styles/day';
 import { nightStyle } from './styles/night';
 import { useMapPrefsStore } from './prefsStore';
-import { buildMapLayers, jitterOffset, type JitteredEvent } from './layers/buildMapLayers';
+import { buildMapLayers, prepareEvents, type PreparedEvent } from './layers/buildMapLayers';
 import { BASEMAP_MAX_ZOOM } from './constants';
 import { useTimeStore, initWindowForExtent, isEventInWindow } from './timeStore';
 import { TimeSlider } from './TimeSlider';
 import { MapToolbar } from './MapToolbar';
 import { EventDrawer } from './EventDrawer';
 import { TopBarActions } from '@/shared/components/layout/TopBarSlotContext';
-import type { MapEvent } from './types';
+import type { MapEvent, MapSearch } from './types';
 import type { EventType } from './eventTypes';
 
 export function MapView() {
@@ -33,13 +33,20 @@ export function MapView() {
     const setPlaying = useTimeStore((s) => s.setPlaying);
     const setWindow = useTimeStore((s) => s.setWindow);
     const navigate = useNavigate({ from: '/map' });
-    const search = useSearch({ from: '/map' });
+    const router = useRouter();
+    // Subscribe only to ?event= — the sole search param we react to after boot.
+    // Subscribing to the whole search object would re-render MapView on every
+    // debounced URL write-back (i.e. every playback tick).
+    const eventParam = useSearch({ from: '/map', select: (s) => s.event });
 
-    // On mount: apply URL params to stores. Runs once — further URL changes come from us.
+    // On mount: apply URL params to stores. Runs once — further URL changes
+    // come from us, so the boot values are read imperatively off router state
+    // instead of a reactive useSearch subscription.
     const didBootFromUrl = useRef(false);
     useEffect(() => {
         if (didBootFromUrl.current) return;
         didBootFromUrl.current = true;
+        const search = router.state.location.search as MapSearch;
         if (search.scope) setScope(search.scope);
         if (search.person) setFocal(search.person);
         if (search.g) setGranularity(search.g);
@@ -139,23 +146,22 @@ export function MapView() {
     const windowEnd = useTimeStore((s) => s.windowEnd);
     const showUndated = useTimeStore((s) => s.showUndated);
 
-    // Pre-jitter event positions once per data refresh.
-    const jitteredEvents = useMemo<JitteredEvent[]>(() => {
-        const all = events.data?.events ?? [];
-        return all.map((e) => {
-            const [dx, dy] = jitterOffset(e.id);
-            return { ...e, jitteredLng: e.lng + dx, jitteredLat: e.lat + dy };
-        });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [events.dataUpdatedAt]);
+    // Pre-parse event years once per data change. Keyed on events.data — not
+    // dataUpdatedAt — so React Query's structural sharing keeps this (and every
+    // downstream memo, GPU buffer, and heatmap texture) stable across refetches
+    // that return identical data (window refocus, staleTime expiry).
+    const preparedEvents = useMemo<PreparedEvent[]>(
+        () => prepareEvents(events.data?.events ?? []),
+        [events.data],
+    );
 
     // Pre-filter focal-scope events once per data/scope/focal change.
-    const personEvents = useMemo<JitteredEvent[] | null>(() => {
+    const personEvents = useMemo<PreparedEvent[] | null>(() => {
         if (scope !== 'focal' || !focalPersonId) return null;
-        return jitteredEvents
+        return preparedEvents
             .filter((e) => e.person_id === focalPersonId && e.sort_date)
             .sort((a, b) => (a.sort_date ?? '').localeCompare(b.sort_date ?? ''));
-    }, [jitteredEvents, scope, focalPersonId]);
+    }, [preparedEvents, scope, focalPersonId]);
 
     // Lift the type-filter set into a stable Set so filtering is O(1) per event
     // and we don't reallocate on every render.
@@ -166,12 +172,12 @@ export function MapView() {
 
     // Time-window + event-type filter. Lifted out of buildMapLayers so the
     // resulting array reference is stable across zoom changes.
-    const visible = useMemo<JitteredEvent[]>(() => {
-        return jitteredEvents.filter((e) => {
+    const visible = useMemo<PreparedEvent[]>(() => {
+        return preparedEvents.filter((e) => {
             if (typeFilter && !typeFilter.has(e.type as EventType)) return false;
-            return isEventInWindow(e.sort_date, e.sort_end_date, windowStart, windowEnd, showUndated);
+            return isEventInWindow(e.startYear, e.endYear, windowStart, windowEnd, showUndated);
         });
-    }, [jitteredEvents, windowStart, windowEnd, showUndated, typeFilter]);
+    }, [preparedEvents, windowStart, windowEnd, showUndated, typeFilter]);
 
     // Above zoom 5 every layer-affecting value (heatmap visibility, pin
     // visibility/opacity) is constant, so collapse to a single value there.
@@ -204,13 +210,13 @@ export function MapView() {
     const lastOpenedEventId = useRef<string | null>(null);
     useEffect(() => {
         if (!events.data) return;
-        const id = search.event;
+        const id = eventParam;
         if (!id || lastOpenedEventId.current === id) return;
         const target = events.data.events.find((e) => e.id === id);
         if (!target) return;
         lastOpenedEventId.current = id;
         setOpenEvent(target);
-    }, [events.data, search.event]);
+    }, [events.data, eventParam]);
 
     // Drawer open/close also writes ?event= synchronously to avoid a race where
     // the debounced URL writer below re-emits the stale value after close.

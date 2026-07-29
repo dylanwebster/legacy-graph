@@ -3,18 +3,34 @@ import { HeatmapLayer } from '@deck.gl/aggregation-layers';
 import type { Layer } from '@deck.gl/core';
 import type { MapEvent, MapScope } from '../types';
 import { TYPE_COLORS, TYPE_WEIGHTS, type EventType } from '../eventTypes';
+import { parseEventYear } from '../timeStore';
 
-// Pre-jittered event used by deck.gl layers. Computed once per data refresh
-// in MapView and passed in here so the accessors are pure & stable.
-export type JitteredEvent = MapEvent & { jitteredLng: number; jitteredLat: number };
+// Event enriched with pre-parsed years. Computed once per data refresh in
+// MapView (prepareEvents) so the per-frame window filter is pure number math
+// and the deck.gl accessors stay pure & stable.
+export type PreparedEvent = MapEvent & {
+    /** Year of sort_date; null = undated. */
+    startYear: number | null;
+    /** Year of sort_end_date, falling back to startYear for point events. */
+    endYear: number | null;
+};
+
+/** Enrich raw API events with pre-parsed years. Called once per data load. */
+export function prepareEvents(events: MapEvent[]): PreparedEvent[] {
+    return events.map((e) => {
+        const startYear = parseEventYear(e.sort_date);
+        const endYear = e.sort_end_date ? (parseEventYear(e.sort_end_date) ?? startYear) : startYear;
+        return { ...e, startYear, endYear };
+    });
+}
 
 export interface BuildLayersArgs {
     /** Time-window-filtered events. Memoized by the caller so the array reference
      *  is stable across zoom changes — deck.gl skips GPU attribute regen when the
      *  data reference is identity-equal. */
-    visible: JitteredEvent[];
+    visible: PreparedEvent[];
     /** Pre-filtered + sorted focal-scope events. null when scope !== 'focal'. */
-    personEvents: JitteredEvent[] | null;
+    personEvents: PreparedEvent[] | null;
     zoom: number;
     scope: MapScope;
     focalPersonId: string | null;
@@ -22,19 +38,8 @@ export interface BuildLayersArgs {
     onEventClick: (evt: MapEvent) => void;
 }
 
-/** Deterministic tiny-offset jitter so stacked events at city centroids remain clickable.
- *  Exported so MapView can pre-compute jittered positions on data arrival. */
-export function jitterOffset(id: string): [number, number] {
-    let h = 0;
-    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
-    const angle = (h % 360) * (Math.PI / 180);
-    const radius = 0.00025; // ≈ 25–30 m in mid-latitudes
-    return [Math.cos(angle) * radius, Math.sin(angle) * radius];
-}
-
 // Module-scope accessors: stable references across renders so deck.gl can
 // skip re-tessellating GPU buffers when only zoom/opacity change.
-const getJitteredPosition = (e: JitteredEvent): [number, number] => [e.jitteredLng, e.jitteredLat];
 const getRawPosition = (e: MapEvent): [number, number] => [e.lng, e.lat];
 const getFillColor = (e: MapEvent): [number, number, number, number] =>
     TYPE_COLORS[e.type as EventType] ?? [200, 200, 200, 220];
@@ -62,11 +67,10 @@ export function buildMapLayers(args: BuildLayersArgs): Layer[] {
         visible: heatmapOpacity > 0.02,
         getPosition: getRawPosition,
         getWeight,
-        // Constant radiusPixels: changing this prop forces HeatmapLayer to
-        // regenerate its weight texture, which causes visible choppiness on
-        // zoom. Spec §6.11 calls for 30 → 60 px zoom interpolation; deferred
-        // until the perf hit can be addressed (or the layer cached across
-        // zoom levels). Phase C reverted this back to the Phase B baseline.
+        // Constant radiusPixels by design (spec §6.11): changing this prop
+        // forces HeatmapLayer to regenerate its weight texture on every zoom
+        // frame, causing visible choppiness. A fixed radius keeps the glow
+        // stable across the crossfade. Do not move this into updateTriggers.
         radiusPixels: 40,
         intensity: 1.2,
         threshold: 0.03,
@@ -90,7 +94,7 @@ export function buildMapLayers(args: BuildLayersArgs): Layer[] {
     // Two stacked PathLayers — a 5 px halo behind a 3 px stroke — give the line
     // a glow/contrast against either basemap theme without requiring a shader.
     if (personEvents && personEvents.length >= 2) {
-        const path = personEvents.map((e) => [e.jitteredLng, e.jitteredLat] as [number, number]);
+        const path = personEvents.map((e) => [e.lng, e.lat] as [number, number]);
         const data = [{ path }];
         const haloColor: [number, number, number, number] =
             theme === 'dark' ? [0, 0, 0, 140] : [255, 255, 255, 180];
@@ -118,7 +122,7 @@ export function buildMapLayers(args: BuildLayersArgs): Layer[] {
         }));
     }
 
-    layers.push(new ScatterplotLayer<JitteredEvent>({
+    layers.push(new ScatterplotLayer<PreparedEvent>({
         id: 'events-pins',
         data: visible,
         visible: pinOpacity > 0.02,
@@ -126,7 +130,7 @@ export function buildMapLayers(args: BuildLayersArgs): Layer[] {
         radiusUnits: 'pixels',
         getRadius,
         getFillColor,
-        getPosition: getJitteredPosition,
+        getPosition: getRawPosition,
         opacity: pinOpacity,
         onClick: (info) => {
             if (info.object) onEventClick(info.object as MapEvent);

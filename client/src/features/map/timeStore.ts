@@ -60,20 +60,27 @@ export function initWindowForExtent(minDate: string | null, maxDate: string | nu
     }
 }
 
+/** Parse the year out of an ISO-ish date string ("1950-04-01" → 1950).
+ *  Returns null for null/malformed input. Done once per event on data load
+ *  (see prepareEvents) so the per-frame window filter is pure number math. */
+export function parseEventYear(date: string | null): number | null {
+    if (!date) return null;
+    const y = parseInt(date.slice(0, 4), 10);
+    return Number.isNaN(y) ? null : y;
+}
+
 /** Decide whether an event is visible under the current time window.
- *  - Undated event (sort_date == null): visible only when showUndated is true.
- *  - Point-in-time event: year is in [windowStart, windowEnd].
- *  - Range event: [sort_date, sort_end_date] overlaps [windowStart, windowEnd]. */
+ *  Operates on pre-parsed years (see prepareEvents in buildMapLayers).
+ *  - Undated event (startYear == null): visible only when showUndated is true.
+ *  - Point-in-time event: startYear === endYear, year in [windowStart, windowEnd].
+ *  - Range event: [startYear, endYear] overlaps [windowStart, windowEnd]. */
 export function isEventInWindow(
-    sortDate: string | null,
-    sortEndDate: string | null,
+    startYear: number | null,
+    endYear: number | null,
     windowStart: number,
     windowEnd: number,
     showUndated: boolean,
 ): boolean {
-    if (!sortDate) return showUndated;
-    const start = parseInt(sortDate.slice(0, 4), 10);
-    if (Number.isNaN(start)) return false;
-    const end = sortEndDate ? parseInt(sortEndDate.slice(0, 4), 10) : start;
-    return end >= windowStart && start <= windowEnd;
+    if (startYear === null) return showUndated;
+    return (endYear ?? startYear) >= windowStart && startYear <= windowEnd;
 }

@@ -1,17 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
-import type { Granularity, MapScope, Speed } from '@/features/map/types';
+import type { Granularity, MapScope, MapSearch, Speed } from '@/features/map/types';
 
-export interface MapSearch {
-    scope?: MapScope;
-    person?: string;
-    t?: number;
-    t_end?: number;
-    g?: Granularity;
-    speed?: Speed;
-    play?: 0 | 1;
-    loop?: 0 | 1;
-    event?: string;
-}
+export type { MapSearch };
 
 function toNumber(v: unknown): number | undefined {
     const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;

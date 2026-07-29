@@ -37,6 +37,8 @@ interface OutputSpec {
     /** When 'inner', emit pole-of-inaccessibility label points (visually
      *  centered, guaranteed inside polygon). For polygon outputs, set null. */
     pointsMode: 'inner' | null;
+    /** Optional mapshaper -filter expression to drop features entirely. */
+    filter?: string;
 }
 
 // Country shapes upgraded to 1:10m for fidelity (Hawaii, Arctic islands).
@@ -76,7 +78,11 @@ const OUTPUTS: readonly OutputSpec[] = [
     // give them room.
     { out: 'state-labels', input: 'admin1_polys', simplify: null, keepFields: ['name', 'min_zoom'], pointsMode: 'inner' },
     { out: 'lakes', input: 'lakes', simplify: '50%', keepFields: ['name'], pointsMode: null },
-    { out: 'places', input: 'places', simplify: null, keepFields: ['name', 'adm0name', 'pop_max', 'rank_max'], pointsMode: null },
+    // Places below rank_max 4 can never render: the city-label filter's
+    // interpolated threshold bottoms out at 4 at the zoom-8 basemap cap, so
+    // lower-ranked features would be pure payload + symbol-collision cost.
+    // adm0name is dropped — no style layer reads it.
+    { out: 'places', input: 'places', simplify: null, keepFields: ['name', 'pop_max', 'rank_max'], pointsMode: null, filter: 'rank_max >= 4' },
     { out: 'graticules', input: 'graticules', simplify: null, keepFields: [], pointsMode: null },
 ] as const;
 
@@ -100,6 +106,7 @@ function mapshaperCmd(o: OutputSpec, shpPath: string, outFile: string): string[]
     const parts: string[] = ['-i', shpPath];
     if (o.simplify) parts.push('-simplify', o.simplify, 'keep-shapes');
     if (o.pointsMode === 'inner') parts.push('-points', 'inner');
+    if (o.filter) parts.push('-filter', o.filter);
     if (o.keepFields.length > 0) parts.push('-filter-fields', [...o.keepFields].join(','));
     parts.push('-o', 'format=geojson', 'precision=0.0001', outFile);
     return parts;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useTimeStore, initWindowForExtent, isEventInWindow } from './timeStore';
+import { useTimeStore, initWindowForExtent, isEventInWindow, parseEventYear } from './timeStore';
 import { useMapPrefsStore } from './prefsStore';
 
 describe('initWindowForExtent', () => {
@@ -69,6 +69,18 @@ describe('initWindowForExtent', () => {
     });
 });
 
+describe('parseEventYear', () => {
+    it('parses the year from an ISO date string', () => {
+        expect(parseEventYear('1950-04-01')).toBe(1950);
+        expect(parseEventYear('0850-01-01')).toBe(850);
+    });
+
+    it('returns null for null or malformed input', () => {
+        expect(parseEventYear(null)).toBeNull();
+        expect(parseEventYear('unknown')).toBeNull();
+    });
+});
+
 describe('isEventInWindow', () => {
     it('hides undated events unless showUndated', () => {
         expect(isEventInWindow(null, null, 1900, 2000, false)).toBe(false);
@@ -76,21 +88,21 @@ describe('isEventInWindow', () => {
     });
 
     it('shows point events whose year falls inside the window', () => {
-        expect(isEventInWindow('1950-04-01', null, 1900, 2000, false)).toBe(true);
-        expect(isEventInWindow('2050-01-01', null, 1900, 2000, false)).toBe(false);
-        expect(isEventInWindow('1850-01-01', null, 1900, 2000, false)).toBe(false);
+        expect(isEventInWindow(1950, 1950, 1900, 2000, false)).toBe(true);
+        expect(isEventInWindow(2050, 2050, 1900, 2000, false)).toBe(false);
+        expect(isEventInWindow(1850, 1850, 1900, 2000, false)).toBe(false);
     });
 
     it('shows range events that overlap the window at either end', () => {
         // range straddles window-start
-        expect(isEventInWindow('1890-01-01', '1910-01-01', 1900, 2000, false)).toBe(true);
+        expect(isEventInWindow(1890, 1910, 1900, 2000, false)).toBe(true);
         // range straddles window-end
-        expect(isEventInWindow('1990-01-01', '2010-01-01', 1900, 2000, false)).toBe(true);
+        expect(isEventInWindow(1990, 2010, 1900, 2000, false)).toBe(true);
         // fully contained
-        expect(isEventInWindow('1920-01-01', '1930-01-01', 1900, 2000, false)).toBe(true);
+        expect(isEventInWindow(1920, 1930, 1900, 2000, false)).toBe(true);
         // fully before window
-        expect(isEventInWindow('1700-01-01', '1800-01-01', 1900, 2000, false)).toBe(false);
+        expect(isEventInWindow(1700, 1800, 1900, 2000, false)).toBe(false);
         // fully after window
-        expect(isEventInWindow('2010-01-01', '2020-01-01', 1900, 2000, false)).toBe(false);
+        expect(isEventInWindow(2010, 2020, 1900, 2000, false)).toBe(false);
     });
 });
