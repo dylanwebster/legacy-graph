@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { buildMapLayers, prepareEvents, type PreparedEvent } from './buildMapLayers';
+import {
+    buildMapLayers,
+    prepareEvents,
+    getTimeFilterValue,
+    timeFilterRange,
+    YEAR_SENTINEL,
+    type PreparedEvent,
+} from './buildMapLayers';
 import type { MapEvent } from '../types';
 
 function makeEvent(overrides: Partial<MapEvent> = {}): MapEvent {
@@ -22,13 +29,41 @@ function makePrepared(overrides: Partial<MapEvent> = {}): PreparedEvent {
 }
 
 const baseArgs = {
-    visible: [makePrepared({ id: 'a' }), makePrepared({ id: 'b', type: 'death' })],
+    events: [makePrepared({ id: 'a' }), makePrepared({ id: 'b', type: 'death' })],
+    filterRange: timeFilterRange(1800, 2000),
     personEvents: null,
     scope: 'all' as const,
     focalPersonId: null,
     theme: 'light' as const,
-    onEventClick: () => {},
+    onPinClick: () => {},
 };
+
+describe('GPU time filter', () => {
+    it('attaches the 2-component window filter range to heatmap and pins', () => {
+        const layers = buildMapLayers({ ...baseArgs, zoom: 4, filterRange: timeFilterRange(1900, 1950) });
+        for (const id of ['events-heatmap', 'events-pins']) {
+            const layer = layers.find((l) => l.id === id);
+            const props = layer?.props as { filterRange?: number[][]; extensions?: unknown[] };
+            expect(props.filterRange).toEqual([
+                [1900, YEAR_SENTINEL],
+                [-YEAR_SENTINEL, 1950],
+            ]);
+            expect(props.extensions?.length).toBe(1);
+        }
+    });
+
+    it('encodes dated events as [endYear, startYear] filter values', () => {
+        const dated = makePrepared({ sort_date: '1900-05-01', sort_end_date: '1910-01-01' });
+        expect(getTimeFilterValue(dated)).toEqual([1910, 1900]);
+        const point = makePrepared({ sort_date: '1950-04-01' });
+        expect(getTimeFilterValue(point)).toEqual([1950, 1950]);
+    });
+
+    it('gives undated events sentinel values that pass any window', () => {
+        const [undated] = prepareEvents([{ ...makeEvent(), sort_date: null, sort_end_date: null }]);
+        expect(getTimeFilterValue(undated)).toEqual([YEAR_SENTINEL, -YEAR_SENTINEL]);
+    });
+});
 
 describe('prepareEvents', () => {
     it('parses start and end years once per event', () => {
@@ -51,13 +86,48 @@ describe('prepareEvents', () => {
 });
 
 describe('buildMapLayers', () => {
-    it('always emits both events-heatmap and events-pins layers', () => {
+    it('always emits events-embers, events-heatmap and events-pins layers', () => {
         for (const zoom of [0, 2, 4, 6, 8]) {
             const layers = buildMapLayers({ ...baseArgs, zoom });
             const ids = layers.map((l) => l.id);
+            expect(ids).toContain('events-embers');
             expect(ids).toContain('events-heatmap');
             expect(ids).toContain('events-pins');
         }
+    });
+
+    it('draws embers under the heatmap, visible in the heatmap band and gone at high zoom', () => {
+        const low = buildMapLayers({ ...baseArgs, zoom: 1 });
+        const ids = low.map((l) => l.id);
+        expect(ids.indexOf('events-embers')).toBeLessThan(ids.indexOf('events-heatmap'));
+        expect(low.find((l) => l.id === 'events-embers')?.props.visible).toBe(true);
+
+        const high = buildMapLayers({ ...baseArgs, zoom: 7 });
+        expect(high.find((l) => l.id === 'events-embers')?.props.visible).toBe(false);
+    });
+
+    it('embers share the stable data array, the GPU time filter, and are not pickable', () => {
+        const layers = buildMapLayers({ ...baseArgs, zoom: 2, filterRange: timeFilterRange(1900, 1950) });
+        const embers = layers.find((l) => l.id === 'events-embers');
+        const props = embers?.props as {
+            data?: unknown;
+            pickable?: boolean;
+            filterRange?: number[][];
+            extensions?: unknown[];
+        };
+        expect(props.data).toBe(baseArgs.events);
+        expect(props.pickable).toBe(false);
+        expect(props.filterRange).toEqual([
+            [1900, YEAR_SENTINEL],
+            [-YEAR_SENTINEL, 1950],
+        ]);
+        expect(props.extensions?.length).toBe(1);
+    });
+
+    it('keeps the heatmap threshold low so faint areas are not culled (dynamic range)', () => {
+        const layers = buildMapLayers({ ...baseArgs, zoom: 2 });
+        const heat = layers.find((l) => l.id === 'events-heatmap');
+        expect((heat?.props as { threshold?: number }).threshold).toBe(0.01);
     });
 
     it('hides the heatmap at high zoom and shows pins; reverses at low zoom', () => {

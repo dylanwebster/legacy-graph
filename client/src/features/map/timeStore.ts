@@ -2,9 +2,19 @@ import { create } from 'zustand';
 import { useMapPrefsStore } from './prefsStore';
 import type { Granularity } from './types';
 
+/** Default window WIDTH seeded per granularity (initWindowForExtent). */
 export const GRANULARITY_WIDTH: Record<Granularity, number> = {
     year: 5,
     decade: 20,
+    century: 100,
+};
+
+/** How far one playback tick / arrow key moves the window: exactly one
+ *  granularity unit, matching the "1 yr / 10 yr / 100 yr" step labels.
+ *  Distinct from GRANULARITY_WIDTH — step ≠ default width (spec §6.11). */
+export const STEP_YEARS: Record<Granularity, number> = {
+    year: 1,
+    decade: 10,
     century: 100,
 };
 
@@ -60,6 +70,75 @@ export function initWindowForExtent(minDate: string | null, maxDate: string | nu
     }
 }
 
+/** Boot-time window seed from URL params (?t=&t_end=). Marks the window as
+ *  seeded so the extent init that follows the first data load doesn't
+ *  overwrite the deep-linked window. */
+export function seedWindowFromUrl(start: number, end: number) {
+    useTimeStore.setState({ windowStart: start, windowEnd: end, extentSeeded: true });
+}
+
+export interface AdvanceResult {
+    windowStart: number;
+    windowEnd: number;
+    /** True when playback reached the extent end (caller should stop). */
+    done: boolean;
+}
+
+/** One playback tick: slide the window forward by stepYears, preserving its
+ *  width. The step is clamped to the window width so playback never jumps
+ *  past years the window has not shown (a 100-yr step with a 5-yr window
+ *  would otherwise skip 95 of every 100 years). */
+export function advanceWindow(
+    windowStart: number,
+    windowEnd: number,
+    extentStart: number,
+    extentEnd: number,
+    stepYears: number,
+    loop: boolean,
+): AdvanceResult {
+    const width = windowEnd - windowStart;
+    const step = Math.min(stepYears, width);
+    const nextStart = windowStart + step;
+    const nextEnd = nextStart + width;
+    if (nextEnd > extentEnd) {
+        if (loop) {
+            return { windowStart: extentStart, windowEnd: extentStart + width, done: false };
+        }
+        return { windowStart: extentEnd - width, windowEnd: extentEnd, done: true };
+    }
+    return { windowStart: nextStart, windowEnd: nextEnd, done: false };
+}
+
+export interface YearHistogram {
+    counts: number[];
+    max: number;
+}
+
+/** Bin event counts across [extentStart, extentEnd] for the slider's context
+ *  strip. Range events count in every bin their [startYear, endYear] interval
+ *  overlaps — the same overlap semantics the window filter uses — and undated
+ *  events are skipped (they are not on the timeline). */
+export function computeYearHistogram(
+    events: ReadonlyArray<{ startYear: number | null; endYear: number | null }>,
+    extentStart: number,
+    extentEnd: number,
+    binCount: number,
+): YearHistogram {
+    const counts = new Array<number>(binCount).fill(0);
+    const span = Math.max(1, extentEnd - extentStart + 1);
+    const binWidth = span / binCount;
+    for (const e of events) {
+        if (e.startYear === null) continue;
+        const end = e.endYear ?? e.startYear;
+        const firstBin = Math.max(0, Math.floor((e.startYear - extentStart) / binWidth));
+        const lastBin = Math.min(binCount - 1, Math.floor((end - extentStart) / binWidth));
+        for (let b = firstBin; b <= lastBin; b++) counts[b]++;
+    }
+    let max = 0;
+    for (const c of counts) if (c > max) max = c;
+    return { counts, max };
+}
+
 /** Parse the year out of an ISO-ish date string ("1950-04-01" → 1950).
  *  Returns null for null/malformed input. Done once per event on data load
  *  (see prepareEvents) so the per-frame window filter is pure number math. */
@@ -69,18 +148,3 @@ export function parseEventYear(date: string | null): number | null {
     return Number.isNaN(y) ? null : y;
 }
 
-/** Decide whether an event is visible under the current time window.
- *  Operates on pre-parsed years (see prepareEvents in buildMapLayers).
- *  - Undated event (startYear == null): visible only when showUndated is true.
- *  - Point-in-time event: startYear === endYear, year in [windowStart, windowEnd].
- *  - Range event: [startYear, endYear] overlaps [windowStart, windowEnd]. */
-export function isEventInWindow(
-    startYear: number | null,
-    endYear: number | null,
-    windowStart: number,
-    windowEnd: number,
-    showUndated: boolean,
-): boolean {
-    if (startYear === null) return showUndated;
-    return (endYear ?? startYear) >= windowStart && startYear <= windowEnd;
-}

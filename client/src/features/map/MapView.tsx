@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl, { Map as MapLibreMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MapboxOverlay } from '@deck.gl/mapbox';
-import type { Layer } from '@deck.gl/core';
+import type { Layer, PickingInfo } from '@deck.gl/core';
 import { Link, useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import { useUIStore } from '@/shared/store/uiStore';
 import { useFocalStore } from '@/shared/store/focalStore';
@@ -10,9 +10,9 @@ import { useMapEvents } from './api';
 import { dayStyle } from './styles/day';
 import { nightStyle } from './styles/night';
 import { useMapPrefsStore } from './prefsStore';
-import { buildMapLayers, prepareEvents, type PreparedEvent } from './layers/buildMapLayers';
+import { buildMapLayers, prepareEvents, timeFilterRange, type PreparedEvent } from './layers/buildMapLayers';
 import { BASEMAP_MAX_ZOOM } from './constants';
-import { useTimeStore, initWindowForExtent, isEventInWindow } from './timeStore';
+import { useTimeStore, initWindowForExtent, seedWindowFromUrl, computeYearHistogram } from './timeStore';
 import { TimeSlider } from './TimeSlider';
 import { MapToolbar } from './MapToolbar';
 import { EventDrawer } from './EventDrawer';
@@ -31,7 +31,6 @@ export function MapView() {
     const setSpeed = useMapPrefsStore((s) => s.setSpeed);
     const setLoop = useMapPrefsStore((s) => s.setLoop);
     const setPlaying = useTimeStore((s) => s.setPlaying);
-    const setWindow = useTimeStore((s) => s.setWindow);
     const navigate = useNavigate({ from: '/map' });
     const router = useRouter();
     // Subscribe only to ?event= — the sole search param we react to after boot.
@@ -52,7 +51,9 @@ export function MapView() {
         if (search.g) setGranularity(search.g);
         if (search.speed !== undefined) setSpeed(search.speed);
         if (search.loop !== undefined) setLoop(search.loop === 1);
-        if (search.t !== undefined && search.t_end !== undefined) setWindow(search.t, search.t_end);
+        // seedWindowFromUrl (not setWindow) — marks the window as seeded so the
+        // extent init after the first data load can't clobber the deep link.
+        if (search.t !== undefined && search.t_end !== undefined) seedWindowFromUrl(search.t, search.t_end);
         if (search.play === 1) setPlaying(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -70,7 +71,10 @@ export function MapView() {
     const mapRef = useRef<MapLibreMap | null>(null);
     const overlayRef = useRef<MapboxOverlay | null>(null);
     const [zoom, setZoom] = useState(2);
-    const [openEvent, setOpenEvent] = useState<MapEvent | null>(null);
+    // Drawer state: the co-located event list under the last click, and the
+    // event whose card is currently shown (null + multi-list = list mode).
+    const [drawerEvents, setDrawerEvents] = useState<MapEvent[] | null>(null);
+    const [drawerActive, setDrawerActive] = useState<MapEvent | null>(null);
 
     const events = useMapEvents({ scope, focalPersonId });
 
@@ -141,7 +145,8 @@ export function MapView() {
         lastFlownToKey.current = key;
     }, [scope, focalPersonId, events.data]);
 
-    // Rebuild deck.gl layers whenever events / zoom / time window / scope change.
+    // Rebuild deck.gl layers whenever events / zoom / scope change. Time-window
+    // changes do NOT rebuild data — they only swap the GPU filterRange uniform.
     const windowStart = useTimeStore((s) => s.windowStart);
     const windowEnd = useTimeStore((s) => s.windowEnd);
     const showUndated = useTimeStore((s) => s.showUndated);
@@ -170,14 +175,32 @@ export function MapView() {
         return new Set(eventTypes);
     }, [eventTypes]);
 
-    // Time-window + event-type filter. Lifted out of buildMapLayers so the
-    // resulting array reference is stable across zoom changes.
-    const visible = useMemo<PreparedEvent[]>(() => {
+    // Event-type + undated filter — the only CPU-side filtering, and both
+    // change rarely (checkbox clicks). The time window is deliberately NOT
+    // part of this memo: window visibility runs on the GPU via filterRange,
+    // so scrubbing and playback never rebuild this array.
+    const eventsForLayers = useMemo<PreparedEvent[]>(() => {
         return preparedEvents.filter((e) => {
             if (typeFilter && !typeFilter.has(e.type as EventType)) return false;
-            return isEventInWindow(e.startYear, e.endYear, windowStart, windowEnd, showUndated);
+            if (e.startYear === null && !showUndated) return false;
+            return true;
         });
-    }, [preparedEvents, windowStart, windowEnd, showUndated, typeFilter]);
+    }, [preparedEvents, showUndated, typeFilter]);
+
+    // GPU window filter uniform — the per-scrub-frame update is just this pair.
+    const filterRange = useMemo(
+        () => timeFilterRange(windowStart, windowEnd),
+        [windowStart, windowEnd],
+    );
+
+    // Event-count strip behind the slider track. Reflects the type/undated
+    // filter (same event set the layers draw from), not the time window.
+    const extentStart = useTimeStore((s) => s.extentStart);
+    const extentEnd = useTimeStore((s) => s.extentEnd);
+    const histogram = useMemo(
+        () => computeYearHistogram(eventsForLayers, extentStart, extentEnd, 80),
+        [eventsForLayers, extentStart, extentEnd],
+    );
 
     // Above zoom 5 every layer-affecting value (heatmap visibility, pin
     // visibility/opacity) is constant, so collapse to a single value there.
@@ -185,21 +208,22 @@ export function MapView() {
     // pans/zooms in the high-zoom range — no setProps, no deck.gl diff work.
     const layerZoom = useMemo(() => Math.min(zoom, 5), [zoom]);
 
-    // Defer `onOpenEvent` declaration: declared below as a useCallback. We
+    // Defer `onPinClick` declaration: declared below as a useCallback. We
     // build layers off a stable click ref so the layer rebuild deps stay tight.
-    const clickRef = useRef<(evt: MapEvent) => void>(() => {});
+    const clickRef = useRef<(info: PickingInfo<PreparedEvent>) => void>(() => {});
 
     const layers = useMemo<Layer[]>(() => {
         return buildMapLayers({
-            visible,
+            events: eventsForLayers,
+            filterRange,
             personEvents,
             zoom: layerZoom,
             scope,
             focalPersonId,
             theme,
-            onEventClick: (evt) => clickRef.current(evt),
+            onPinClick: (info) => clickRef.current(info),
         });
-    }, [visible, personEvents, layerZoom, scope, focalPersonId, theme]);
+    }, [eventsForLayers, filterRange, personEvents, layerZoom, scope, focalPersonId, theme]);
 
     useEffect(() => {
         overlayRef.current?.setProps({ layers });
@@ -215,13 +239,15 @@ export function MapView() {
         const target = events.data.events.find((e) => e.id === id);
         if (!target) return;
         lastOpenedEventId.current = id;
-        setOpenEvent(target);
+        setDrawerEvents([target]);
+        setDrawerActive(target);
     }, [events.data, eventParam]);
 
     // Drawer open/close also writes ?event= synchronously to avoid a race where
     // the debounced URL writer below re-emits the stale value after close.
     const onCloseDrawer = useCallback(() => {
-        setOpenEvent(null);
+        setDrawerEvents(null);
+        setDrawerActive(null);
         lastOpenedEventId.current = null;
         navigate({
             to: '/map',
@@ -230,8 +256,9 @@ export function MapView() {
         });
     }, [navigate]);
 
-    const onOpenEvent = useCallback((evt: MapEvent) => {
-        setOpenEvent(evt);
+    // Show one event's card (from a direct pick or a list selection) and deep-link it.
+    const onSelectEvent = useCallback((evt: MapEvent) => {
+        setDrawerActive(evt);
         lastOpenedEventId.current = evt.id;
         navigate({
             to: '/map',
@@ -240,20 +267,59 @@ export function MapView() {
         });
     }, [navigate]);
 
-    // Route deck.gl pin clicks through onOpenEvent (which also writes ?event=
-    // synchronously). Done via a ref so layer rebuilds don't depend on the
-    // navigate-derived callback identity.
+    // Card → back to the co-located list. Clears ?event= (the list itself has
+    // no deep-link representation).
+    const onBackToList = useCallback(() => {
+        setDrawerActive(null);
+        lastOpenedEventId.current = null;
+        navigate({
+            to: '/map',
+            search: (prev) => ({ ...prev, event: undefined }),
+            replace: true,
+        });
+    }, [navigate]);
+
+    // Pin click: events geocoded to the same place stack at one point (the
+    // zoom-8 basemap cap ≈ 600 m/px, so stacks never spread apart visually).
+    // deck.gl's onClick surfaces only the topmost pin — pick everything within
+    // a small radius and let the drawer disambiguate.
+    const onPinClick = useCallback((info: PickingInfo<PreparedEvent>) => {
+        const clicked = info.object as MapEvent | null;
+        if (!clicked) return;
+        let picked: MapEvent[] = [clicked];
+        const overlay = overlayRef.current;
+        if (overlay) {
+            const picks = overlay.pickMultipleObjects({
+                x: info.x,
+                y: info.y,
+                radius: 4,
+                layerIds: ['events-pins'],
+                depth: 24,
+            });
+            const seen = new Map<string, MapEvent>();
+            for (const p of picks) {
+                const obj = p.object as MapEvent | undefined;
+                if (obj && !seen.has(obj.id)) seen.set(obj.id, obj);
+            }
+            if (seen.size > 0) picked = [...seen.values()];
+        }
+        setDrawerEvents(picked);
+        if (picked.length === 1) {
+            onSelectEvent(picked[0]);
+        } else {
+            setDrawerActive(null);
+        }
+    }, [onSelectEvent]);
+
     useEffect(() => {
-        clickRef.current = onOpenEvent;
-    }, [onOpenEvent]);
+        clickRef.current = onPinClick;
+    }, [onPinClick]);
 
     // Write current state back to the URL (debounced). Keeps share/reload identical.
     const granularity = useMapPrefsStore((s) => s.granularity);
     const speed = useMapPrefsStore((s) => s.speed);
     const loop = useMapPrefsStore((s) => s.loop);
     const isPlaying = useTimeStore((s) => s.isPlaying);
-    const extentStart = useTimeStore((s) => s.extentStart);
-    const extentEnd = useTimeStore((s) => s.extentEnd);
     useEffect(() => {
         if (!didBootFromUrl.current) return;
         const t = setTimeout(() => {
@@ -290,7 +356,7 @@ export function MapView() {
                 <MapToolbar />
             </TopBarActions>
             <div ref={containerRef} className="h-full w-full" />
-            <TimeSlider />
+            <TimeSlider histogram={histogram} />
             {isLoading && (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <div className="rounded-md border border-border bg-card/80 backdrop-blur-sm px-4 py-2 text-sm text-muted-foreground shadow-sm">
@@ -311,7 +377,13 @@ export function MapView() {
                     </div>
                 </div>
             )}
-            <EventDrawer event={openEvent} onClose={onCloseDrawer} />
+            <EventDrawer
+                events={drawerEvents}
+                active={drawerActive}
+                onSelect={onSelectEvent}
+                onBack={onBackToList}
+                onClose={onCloseDrawer}
+            />
         </div>
     );
 }
