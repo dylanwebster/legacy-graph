@@ -88,6 +88,37 @@ const getEmberRadius = (): number => 1.5;
 const getWeight = (e: MapEvent): number => TYPE_WEIGHTS[e.type as EventType] ?? 0.5;
 const getPath = (d: { path: [number, number][] }) => d.path;
 
+// CompositeLayer forwards `extensions` to sublayers. The heatmap's internal
+// TriangleLayer (the screen-space quad that paints the colorized weight
+// texture) has no per-event attributes, so the filter varying defaults to 0
+// there and the extension discards every fragment — a blank heatmap. Filtering
+// must only apply to the weight-aggregation pass, so strip extensions from the
+// triangle.
+//
+// Module scope is load-bearing: `_subLayerProps` is NOT in HeatmapLayer's
+// `ignoreProps` set, so a fresh object literal per build makes
+// `isAggregationDirty({ compareAll: true })` report "props._subLayerProps
+// changed shallowly". That sets `dataChanged`, which clears the 500 ms
+// debounce and re-runs the weight aggregation *immediately* — including the
+// max-weight reduction pass (see HEATMAP_WEIGHTS_TEXTURE_SIZE). Measured on an
+// M2: one ~200 ms GPU stall per 0.5-zoom-step layer rebuild below zoom 5,
+// where `layerZoom` still varies. A stable reference makes the whole rebuild
+// aggregation-clean.
+const HEATMAP_SUBLAYER_PROPS = { 'triangle-layer': { extensions: [] } };
+
+// HeatmapLayer reduces its weights texture to a 1×1 max by drawing
+// `weightsTextureSize²` point vertices that all blend-max into a single texel —
+// every fragment contends for one pixel, so the raster ops serialize. At the
+// 2048 default that is 4,194,304 vertices ≈ 200 ms of GPU time per
+// aggregation (no JS long task — the main thread is idle while frames drop).
+// 1024 quarters the vertex count to ~50 ms.
+//
+// Do not raise this. Lowering it further buys little: 512 and 256 measured the
+// same ~50 ms, and a smaller texture also shrinks the cached world-bounds
+// margin (`textureSize * 2 / viewport.scale`), so zoom-out escapes its bounds
+// and re-aggregates more often.
+const HEATMAP_WEIGHTS_TEXTURE_SIZE = 1024;
+
 // Ember dot color per theme — warm amber, matching the heatmap's ramp so the
 // dots read as the faint end of the same scale, not a separate encoding.
 const EMBER_COLOR_DARK: [number, number, number, number] = [255, 200, 130, 150];
@@ -139,13 +170,11 @@ export function buildMapLayers(args: BuildLayersArgs): Layer[] {
         getFilterValue: getTimeFilterValue,
         filterRange,
 
-        // CompositeLayer forwards `extensions` to sublayers. The heatmap's
-        // internal TriangleLayer (the screen-space quad that paints the
-        // colorized weight texture) has no per-event attributes, so the filter
-        // varying defaults to 0 there and the extension discards every
-        // fragment — a blank heatmap. Filtering must only apply to the
-        // weight-aggregation pass, so strip extensions from the triangle.
-        _subLayerProps: { 'triangle-layer': { extensions: [] } },
+        // Both of these must stay identity-stable / constant across builds —
+        // see the constants' comments. A fresh `_subLayerProps` literal or a
+        // larger weights texture reintroduces a ~200 ms GPU stall per zoom step.
+        _subLayerProps: HEATMAP_SUBLAYER_PROPS,
+        weightsTextureSize: HEATMAP_WEIGHTS_TEXTURE_SIZE,
         // Constant radiusPixels by design (spec §6.11): changing this prop
         // forces HeatmapLayer to regenerate its weight texture on every zoom
         // frame, causing visible choppiness. A fixed radius keeps the glow

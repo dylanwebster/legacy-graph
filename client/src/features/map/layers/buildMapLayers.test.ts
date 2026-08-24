@@ -227,4 +227,29 @@ describe('buildMapLayers', () => {
         expect(a).toEqual(b);
     });
 
+    it('reuses one _subLayerProps object across builds (identity marks aggregation dirty)', () => {
+        // _subLayerProps is NOT in HeatmapLayer's ignoreProps set, so a fresh
+        // object literal per build makes isAggregationDirty report
+        // "props._subLayerProps changed shallowly" → immediate re-aggregation,
+        // i.e. the ~200 ms max-weight pass on every zoom step. Must be a
+        // module-scope constant.
+        const a = buildMapLayers({ ...baseArgs, zoom: 2 });
+        const b = buildMapLayers({ ...baseArgs, zoom: 4 });
+        const slpA = (a.find((l) => l.id === 'events-heatmap')?.props as { _subLayerProps?: object })
+            ._subLayerProps;
+        const slpB = (b.find((l) => l.id === 'events-heatmap')?.props as { _subLayerProps?: object })
+            ._subLayerProps;
+        expect(slpA).toBeDefined();
+        expect(slpA).toBe(slpB);
+    });
+
+    it('caps the heatmap weights texture at 1024 (max-weight pass is textureSize²)', () => {
+        // HeatmapLayer reduces the weights texture to a 1×1 max by drawing
+        // textureSize² point vertices that all blend into a single texel. At
+        // the 2048 default that is 4.19M vertices ≈ 200 ms of GPU time per
+        // aggregation; 1024 brings it to ~50 ms.
+        const layers = buildMapLayers({ ...baseArgs, zoom: 2 });
+        const heat = layers.find((l) => l.id === 'events-heatmap');
+        expect((heat?.props as { weightsTextureSize?: number }).weightsTextureSize).toBe(1024);
+    });
 });

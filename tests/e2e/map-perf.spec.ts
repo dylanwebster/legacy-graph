@@ -14,7 +14,15 @@ import * as path from 'node:path';
  *
  * Two scenarios:
  *   `full-range`   — zoom 1 → 8 → 1, exercises every crossfade boundary.
- *   `high-zoom`    — oscillates 5 ↔ 8, the range the user reports as choppy.
+ *   `high-zoom`    — oscillates 5 ↔ 8.
+ *
+ * NB: the choppiness this harness was written to chase lived in the *low*
+ * band (zoom < 5), not 5 ↔ 8. Measured cause: one `HeatmapLayer` max-weight
+ * reduction pass (~200 ms of GPU time, no JS long task — so it is invisible
+ * in a CPU profile and only shows up as dropped frames) per layer rebuild.
+ * Above zoom 5 `layerZoom` is clamped, so nothing rebuilds and the heatmap is
+ * not drawn — the `high-zoom` scenario measures an already-idle path. See
+ * SPECIFICATION.md §6.11 "Heatmap aggregation must not re-run per zoom step".
  *
  * Test-only API endpoint stub returns a small synthetic event set so the
  * trace is independent of fixture data. Disable that stub if you need to
