@@ -5,6 +5,12 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    ignore:
+      # typescript-eslint (through 8.70.0) peer-requires typescript ">=4.8.4 <6.1.0".
+      # Bumping typescript to 7.x makes `npm ci` fail with ERESOLVE, which blocks the
+      # whole grouped update PR. Hold until typescript-eslint declares TS 7 support.
+      - dependency-name: "typescript"
+        versions: ["7.x", ">=7"]
     groups:
       security-updates:
         applies-to: security-updates
@@ -24,6 +30,11 @@ updates:
         versions: ["10.x", ">=10"]
       - dependency-name: "@eslint/js"
         versions: ["10.x", ">=10"]
+      # typescript-eslint (through 8.70.0) peer-requires typescript ">=4.8.4 <6.1.0".
+      # Bumping typescript to 7.x makes `npm ci` fail with ERESOLVE, which blocks the
+      # whole grouped update PR. Hold until typescript-eslint declares TS 7 support.
+      - dependency-name: "typescript"
+        versions: ["7.x", ">=7"]
     groups:
       security-updates:
         applies-to: security-updates
