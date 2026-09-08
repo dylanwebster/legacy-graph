@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# CI only reads the repo. Pin the token down rather than inheriting the
+# repository default, which is read/write in some configurations.
+permissions:
+  contents: read
+
 jobs:
   # ── Backend: type-check + unit tests ─────────────────────────────────────
   unit:

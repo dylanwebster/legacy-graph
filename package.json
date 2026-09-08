@@ -1,7 +1,30 @@
 {
   "name": "legacy-graph",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "Self-hosted, local-first genealogy platform: plain YAML and Markdown on disk, versioned by Git, served by an in-memory graph runtime.",
+  "keywords": [
+    "genealogy",
+    "family-tree",
+    "gedcom",
+    "self-hosted",
+    "local-first",
+    "graph",
+    "yaml",
+    "git",
+    "fastify",
+    "graphology"
+  ],
+  "homepage": "https://github.com/dylanwebster/legacy-graph#readme",
+  "bugs": {
+    "url": "https://github.com/dylanwebster/legacy-graph/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dylanwebster/legacy-graph.git"
+  },
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "author": "Dylan Webster (https://github.com/dylanwebster)",
+  "private": true,
   "scripts": {
     "test": "vitest",
     "build": "tsc --noEmit",
@@ -14,10 +37,6 @@
     "basemap:build": "tsx scripts/buildBasemap.ts",
     "basemap:fonts": "tsx scripts/buildBasemapFonts.ts"
   },
-  "keywords": [],
-  "author": "",
-  "license": "PolyForm-Noncommercial-1.0.0",
-  "description": "",
   "engines": {
     "node": ">=22.12.0"
   },

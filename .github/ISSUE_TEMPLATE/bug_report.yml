@@ -1,0 +1,87 @@
+name: Bug report
+description: Something behaves differently than SPECIFICATION.md or the README says it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug.
+
+        **Do not paste real family data.** Names, dates, places, and photographs of real people —
+        living or dead — should not appear in a public issue. Reproduce with the synthetic
+        generator (`npm run generate:synthetic-data`) and share that instead, or redact.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Generate a synthetic dataset with `...`
+        2. Open the person detail page for `...`
+        3. Click `...`
+        4. The timeline shows `...`
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or errors
+      description: Server output, browser console, or a failing test name. Rendered as code.
+      render: shell
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the system
+      options:
+        - Graph runtime (hydration, watcher, hot-patching)
+        - Data model / schema validation
+        - GEDCOM import
+        - Geocoding / GeoNames
+        - Map view
+        - Person detail / timeline / events
+        - Stories
+        - Assets
+        - Search
+        - Git commits / TransactionManager
+        - Auth
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit SHA
+      description: Output of `git rev-parse --short HEAD`.
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS, Node version, browser
+      placeholder: "macOS 15.5, Node 22.14, Chrome 141"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues and this is not a duplicate
+          required: true
+        - label: This report contains no real personal data about living people
+          required: true
