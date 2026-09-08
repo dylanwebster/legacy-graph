@@ -1,0 +1,42 @@
+name: Feature request
+description: Propose new behaviour or a change to how something works.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check [`PROGRESS.md`](../blob/main/PROGRESS.md) first — the roadmap may already
+        cover this. Features usually need a `SPECIFICATION.md` change alongside the code, so
+        the design is worth settling here before anyone writes any.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that the app makes hard or impossible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: What should happen instead. Include the YAML or Markdown shape if it touches the data model.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This would change the on-disk file format or schema
+        - label: This would require a new dependency
+        - label: I would be willing to implement this

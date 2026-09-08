@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/dylanwebster/legacy-graph/security/advisories/new
+    about: Please report vulnerabilities privately, never as a public issue. See SECURITY.md.
+  - name: Question or idea
+    url: https://github.com/dylanwebster/legacy-graph/discussions
+    about: Ask how something works or float an idea before it becomes a feature request.

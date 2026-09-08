@@ -384,7 +384,6 @@ E2E tests start their own backend on `:3000` against a fixture data directory �
 server first (`lsof -ti :3000 | xargs kill`).
 
 Development is test-driven: a failing test comes before the implementation.
-
 ---
 
 ## Status
@@ -397,6 +396,22 @@ Everything shown above is implemented. Actively in progress:
 - **Distribution** — Docker image, Electron wrapper, GEDCOM export UI
 
 See [`PROGRESS.md`](PROGRESS.md) for the full phase-by-phase status.
+
+---
+
+## Contributing
+
+Issues and pull requests are welcome. [`CONTRIBUTING.md`](CONTRIBUTING.md) covers the development
+setup, the house rules (tests first, the spec is authoritative, no flaky tests), and the checks a
+PR has to pass. Open an issue before starting anything substantial — a feature usually needs a
+`SPECIFICATION.md` change alongside the code.
+
+One request that applies to issues, pull requests, and screenshots alike: **no real family data.**
+Use the synthetic generator for anything you share publicly.
+
+Found a security problem? Don't open a public issue — see [`SECURITY.md`](SECURITY.md).
+
+Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ---
 
