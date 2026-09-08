@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Graph from 'graphology';
-import { getAggregatedAssets, getCurrentSpouse, computeRelationships, computeAllRelationships } from '../../src/core/GraphLogic';
+import { getAggregatedAssets, getCurrentSpouse, computeRelationships, computeAllRelationships, getLineage } from '../../src/core/GraphLogic';
 import { Person } from '../../src/schemas/PersonSchema';
 
 // Helper to create a minimal Person object
 function makePerson(id: string, overrides: Partial<Person> = {}): Person {
     return {
-        version: "5.0",
+        version: "5.1",
         id,
         names: [{ first: id, last: 'Test', primary: true }],
         sex: "U",
@@ -32,7 +32,7 @@ describe('Graph Logic', () => {
     it('should aggregate assets from Person, Events, and Stories', () => {
         // 1. Person with direct asset + event asset
         const person: Person = {
-            version: "5.0", id: "P1", names: [], sex: "M", tags: [], relationships: {parents:[]}, created:"", last_modified:"",
+            version: "5.1", id: "P1", names: [], sex: "M", tags: [], relationships: {parents:[]}, created:"", last_modified:"",
             assets: ["direct.jpg"],
             scrapbook_md: "",
             events: [
@@ -61,7 +61,7 @@ describe('Graph Logic', () => {
     // --- SPOUSE TEST (Henry VIII Logic) ---
     it('should determine correct spouse from events', () => {
         const henry: Person = {
-            version: "5.0", id: "HENRY", names: [], sex: "M", tags: [], relationships: {parents:[]}, created:"", last_modified:"", assets:[],
+            version: "5.1", id: "HENRY", names: [], sex: "M", tags: [], relationships: {parents:[]}, created:"", last_modified:"", assets:[],
             scrapbook_md: "",
             events: [
                 { id: "e1", type: "marriage", date: "1509", sort_date: "1509", partner_id: "CATH", status: "married", assets: [] },
@@ -205,6 +205,90 @@ describe('Graph Logic', () => {
 
             expect(kidComputed).toBeDefined();
             expect(kidComputed.siblings).toEqual([]);
+        });
+    });
+
+    describe('getLineage', () => {
+        // Build a 3-generation family with a spouse at the descendant level.
+        //
+        //          N_gp1 - N_gp2
+        //                \  /
+        //                N_parent — N_spouse
+        //                |
+        //                N_child
+        //
+        function buildThreeGen() {
+            graph.addNode('N_gp1', { type: 'person', data: makePerson('N_gp1') });
+            graph.addNode('N_gp2', { type: 'person', data: makePerson('N_gp2') });
+            const parent = makePerson('N_parent', {
+                relationships: {
+                    parents: [
+                        { id: 'N_gp1', type: 'biological' },
+                        { id: 'N_gp2', type: 'biological' },
+                    ],
+                },
+                events: [{
+                    id: 'm1', type: 'marriage', date: '1950', sort_date: '1950-01-01',
+                    partner_id: 'N_spouse', status: 'married', assets: [],
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                } as any],
+            });
+            graph.addNode('N_parent', { type: 'person', data: parent });
+            graph.addNode('N_spouse', {
+                type: 'person',
+                data: makePerson('N_spouse', {
+                    events: [{
+                        id: 'm1', type: 'marriage', date: '1950', sort_date: '1950-01-01',
+                        partner_id: 'N_parent', status: 'married', assets: [],
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    } as any],
+                }),
+            });
+            graph.addNode('N_child', {
+                type: 'person',
+                data: makePerson('N_child', {
+                    relationships: {
+                        parents: [{ id: 'N_parent', type: 'biological' }],
+                    },
+                }),
+            });
+            graph.addEdge('N_parent', 'N_gp1', { type: 'child_of', relType: 'biological' });
+            graph.addEdge('N_parent', 'N_gp2', { type: 'child_of', relType: 'biological' });
+            graph.addEdge('N_child', 'N_parent', { type: 'child_of', relType: 'biological' });
+            computeAllRelationships(graph);
+        }
+
+        it('returns ancestors + descendants + self for the focal person', () => {
+            buildThreeGen();
+            const set = getLineage(graph, 'N_parent');
+            expect(set.has('N_parent')).toBe(true);   // self
+            expect(set.has('N_gp1')).toBe(true);      // ancestor
+            expect(set.has('N_gp2')).toBe(true);      // ancestor
+            expect(set.has('N_child')).toBe(true);    // descendant
+        });
+
+        it('includes spouses of lineage members by default', () => {
+            buildThreeGen();
+            const set = getLineage(graph, 'N_parent');
+            expect(set.has('N_spouse')).toBe(true);
+        });
+
+        it('can exclude spouses when asked', () => {
+            buildThreeGen();
+            const set = getLineage(graph, 'N_parent', { includeSpouses: false });
+            expect(set.has('N_spouse')).toBe(false);
+            expect(set.has('N_parent')).toBe(true);
+        });
+
+        it('returns an empty set for an unknown person', () => {
+            const set = getLineage(graph, 'N_unknown');
+            expect(set.size).toBe(0);
+        });
+
+        it('returns just the person when they have no parents or children', () => {
+            graph.addNode('N_lonely', { type: 'person', data: makePerson('N_lonely') });
+            const set = getLineage(graph, 'N_lonely');
+            expect(Array.from(set)).toEqual(['N_lonely']);
         });
     });
 });

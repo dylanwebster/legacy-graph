@@ -2,6 +2,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import cookie from '@fastify/cookie';
+import compress from '@fastify/compress';
 import fastifyStatic from '@fastify/static';
 import * as path from 'path';
 import { GraphEngine } from './core/GraphEngine';
@@ -17,6 +18,7 @@ import { gedcomRoutes } from './api/routes/gedcom';
 import { storiesRoutes } from './api/routes/stories';
 import { assetsRoutes } from './api/routes/assets';
 import { geocodingRoutes } from './api/routes/geocoding';
+import { mapRoutes } from './api/routes/map';
 import type { AppServices } from './api/types';
 
 export interface ServerConfig {
@@ -38,6 +40,7 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
     await server.register(cors, { origin: true });
     await server.register(multipart, { limits: { fileSize: 50 * 1024 * 1024 } });
     await server.register(cookie);
+    await server.register(compress, { global: true, encodings: ['br', 'gzip'] });
 
     const authConfig = await loadAuthConfig(config.dataDir);
     if (authConfig) {
@@ -107,6 +110,7 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
     await server.register(storiesRoutes);
     await server.register(assetsRoutes);
     await server.register(geocodingRoutes);
+    await server.register(mapRoutes);
 
     // Phase 3.9.3 Static Asset Delivery Performance
     await server.register(fastifyStatic, {

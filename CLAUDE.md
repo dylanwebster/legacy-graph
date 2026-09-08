@@ -62,9 +62,9 @@ lsof -ti :3000 | xargs kill
 
 ## Data Model
 
-**Person** (`people/[id].yaml`): Schema `"5.0"`. ID format: `N_[first]-[last]-[birthyear]-[place]-[nanoid8]`. Only `relationships.parents[]` is stored — spouses, children, siblings are computed at runtime (`_computed`).
+**Person** (`people/[id].yaml`): Schema `"5.1"` (legacy `"5.0"` files are auto-upgraded on read). ID format: `N_[first]-[last]-[birthyear]-[place]-[nanoid8]`. Only `relationships.parents[]` is stored — spouses, children, siblings are computed at runtime (`_computed`).
 
-**Events**: 16 types (`birth`, `death`, `marriage`, `divorce`, `engagement`, `residence`, `census`, `occupation`, `education`, `military_service`, `immigration`, `emigration`, `adoption`, `baptism`, `burial`, `generic`). All support `witness_ids[]` and `location` (Place object or bare string, auto-coerced). Spouse logic: Henry VIII Algorithm (replay marriage/divorce events by sort_date).
+**Events**: 16 types (`birth`, `death`, `marriage`, `divorce`, `engagement`, `residence`, `census`, `occupation`, `education`, `military_service`, `immigration`, `emigration`, `adoption`, `baptism`, `burial`, `generic`). All support `location` (Place object or bare string, auto-coerced). Point-in-time dates use `date`/`sort_date`; spans (residence, occupation, military service, …) optionally populate `end_date`/`sort_end_date`. Spouse logic: Henry VIII Algorithm (replay marriage/divorce events by sort_date).
 
 **Stories** (`stories/*.md`): Markdown with YAML frontmatter. `@N_xxx` mentions create graph edges.
 

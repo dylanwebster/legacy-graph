@@ -8,8 +8,11 @@
     "lint": "eslint .",
     "start": "tsx --env-file=.env src/index.ts",
     "test:e2e": "tsx tests/e2e/setup.ts && playwright test",
+    "test:visual": "playwright test --config=playwright.config.snapshots.ts",
     "generate:synthetic-data": "tsx scripts/generateSyntheticData.ts",
-    "geonames:build": "tsx scripts/buildGeonamesDb.ts"
+    "geonames:build": "tsx scripts/buildGeonamesDb.ts",
+    "basemap:build": "tsx scripts/buildBasemap.ts",
+    "basemap:fonts": "tsx scripts/buildBasemapFonts.ts"
   },
   "keywords": [],
   "author": "",
@@ -36,6 +39,7 @@
     "vitest": "^4.1.4"
   },
   "dependencies": {
+    "@fastify/compress": "^8.3.1",
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^10.0.0",

@@ -2,8 +2,15 @@
 import { z } from 'zod';
 import { EventSchema } from './EventSchema';
 
+// Schema 5.1 adds event date ranges (end_date + sort_end_date).
+// 5.0 files are upgraded in-place on read; field defaults fill the new columns.
+const VersionSchema = z.preprocess(
+    (v) => (v === "5.0" ? "5.1" : v),
+    z.literal("5.1"),
+);
+
 export const PersonSchema = z.object({
-    version: z.literal("5.0"),
+    version: VersionSchema,
     id: z.string().startsWith("N_"), // NanoID validation
     created: z.string().datetime(),
     last_modified: z.string().datetime(),

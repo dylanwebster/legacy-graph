@@ -14,3 +14,5 @@ test-results/
 .search-index.json
 .claude
 .playwright-cli
+.tmp/
+tests/e2e/perf-traces/

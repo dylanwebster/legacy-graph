@@ -102,7 +102,7 @@ describe('Batch Geocoding API', () => {
 
         // Write test people with unresolved locations
         writePerson(dataDir, {
-            version: '5.0',
+            version: "5.1",
             id: 'N_alice-smith-1900-test1234',
             created: '2026-01-01T00:00:00.000Z',
             last_modified: '2026-01-01T00:00:00.000Z',
@@ -119,7 +119,7 @@ describe('Batch Geocoding API', () => {
         });
 
         writePerson(dataDir, {
-            version: '5.0',
+            version: "5.1",
             id: 'N_bob-jones-1910-test5678',
             created: '2026-01-01T00:00:00.000Z',
             last_modified: '2026-01-01T00:00:00.000Z',

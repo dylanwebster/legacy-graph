@@ -15,7 +15,7 @@ const META_DIR = path.join(DATA_DIR, '_meta');
 const SEARCH_INDEX_PATH = path.join(META_DIR, '.search-index.json');
 
 function writePersonYaml(id: string, first: string, last: string, scrapbook: string = '') {
-    const content = `version: "5.0"
+    const content = `version: "5.1"
 id: "${id}"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"
@@ -220,7 +220,7 @@ describe('Search Index Persistence (Phase 3.7.2)', () => {
 
         // Simulate hot-patch API index call directly
         engine.searchService.indexPerson({
-            version: "5.0", id: "N_A", created: "2023", last_modified: "2023",
+            version: "5.1", id: "N_A", created: "2023", last_modified: "2023",
             names: [{ first: "Alicia", last: "Smith" }], sex: "U",
             relationships: { parents: [] }, events: [], assets: [], tags: []
         }, "");

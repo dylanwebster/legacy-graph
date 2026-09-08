@@ -11,7 +11,7 @@ describe('GedcomExporter', () => {
 
     it('should export a single Person to a valid INDI record', () => {
         const person: Person = {
-            version: "5.0",
+            version: "5.1",
             id: "N_test123",
             created: "2024-01-01T00:00:00.000Z",
             last_modified: "2024-01-01T00:00:00.000Z",
@@ -55,7 +55,7 @@ describe('GedcomExporter', () => {
 
     it('should export marriage events as FAM records', () => {
         const john: Person = {
-            version: "5.0",
+            version: "5.1",
             id: "N_john",
             created: "2024-01-01T00:00:00.000Z",
             last_modified: "2024-01-01T00:00:00.000Z",
@@ -80,7 +80,7 @@ describe('GedcomExporter', () => {
         };
 
         const jane: Person = {
-            version: "5.0",
+            version: "5.1",
             id: "N_jane",
             created: "2024-01-01T00:00:00.000Z",
             last_modified: "2024-01-01T00:00:00.000Z",
@@ -117,7 +117,7 @@ describe('GedcomExporter', () => {
 
     it('should export parent-child relationships as FAM records', () => {
         const father: Person = {
-            version: "5.0",
+            version: "5.1",
             id: "N_father",
             created: "2024-01-01T00:00:00.000Z",
             last_modified: "2024-01-01T00:00:00.000Z",
@@ -131,7 +131,7 @@ describe('GedcomExporter', () => {
         };
 
         const mother: Person = {
-            version: "5.0",
+            version: "5.1",
             id: "N_mother",
             created: "2024-01-01T00:00:00.000Z",
             last_modified: "2024-01-01T00:00:00.000Z",
@@ -145,7 +145,7 @@ describe('GedcomExporter', () => {
         };
 
         const child: Person = {
-            version: "5.0",
+            version: "5.1",
             id: "N_child",
             created: "2024-01-01T00:00:00.000Z",
             last_modified: "2024-01-01T00:00:00.000Z",
@@ -174,7 +174,7 @@ describe('GedcomExporter', () => {
 
     it('should preserve _gedcom custom tags on round-trip', () => {
         const person: Person = {
-            version: "5.0",
+            version: "5.1",
             id: "N_test456",
             created: "2024-01-01T00:00:00.000Z",
             last_modified: "2024-01-01T00:00:00.000Z",
@@ -203,7 +203,7 @@ describe('GedcomExporter', () => {
 
     it('should export all supported event types', () => {
         const person: Person = {
-            version: "5.0",
+            version: "5.1",
             id: "N_events",
             created: "2024-01-01T00:00:00.000Z",
             last_modified: "2024-01-01T00:00:00.000Z",
@@ -231,7 +231,7 @@ describe('GedcomExporter', () => {
 
     it('should export site_name as ADDR tag', () => {
         const person: Person = {
-            version: "5.0",
+            version: "5.1",
             id: "N_site",
             created: "2024-01-01T00:00:00.000Z",
             last_modified: "2024-01-01T00:00:00.000Z",
@@ -263,7 +263,7 @@ describe('GedcomExporter', () => {
 
     it('should export marriage site_name as ADDR in FAM record', () => {
         const husband: Person = {
-            version: "5.0", id: "N_husb",
+            version: "5.1", id: "N_husb",
             created: "2024-01-01T00:00:00.000Z", last_modified: "2024-01-01T00:00:00.000Z",
             names: [{ first: "John", last: "Doe", primary: true }],
             sex: "M", tags: [], relationships: { parents: [] },
@@ -275,7 +275,7 @@ describe('GedcomExporter', () => {
             assets: [], scrapbook_md: "",
         };
         const wife: Person = {
-            version: "5.0", id: "N_wife",
+            version: "5.1", id: "N_wife",
             created: "2024-01-01T00:00:00.000Z", last_modified: "2024-01-01T00:00:00.000Z",
             names: [{ first: "Jane", last: "Doe", primary: true }],
             sex: "F", tags: [], relationships: { parents: [] },
@@ -296,7 +296,7 @@ describe('GedcomExporter', () => {
 
     it('should produce valid GEDCOM 5.5.1 format', () => {
         const person: Person = {
-            version: "5.0",
+            version: "5.1",
             id: "N_valid",
             created: "2024-01-01T00:00:00.000Z",
             last_modified: "2024-01-01T00:00:00.000Z",

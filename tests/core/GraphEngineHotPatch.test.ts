@@ -18,7 +18,7 @@ const STORIES_DIR = path.join(TEMP_DIR, 'stories');
 async function writePerson(filename: string, id: string, name: string, parentIds: string[] = [], parentType: string = 'biological') {
     const parents = parentIds.map(pid => ({ id: pid, type: parentType }));
     const content = `
-version: "5.0"
+version: "5.1"
 id: "${id}"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"

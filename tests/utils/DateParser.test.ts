@@ -1,6 +1,6 @@
 // tests/utils/DateParser.test.ts
 import { describe, it, expect } from 'vitest';
-import { parseDate } from '../../src/utils/dateParser';
+import { parseDate, parseDateRange } from '../../src/utils/dateParser';
 
 describe('Date Normalization', () => {
     it('should normalize a standard year', () => {
@@ -60,5 +60,66 @@ describe('Date Normalization', () => {
 
     it('should extract year from MM/DD/YYYY format as fallback', () => {
         expect(parseDate("10/31/1931")).toBe("1931-01-01");
+    });
+});
+
+describe('Date Range Parsing', () => {
+    it('parses BET … AND … as an explicit range', () => {
+        expect(parseDateRange('BET 1900 AND 1910')).toEqual({
+            sort_date: '1900-01-01',
+            sort_end_date: '1910-01-01',
+        });
+    });
+
+    it('parses FROM … TO … as an explicit range', () => {
+        expect(parseDateRange('FROM 1910 TO 1920')).toEqual({
+            sort_date: '1910-01-01',
+            sort_end_date: '1920-01-01',
+        });
+    });
+
+    it('parses FROM … TO … with full dates', () => {
+        expect(parseDateRange('FROM 10 JAN 1942 TO 2 SEP 1945')).toEqual({
+            sort_date: '1942-01-10',
+            sort_end_date: '1945-09-02',
+        });
+    });
+
+    it('returns null sort_end_date for a single point', () => {
+        expect(parseDateRange('1920')).toEqual({
+            sort_date: '1920-01-01',
+            sort_end_date: undefined,
+        });
+    });
+
+    it('returns null sort_end_date for BEF/AFT modifiers (single points)', () => {
+        expect(parseDateRange('BEF 1850')).toEqual({
+            sort_date: '1849-12-31',
+            sort_end_date: undefined,
+        });
+        expect(parseDateRange('AFT 1900')).toEqual({
+            sort_date: '1900-01-01',
+            sort_end_date: undefined,
+        });
+    });
+
+    it('returns nullish fields for empty input', () => {
+        expect(parseDateRange('')).toEqual({ sort_date: null, sort_end_date: undefined });
+    });
+
+    it('is case-insensitive on range keywords', () => {
+        expect(parseDateRange('from 1910 to 1920')).toEqual({
+            sort_date: '1910-01-01',
+            sort_end_date: '1920-01-01',
+        });
+        expect(parseDateRange('bet 1900 and 1910')).toEqual({
+            sort_date: '1900-01-01',
+            sort_end_date: '1910-01-01',
+        });
+    });
+
+    it('leaves parseDate midpoint behavior intact for BET (backward-compat)', () => {
+        // parseDate still returns midpoint for existing callers that expect a single sort_date
+        expect(parseDate('BET 1900 AND 1910')).toBe('1905-06-01');
     });
 });

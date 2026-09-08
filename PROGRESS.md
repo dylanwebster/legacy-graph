@@ -18,6 +18,10 @@
 | TS6 | TypeScript 6 upgrade (typescript ^6.0.2, typescript-eslint ^8.58.0) |
 | 5.6 | Batch Geocoding: `searchWithMetadata()` with confidence scoring, `/api/geocoding/batch` + `/apply` endpoints, Settings review dialog with filter/search, site_name extraction from dropped parts, original location preservation in `_gedcom.original_locations` |
 | 5.6.1 | Async Batch Geocoding: Background job system (`JobManager` with EventEmitter), SSE progress streaming (`/batch/stream`), server-side result persistence (`_meta/.batch-geocode-results.json`), resumable review sessions (selections saved to server), Zustand store for cross-navigation state, non-blocking UI during scan |
+| 5.2.0 | Schema 5.1: event date ranges — `end_date`/`sort_end_date` added to `EventSchema`, `PersonSchema` version bumped with auto-migration from `"5.0"`, `parseDateRange()` utility, GEDCOM Import populates ranges from `BET … AND …` and `FROM … TO …`, EventEditorDialog range toggle, PersonTimeline displays spans |
+| 5.2 | Map View (`/map`): bundled offline Natural Earth basemap (no third-party CDN), MapLibre + deck.gl event overlay with zoom-crossfaded embers + heatmap → pins → focal path, dual-handle Radix time slider with step playback, scope filter (Everyone / Focal / Lineage) sharing `useFocalStore`, top-bar collapsible event-type filter popover (doubles as the legend), deep-link contract round-trip, mobile 40 vh drawer with swipe-to-dismiss, LRU(32)-cached `GET /api/map/events` invalidated via `graph-updated`. See `SPECIFICATION.md §6.11`. |
+| 5.2.1 | Map View perf + UX overhaul: **GPU time filtering** (`DataFilterExtension` on pins/embers/heatmap via `FilteredHeatmapLayer`, which fixes three upstream deck.gl 9.3 bugs) → scrubbing/playback are uniform-only updates; **live scrub** (rAF-throttled window updates during drag); data-keyed memos (structural sharing survives refetches); pre-parsed event years; pruned `places.json` to renderable ranks (−21%); **step semantics fix** (step = 1/10/100 yr as labeled; seed width stays 5/20/100; playback clamps step to window width); slider redesign (event-count histogram strip, extent labels, centered window readout, real tooltips, focus-aware keyboard guard); `?t/t_end` deep link no longer clobbered by extent seeding; **dynamic range** (ember under-layer + threshold 0.01 + gamma-compressed ramp — sparse events never vanish); **stacked-event picking** (`pickMultipleObjects` → co-located list in drawer); desktop drawer docks right (fixed over-constrained CSS); removed dead ~25 m jitter (sub-pixel at zoom-8 cap). |
+| 5.2.2 | Map View zoom-choppiness fix: zooming below zoom 5 dropped ~13 frames per 0.5-zoom step (200–250 ms stalls, GPU-side — no JS long task) while zoom ≥ 5 held a flat 16.7 ms. Two causes, both in `buildMapLayers`: the inline `_subLayerProps` literal made every layer rebuild aggregation-dirty (`"props._subLayerProps changed shallowly"` — it is not in `HeatmapLayer`'s `ignoreProps`), forcing an immediate re-aggregation; and `HeatmapLayer`'s max-weight reduction draws `weightsTextureSize²` vertices that all blend into one texel — 4.19M at the 2048 default. Fixed by hoisting `HEATMAP_SUBLAYER_PROPS` to module scope and setting `weightsTextureSize: 1024`. Measured after: low band mean 26.4 → 17.1 ms, worst frame 250 → 49 ms, aggregations per sweep 6 → 1 (zoom-in) with no dirty-prop churn; heatmap output unchanged. See `SPECIFICATION.md §6.11`. |
 
 ---
 
@@ -25,14 +29,13 @@
 
 ### Phase 5.2 — Map View (`/map`)
 
-1. Install `react-leaflet` + `leaflet` in `client/`.
-2. Create `/map` route (`client/src/routes/map.lazy.tsx`) with OpenStreetMap tiles.
-3. Fetch geocoded Place objects from all people's events; render color-coded pins by event type.
-4. Marker clustering (`react-leaflet-markercluster`) for dense areas.
-5. Click pin popup: place name, event type, person link, date.
-6. Filters: event type, person (search selector), date range (year slider).
-7. Deep-link: `/map?place=...` centers map; `/map?person=N_xxx` filters to one person.
-8. Add Map (Globe) icon to sidebar nav.
+Implementation is complete except for the user-flow E2E test. See `SPECIFICATION.md §6.11` for the authoritative spec; this section tracks only what's still open.
+
+- [ ] **5.2.24** — Playwright user-flow E2E (`tests/e2e/map.spec.ts`). **Deferred** until in-flight UX polish settles — writing the suite now would mean rewriting it as the rough edges get fixed. The visual-regression harness (`tests/e2e/map-snapshots.spec.ts`, `npm run test:visual`, 10 baselines across 5 locations × light/dark) already covers basemap rendering.
+
+When this lands, cover: pin click → drawer; URL share round-trip; scope switch with a focal set; event-type filter (uncheck `census` → pin count drops); slider drag → heatmap changes; dark-mode toggle → background color changes. Seed via the existing `setupTestDataDir()` helper with a fixture of ≥3 geocoded events.
+
+Manual smoke test (post-UX-polish): backend on `:3000`, frontend on `:5173`, DevTools → Offline → `/map` shows countries/states/cities/graticules from `localhost` only; toggle dark mode (no relayout flash); set focal on `/`, switch to Lineage scope, drag both slider handles, press Space; click a pin and reload the URL in a new tab; resize < 768 px and swipe the drawer down to dismiss.
 
 ### Phase 5.6 — Private Mode & Guest Mode
 

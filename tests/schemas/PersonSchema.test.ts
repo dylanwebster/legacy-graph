@@ -62,4 +62,54 @@ describe("PersonSchema Validation", () => {
       expect(result.data._gedcom).toBeDefined();
     }
   });
+
+  describe("schema 5.1 migration", () => {
+    const basePerson = {
+      id: "N_MIGRATE_TEST",
+      created: "2023-01-01T00:00:00Z",
+      last_modified: "2023-01-01T00:00:00Z",
+      names: [{ first: "Ada", last: "Lovelace" }],
+      sex: "F",
+      relationships: { parents: [] },
+    };
+
+    it("accepts a 5.1 person and leaves version as 5.1", () => {
+      const person = { ...basePerson, version: "5.1" };
+      const result = PersonSchema.safeParse(person);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.version).toBe("5.1");
+      }
+    });
+
+    it("accepts a 5.0 person and upgrades version to 5.1", () => {
+      const person = { ...basePerson, version: "5.0" };
+      const result = PersonSchema.safeParse(person);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.version).toBe("5.1");
+      }
+    });
+
+    it("upgrading 5.0 leaves end_date fields absent on pre-existing events", () => {
+      const person = {
+        ...basePerson,
+        version: "5.0",
+        events: [
+          { id: "e1", type: "birth", date: "1815", sort_date: "1815-12-10" },
+        ],
+      };
+      const result = PersonSchema.safeParse(person);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.events[0].end_date).toBeUndefined();
+        expect(result.data.events[0].sort_end_date).toBeUndefined();
+      }
+    });
+
+    it("rejects an unknown future version", () => {
+      const person = { ...basePerson, version: "9.0" };
+      expect(PersonSchema.safeParse(person).success).toBe(false);
+    });
+  });
 });

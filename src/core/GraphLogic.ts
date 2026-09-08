@@ -204,6 +204,63 @@ export function invalidateComputed(graph: Graph, nodeId: string): void {
     }
 }
 
+/** Compute the full lineage of a person: self + direct ancestors + direct descendants,
+ *  plus spouses of everyone in that set (on by default). Siblings, cousins, and other
+ *  collaterals are intentionally excluded. Safe against cycles (malformed data). */
+export function getLineage(
+    graph: Graph,
+    personId: string,
+    opts: { includeSpouses?: boolean } = {},
+): Set<string> {
+    const result = new Set<string>();
+    if (!graph.hasNode(personId)) return result;
+    const attr = graph.getNodeAttributes(personId);
+    if (attr.type !== 'person') return result;
+
+    const includeSpouses = opts.includeSpouses !== false;
+    result.add(personId);
+
+    // Ancestors: follow out-edges typed 'child_of' upward.
+    const ancQueue = [personId];
+    while (ancQueue.length > 0) {
+        const id = ancQueue.shift()!;
+        graph.forEachOutNeighbor(id, (parent) => {
+            if (graph.findOutEdge(id, parent, (_k, a) => a.type === 'child_of') && !result.has(parent)) {
+                if (graph.getNodeAttributes(parent).type === 'person') {
+                    result.add(parent);
+                    ancQueue.push(parent);
+                }
+            }
+        });
+    }
+
+    // Descendants: follow in-edges typed 'child_of' downward.
+    const descQueue = [personId];
+    while (descQueue.length > 0) {
+        const id = descQueue.shift()!;
+        graph.forEachInNeighbor(id, (child) => {
+            if (graph.findOutEdge(child, id, (_k, a) => a.type === 'child_of') && !result.has(child)) {
+                if (graph.getNodeAttributes(child).type === 'person') {
+                    result.add(child);
+                    descQueue.push(child);
+                }
+            }
+        });
+    }
+
+    if (includeSpouses) {
+        for (const id of Array.from(result)) {
+            for (const spouse of getAllSpouses(graph, id)) {
+                if (graph.hasNode(spouse.id) && graph.getNodeAttributes(spouse.id).type === 'person') {
+                    result.add(spouse.id);
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
 export function getAggregatedAssets(graph: Graph, personId: string): string[] {
     if (!graph.hasNode(personId)) return [];
     const assets = new Set<string>();

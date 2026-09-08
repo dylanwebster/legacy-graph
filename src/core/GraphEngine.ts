@@ -213,6 +213,7 @@ export class GraphEngine extends EventEmitter {
                 edgeCount: this.graph.size,
                 elapsedMs
             });
+            this.emit('graph-updated');
 
             return result;
         } finally {
@@ -252,6 +253,7 @@ export class GraphEngine extends EventEmitter {
                 edgeCount: this.graph.size,
                 elapsedMs
             });
+            this.emit('graph-updated');
             return result;
         } catch (err: any) {
             console.warn(`[GraphEngine] Worker failed, falling back to inline hydration: ${err.message}`);
@@ -676,6 +678,7 @@ export class GraphEngine extends EventEmitter {
 
         this.searchService.indexPerson(newSlim, bio);
         invalidateComputed(this.graph, id);
+        this.emit('graph-updated');
     }
 
     private async handleFileUpdate(filePath: string) {
@@ -861,6 +864,7 @@ export class GraphEngine extends EventEmitter {
         if (this.graph.hasNode(id)) {
             this.graph.dropNode(id);
             this.searchService.removePerson(id);
+            this.emit('graph-updated');
         }
     }
 
@@ -942,6 +946,7 @@ export class GraphEngine extends EventEmitter {
                     invalidateComputed(this.graph, personId);
                 }
             }
+            this.emit('graph-updated');
         } catch (err: any) {
             console.error(`[GraphEngine] Failed to hot-patch story ${filePath}: ${err.message}`);
         }
@@ -969,6 +974,7 @@ export class GraphEngine extends EventEmitter {
                     invalidateComputed(this.graph, personId);
                 }
             }
+            this.emit('graph-updated');
         }
     }
 
@@ -990,6 +996,7 @@ export class GraphEngine extends EventEmitter {
                     invalidateComputed(this.graph, personId);
                 }
             }
+            this.emit('graph-updated');
         }
     }
 }

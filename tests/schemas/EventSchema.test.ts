@@ -206,4 +206,85 @@ describe('EventSchema', () => {
             expect(result.data.description).toBe('Adopted by the Smith family');
         }
     });
+
+    describe('date ranges (schema 5.1)', () => {
+        it('leaves end_date and sort_end_date undefined when absent', () => {
+            const evt = { type: 'residence', date: '1900', sort_date: '1900-01-01' };
+            const result = EventSchema.safeParse(evt);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.end_date).toBeUndefined();
+                expect(result.data.sort_end_date).toBeUndefined();
+            }
+        });
+
+        it('accepts a residence with both sort_date and sort_end_date', () => {
+            const evt = {
+                type: 'residence',
+                date: '1900–1920',
+                sort_date: '1900-01-01',
+                end_date: '1920',
+                sort_end_date: '1920-12-31',
+                location: 'London',
+            };
+            const result = EventSchema.safeParse(evt);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.sort_end_date).toBe('1920-12-31');
+                expect(result.data.end_date).toBe('1920');
+            }
+        });
+
+        it('accepts absent sort_end_date', () => {
+            const evt = {
+                type: 'occupation', title: 'Baker',
+                date: '1920', sort_date: '1920-01-01',
+            };
+            const result = EventSchema.safeParse(evt);
+            expect(result.success).toBe(true);
+        });
+
+        it('rejects an invalid sort_end_date format', () => {
+            const evt = {
+                type: 'residence',
+                date: '1900–1920',
+                sort_date: '1900-01-01',
+                sort_end_date: '1920', // not ISO
+            };
+            expect(EventSchema.safeParse(evt).success).toBe(false);
+        });
+
+        it('rejects sort_end_date earlier than sort_date', () => {
+            const evt = {
+                type: 'residence',
+                date: '1920–1900',
+                sort_date: '1920-01-01',
+                sort_end_date: '1900-01-01',
+            };
+            expect(EventSchema.safeParse(evt).success).toBe(false);
+        });
+
+        it('allows sort_end_date equal to sort_date (single-day range)', () => {
+            const evt = {
+                type: 'residence',
+                date: '1920-06-01',
+                sort_date: '1920-06-01',
+                sort_end_date: '1920-06-01',
+            };
+            expect(EventSchema.safeParse(evt).success).toBe(true);
+        });
+
+        it('accepts sort_end_date on a non-residence event type', () => {
+            const evt = {
+                type: 'military_service', branch: 'US Army',
+                date: '1942–1945', sort_date: '1942-06-01',
+                sort_end_date: '1945-09-02',
+            };
+            const result = EventSchema.safeParse(evt);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.sort_end_date).toBe('1945-09-02');
+            }
+        });
+    });
 });

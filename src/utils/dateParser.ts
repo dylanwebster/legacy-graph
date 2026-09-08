@@ -1,3 +1,27 @@
+export interface DateRange {
+    sort_date: string | null;
+    sort_end_date: string | undefined;
+}
+
+/** Parse a GEDCOM-ish date into explicit [start, end]. End is undefined for single-point dates
+ *  (matches the schema shape, where sort_end_date is an optional field rather than nullable).
+ *  Unlike parseDate (which collapses BET/FROM-TO to a midpoint for legacy callers),
+ *  this preserves the full range — required for map playback and timeline spans. */
+export function parseDateRange(d: string): DateRange {
+    if (!d) return { sort_date: null, sort_end_date: undefined };
+    const clean = d.trim();
+
+    const bet = clean.match(/^BET\s+(.+?)\s+AND\s+(.+)$/i);
+    if (bet) {
+        return { sort_date: parseDate(bet[1]), sort_end_date: parseDate(bet[2]) ?? undefined };
+    }
+    const fromTo = clean.match(/^FROM\s+(.+?)\s+TO\s+(.+)$/i);
+    if (fromTo) {
+        return { sort_date: parseDate(fromTo[1]), sort_end_date: parseDate(fromTo[2]) ?? undefined };
+    }
+    return { sort_date: parseDate(clean), sort_end_date: undefined };
+}
+
 export function parseDate(d: string): string | null {
     if (!d) return null;
 

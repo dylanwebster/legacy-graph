@@ -16,7 +16,7 @@ describe('GraphEngine Topology', () => {
 
         // 1. Create Parent (N_DAD)
         fs.writeFileSync(path.join(PEOPLE_DIR, 'dad.yaml'), `
-version: "5.0"
+version: "5.1"
 id: "N_DAD"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"
@@ -29,7 +29,7 @@ assets: []
 
         // 2. Create Child (N_SON) linked to Parent
         fs.writeFileSync(path.join(PEOPLE_DIR, 'son.yaml'), `
-version: "5.0"
+version: "5.1"
 id: "N_SON"
 created: "2023-01-01T00:00:00Z"
 last_modified: "2023-01-01T00:00:00Z"
@@ -69,5 +69,18 @@ About @N_DAD.`);
         // Story ID is filename "story.md"
         expect(graph.hasNode("story.md")).toBe(true);
         expect(graph.hasEdge("story.md", "N_DAD")).toBe(true);
+    });
+
+    it('emits graph-updated on hydration and on applyWriteSideEffects', async () => {
+        const engine = new GraphEngine(DATA_DIR);
+        let count = 0;
+        engine.on('graph-updated', () => { count++; });
+        await engine.hydrate();
+        expect(count).toBeGreaterThanOrEqual(1);
+
+        const before = count;
+        const dad = engine.getGraph().getNodeAttributes('N_DAD').data;
+        engine.applyWriteSideEffects('N_DAD', dad, dad, '');
+        expect(count).toBe(before + 1);
     });
 });
