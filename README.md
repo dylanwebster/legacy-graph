@@ -16,14 +16,13 @@ Plain YAML and Markdown on disk, versioned by Git, served by an in-memory graph 
 
 ---
 
-## Why
+## Design principles
 
-Most genealogy software locks decades of research inside a proprietary database. When the vendor
-disappears, the research goes with it. LegacyGraph is built on the opposite bet:
+Four ideas shape the whole system:
 
 1. **The Notepad Rule** — the database *is* the file system. Every person is a YAML file, every
-   story a Markdown file. You can read, edit, `grep`, and diff your entire family history with
-   nothing but a text editor. The app is an enhancer, not a gatekeeper.
+   story a Markdown file, and the whole tree is legible in a text editor. The app is an enhancer,
+   not a gatekeeper.
 
 2. **Git is the undo button** — every save is debounced into an atomic commit in your data
    directory. Your history has a history.
@@ -37,38 +36,93 @@ disappears, the research goes with it. LegacyGraph is built on the opposite bet:
    leaves the machine. (The only outbound request is the webfont stylesheet in `client/index.html`;
    self-host those three families if you want a fully airgapped install.)
 
+### The file format
+
+GEDCOM is the genealogy interchange standard, and LegacyGraph imports it — but it dates to 1984
+and was built for machine exchange between institutions, not for reading. Records are numbered tag
+lines, identity is a pointer (`@I1@`), and a marriage isn't a fact about a person at all: it lives
+in a separate `FAM` record that both spouses point into, so telling who married whom means
+resolving cross-references.
+
+```gedcom
+0 @I1@ INDI
+1 NAME Johann /Bach/
+2 GIVN Johann
+2 SURN Bach
+1 SEX M
+1 BIRT
+2 DATE 21 MAR 1685
+2 PLAC Eisenach, Germany
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 MARR
+2 DATE 3 DEC 1721
+2 PLAC Köthen, Germany
+```
+
+The same person as LegacyGraph stores him — one file, named for its own ID, readable without a
+tag reference table:
+
 ```yaml
-# people/N_walter-hawthorne-1926-hartford-7x9az2kp.yaml
+# people/N_johann-bach-1685-eisenach-7x9az2kp.yaml
 version: '5.1'
-id: N_walter-hawthorne-1926-hartford-7x9az2kp
+id: N_johann-bach-1685-eisenach-7x9az2kp
 names:
   - primary: true
-    first: Walter
-    last: Hawthorne
+    first: Johann
+    last: Bach
 sex: M
 relationships:
   parents:                       # the ONLY stored relationship
-    - id: N_benjamin-hawthorne-1897-providence-k2mq8vtt
+    - id: N_johann-ambrosius-bach-1645-erfurt-k2mq8vtt
       type: biological
 events:
-  - type: marriage               # spouses are derived from events, not stored
-    date: 23 JUL 1952
-    sort_date: '1952-07-23'
-    partner_id: N_emily-reed-1925-boston-ld4vxn02
+  - type: birth
+    date: 21 MAR 1685            # kept exactly as you wrote it
+    sort_date: '1685-03-21'      # machine-sortable twin
+    location:
+      name: Eisenach
+      lat: 50.9807
+      lng: 10.31522
+      countryCode: DE
+      admin1Name: Thuringia
+  - type: marriage               # a fact about this person, not a side record
+    date: 3 DEC 1721
+    sort_date: '1721-12-03'
+    partner_id: N_anna-magdalena-wilcke-1701-zeitz-ld4vxn02
     status: married
     location:
-      name: Burlington
-      lat: 44.47588
-      lng: -73.21207
-      countryCode: US
+      name: Köthen                # coordinates are optional — a bare name is valid
+      countryCode: DE
 ```
+
+What that buys you:
+
+- **Readable without the app.** Field names are words, not tags; one person is one file, named for
+  the person. `cat` is a viewer, and a stranger can follow the record without a manual.
+- **Diffable.** Because each person is a separate file and the format is line-oriented, a Git diff
+  shows exactly which fact changed. Genealogy is decades of small corrections; this makes each one
+  legible.
+- **Portable.** Plain UTF-8 YAML and Markdown in ordinary directories. Any language with a YAML
+  parser can read the whole tree, and the schema is specified field by field in
+  [`SPECIFICATION.md`](SPECIFICATION.md) §3. Copy the directory and you have moved your data —
+  there is no export step, because there is nothing to export *from*.
+- **Lossless on import.** GEDCOM tags that don't map onto the schema are preserved verbatim under
+  `_gedcom` on the person rather than dropped, so importing doesn't quietly discard the parts
+  LegacyGraph doesn't model. (GEDCOM *export* is not implemented yet — see
+  [Status](#status).)
+
+Dates are stored twice on purpose: `date` keeps the original, fuzzy, human string (`"Bet. 1900 and
+1910"`, `"21 MAR 1685"`) and `sort_date` holds a strict ISO-8601 value for ordering. Research is
+often uncertain, and the format shouldn't force you to invent precision you don't have.
 
 ---
 
 ## Screenshots
 
-> All screenshots use a generated demo dataset — 260 synthetic people across six generations,
-> 1816–2019. The photographs are procedurally generated placeholders.
+> All screenshots use a generated demo dataset with 260 synthetic people across six generations,
+> 1816–2019. 
 
 ### Person detail — the "Holy Grail" layout
 
