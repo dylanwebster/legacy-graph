@@ -53,6 +53,9 @@ jobs:
       - name: Build client (type-check + Vite)
         run: cd client && npm run build
 
+      - name: Run client Vitest
+        run: cd client && npm test -- --run
+
   # ── E2E: Playwright (requires both jobs above to pass first) ──────────────
   e2e:
     name: E2E tests

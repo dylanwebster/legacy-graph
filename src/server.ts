@@ -121,8 +121,10 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
         cacheControl: true,
         maxAge: 31536000000, // 365 days in ms
         immutable: true,
-        setHeaders: (res) => {
-            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        // @fastify/static v10 passes a FastifyReply here (v9 passed the raw
+        // ServerResponse), so use reply.header() rather than res.setHeader().
+        setHeaders: (reply) => {
+            reply.header('Cache-Control', 'public, max-age=31536000, immutable');
         }
     });
 
